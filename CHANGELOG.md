@@ -13,6 +13,7 @@
 
 - **USER-MODIFIED baseline preservation** — `harness-update.sh apply` no longer records a held user-modified file as the new baseline, which previously allowed a later factory update to misclassify and overwrite it automatically.
 - **Runtime/document drift** — synchronized `CLAUDE.md` with the canonical `skills/myharness/` layout, removed a dead contributor check, and expanded the policy audit to validate both runtime entrypoints, all README version badges, documented Bash commands, and LF policy.
+- **Codex custom-agent schema** — documents and audits the required `name`, `description`, and `developer_instructions` fields after an installed smoke harness exposed that filename-only agent names are ignored by current Codex.
 
 ## [1.2.0] - 2026-06-26
 

@@ -2,7 +2,7 @@
 
 하네스 정본(스킬 본문·references·스크립트)은 **런타임 무관 마크다운**이다. Claude Code와 Codex는 커스터마이징 모델이 **거의 대칭**이다(둘 다 skills·agents·plugin·MCP·hooks 보유). 차이는 진입점 파일명·에이전트 정의 포맷·오케스트레이션 도구뿐. 그 셋만 어댑터로 흡수한다.
 
-> 본 문서의 Codex 사실관계는 공식 Codex docs(developers.openai.com/codex) + `codex-cli 0.137.0` 기준 검증됨.
+> 본 문서의 Codex 사실관계는 공식 Codex docs(developers.openai.com/codex) + `codex-cli 0.142.3` 기준 검증됨.
 
 ## 목차
 1. 런타임 매핑표 (검증)
@@ -37,6 +37,16 @@
 ## 3. 스킬·에이전트 어댑터
 - **스킬:** SKILL.md(name+description+본문) 포맷이 양쪽 동일. 생성 시 `.claude/skills/{n}/`와 `.agents/skills/{n}/` **양쪽에 출력**(또는 한쪽을 심링크). references/scripts도 동봉.
 - **에이전트:** Claude는 `.claude/agents/{n}.md`. Codex는 `.codex/agents/{n}.toml`(커스텀) — 같은 역할/원칙/프로토콜을 TOML로 변환하거나, 단순 역할은 내장 `worker`/`explorer`에 프롬프트로 매핑. 교리 주입(dev-rules/tdd-doctrine) 실경로는 런타임별 스킬 경로로 맞춘다.
+  - Codex 커스텀 에이전트는 파일명만으로 이름을 추론하지 않는다. `name`·`description`·`developer_instructions` 세 필드를 반드시 넣는다. `model`·`model_reasoning_effort`·`sandbox_mode`는 선택이다.
+  - 최소 예시:
+    ```toml
+    name = "reviewer"
+    description = "정확성·보안·테스트 누락을 검토한다."
+    sandbox_mode = "read-only"
+    developer_instructions = """
+    소스와 테스트를 교차 검토하고 근거가 있는 finding만 보고하라.
+    """
+    ```
 
 ## 4. 오케스트레이션 어댑터
 오케스트레이터 상단에 "런타임 감지 후 분기" 명시.

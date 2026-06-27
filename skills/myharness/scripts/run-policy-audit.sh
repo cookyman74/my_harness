@@ -77,6 +77,12 @@ done
 [ "$missing_cmd" -eq 0 ] && ok "CONTRIBUTING bash 명령 경로 정합"
 grep -Eq '^\*\.sh[[:space:]]+text[[:space:]]+eol=lf' .gitattributes \
   && ok "셸 스크립트 LF 정책 존재" || no ".gitattributes에 '*.sh text eol=lf' 누락"
+agent_schema_missing=0
+for field in name description developer_instructions; do
+  grep -q "\`$field\`" "$SK/references/runtime-adapters.md" \
+    || { no "Codex custom agent 필수 필드 문서 누락: $field"; agent_schema_missing=$((agent_schema_missing+1)); }
+done
+[ "$agent_schema_missing" -eq 0 ] && ok "Codex custom agent 필수 필드 문서화"
 
 # 9) JSON 유효성
 for j in .claude-plugin/plugin.json .claude-plugin/marketplace.json; do

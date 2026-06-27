@@ -77,8 +77,18 @@ else {
 
 if (-not $SkipReviewCheck) {
     $checkScript = Join-Path $SourceRoot 'scripts\check-review-tools.sh'
-    if (Get-Command bash -ErrorAction SilentlyContinue) {
-        & bash $checkScript codex
+    $bashCandidates = @(
+        (Join-Path $env:ProgramFiles 'Git\bin\bash.exe'),
+        $(if (${env:ProgramFiles(x86)}) { Join-Path ${env:ProgramFiles(x86)} 'Git\bin\bash.exe' }),
+        $(if (Get-Command bash -ErrorAction SilentlyContinue) { (Get-Command bash).Source })
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+    $bashExe = $bashCandidates | Select-Object -First 1
+
+    if ($bashExe) {
+        & $bashExe $checkScript codex
+        if ($LASTEXITCODE -ne 0) {
+            throw "외부 리뷰 도구 점검 실패(exit $LASTEXITCODE): $bashExe"
+        }
     }
     else {
         Write-Warning 'bash 없음: 외부 리뷰 도구 점검을 생략합니다.'

@@ -55,8 +55,7 @@ jobs:
           & .\install.ps1 `
             -CodexHome $codexHome `
             -ProjectRoot $projectRoot `
-            -SourceRoot (Resolve-Path .\skills\myharness) `
-            -SkipReviewCheck
+            -SourceRoot (Resolve-Path .\skills\myharness)
           if (-not (Test-Path (Join-Path $codexHome 'skills\myharness\SKILL.md'))) {
             throw 'Global Codex skill was not installed.'
           }
