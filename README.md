@@ -48,11 +48,15 @@ cp -r skills/myharness ~/.claude/skills/myharness
 
 **Codex CLI (dual runtime)** — from the repo root:
 ```shell
-bash install.sh
+bash install.sh        # Linux/macOS/WSL
+# or, in Windows PowerShell:
+.\install.ps1
 # → ~/.codex/skills/myharness  (symlink to the source of truth, always up to date)
 # → .agents/skills/myharness   (for trusted projects)
 # → AGENTS.md                  (auto-loaded by Codex)
 ```
+
+`install.ps1` uses directory links when Windows permits them and falls back to a copy with a warning. The repository enforces LF for shell scripts, so Git's `core.autocrlf` setting does not break the Bash installer.
 
 ### 2. Turn on agent teams + start the CLI (Claude Code)
 ```shell

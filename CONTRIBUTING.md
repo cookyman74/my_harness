@@ -51,8 +51,9 @@ Dependency tracked in `docs/experimental-dependency.md` (Scenario A/C realized �
 # or global skill copy
 cp -r skills/myharness ~/.claude/skills/myharness
 
-# Codex (dual runtime) — symlinks the live source of truth
-bash install.sh
+# Codex (dual runtime)
+bash install.sh        # Linux/macOS/WSL
+# Windows PowerShell: .\install.ps1
 ```
 
 ### Run the meta-skill
@@ -65,7 +66,7 @@ Scaffolded agents/skills land under `.claude/agents/` and `.claude/skills/` (and
 ### Checks (factory-repo self-audit)
 ```bash
 bash skills/myharness/scripts/run-policy-audit.sh   # link/version/cap/dual-runtime parity (fail=block, warn=review)
-bash .claude/skills/release-flow/scripts/check-version.sh   # version consistency
+bash tests/test-harness-update.sh                   # update safety regression suite
 bash skills/myharness/scripts/check-review-tools.sh         # external reviewer availability (runner-excluded)
 ```
 
@@ -84,7 +85,7 @@ bash skills/myharness/scripts/check-review-tools.sh         # external reviewer 
 | `test/` | Tests only | `test/fan-out-fan-in-e2e` |
 
 ### Before opening a PR
-- Run `run-policy-audit.sh` (PASS, fail 0) and `check-version.sh` (version consistency).
+- Run `run-policy-audit.sh` (PASS, fail 0) and `tests/test-harness-update.sh`.
 - Keep `SKILL.md` ≤ 500 lines (Progressive Disclosure — move detail to `references/`).
 - Dual-runtime: factory canonical lives at `skills/myharness/`; `.agents/skills/myharness` is a symlink (auto-synced).
 

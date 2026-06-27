@@ -36,7 +36,7 @@
 2. **타겟 식별** — 빌드된 하네스의 스킬 루트(`<타겟>/.claude/skills/<harness>`). 듀얼이면 `.agents/skills/<harness>`도.
 3. **plan** — `bash scripts/harness-update.sh plan <skill_dir> <factory_dir>` → 파일별 분류 + diff(변경 없음, propose-only).
 4. **승인 관문** — USER-MODIFIED/UNKNOWN diff를 사용자에게 제시. 자율 마커(`_workspace/.autonomous`) 시 자동 통과(단 사용자 수정 파일은 기본 보류 — 명시 승인만 적용).
-5. **apply** — `bash scripts/harness-update.sh apply <skill_dir> <factory_dir> [--approve rel1,rel2]`. UPDATABLE/NEW=자동, USER-MODIFIED=`--approve` 든 것만. 적용 후 manifest 자동 갱신(새 기준선).
+5. **apply** — `bash scripts/harness-update.sh apply <skill_dir> <factory_dir> [--approve rel1,rel2]`. UPDATABLE/NEW=자동, USER-MODIFIED=`--approve` 든 것만. 적용 후 정본과 같아진 파일만 새 기준선으로 갱신한다. 보류·복사 실패 파일은 기존 기준선을 보존하고 UNKNOWN은 계속 UNKNOWN으로 남긴다.
 6. **에이전트 본문 주입 라인 갱신** — 정본 주입 형식이 바뀐 경우만, 에이전트 `## 작업 원칙`의 `> ... dev-rules.md 준수` 한 줄을 새 형식으로 교체(본문 나머지 보존). 형식 불변이면 생략.
 7. **external-review-loop 스킬** — 갱신 필요 시 Phase 4-6 재실행으로 재생성(SKILL 본문+scripts 복사).
 8. **듀얼 런타임 동기** — `.claude/`↔`.agents/` 양쪽에 동일 적용(Phase 7-6).

@@ -48,11 +48,15 @@ cp -r skills/myharness ~/.claude/skills/myharness
 
 **Codex CLI (듀얼 런타임)** — 레포 루트에서:
 ```shell
-bash install.sh
+bash install.sh        # Linux/macOS/WSL
+# 또는 Windows PowerShell:
+.\install.ps1
 # → ~/.codex/skills/myharness  (정본 심링크, 항상 최신)
 # → .agents/skills/myharness   (trusted 프로젝트용)
 # → AGENTS.md                  (Codex 자동 로드)
 ```
+
+`install.ps1`은 가능한 경우 디렉터리 링크를 만들고, Windows 권한이나 파일시스템 제약이 있으면 경고 후 복사 설치합니다. 저장소는 셸 스크립트의 LF를 강제하므로 Git `core.autocrlf` 설정 때문에 Bash 설치가 깨지지 않습니다.
 
 ### 2. 에이전트 팀 켜기 + CLI 시작 (Claude Code)
 ```shell

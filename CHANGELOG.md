@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Windows Codex installer and CI** — `install.ps1` installs the canonical skill through directory links with a copy fallback, while `.gitattributes` keeps Bash scripts on LF. Linux/Windows CI now runs the policy audit, installer smoke test, and harness-update regression suite.
+- **Harness update regression suite** — covers consecutive factory updates, explicit approval, manifest baseline preservation, and write-failure propagation.
+
+### Fixed
+
+- **USER-MODIFIED baseline preservation** — `harness-update.sh apply` no longer records a held user-modified file as the new baseline, which previously allowed a later factory update to misclassify and overwrite it automatically.
+- **Runtime/document drift** — synchronized `CLAUDE.md` with the canonical `skills/myharness/` layout, removed a dead contributor check, and expanded the policy audit to validate both runtime entrypoints, all README version badges, documented Bash commands, and LF policy.
+
 ## [1.2.0] - 2026-06-26
 
 ### Added
