@@ -20,7 +20,7 @@
 #       UPDATABLE/NEW=자동 적용 / USER-MODIFIED·UNKNOWN=--approve 든 것만 적용 / 적용 후 manifest 갱신
 #   skill_dir   = 생성된 하네스의 스킬 루트(예: <타겟>/.claude/skills/<harness>)
 #   factory_dir = 팩토리 정본 루트(예: skills/myharness 또는 설치된 플러그인 경로)
-# 종료코드: 0=정상(plan은 변경유무와 무관 0). 인자/경로 오류=2.
+# 종료코드: 0=정상(plan은 변경유무와 무관 0), 1=apply/manifest 쓰기 실패, 인자/경로 오류=2.
 set -uo pipefail
 
 CMD="${1:-}"; SKILL_DIR="${2:-}"; FACTORY="${3:-}"
@@ -70,6 +70,44 @@ manifest_sha() {
   [ -f "$MANIFEST" ] || { echo ""; return; }
   command -v jq >/dev/null 2>&1 || { echo ""; return; }
   jq -r --arg k "$rel" '.files[$k] // ""' "$MANIFEST" 2>/dev/null || echo ""
+}
+
+# apply 이후 기준선 기록.
+# - 정본과 같은 파일은 현재 정본 sha를 새 기준선으로 기록한다.
+# - 보류/실패로 정본과 다른 파일은 기존 기준선을 보존한다.
+# - 기존 기준선이 없는 UNKNOWN 파일은 계속 UNKNOWN으로 남긴다.
+# 보류한 USER-MODIFIED를 현재 sha로 재기록하면 다음 update에서 UPDATABLE로
+# 오분류되어 자동 덮어쓸 수 있으므로 manifest 명령과 분리한다.
+write_apply_manifest() {
+  command -v jq >/dev/null 2>&1 || return 2
+  local tmp="$MANIFEST.tmp.$$" first=1 rel current factory base fac_ver
+  fac_ver="$(jq -r '.version // "unknown"' "$FACTORY/../../.claude-plugin/plugin.json" 2>/dev/null || echo unknown)"
+  printf '{"schema_version":"1","factory_version":"%s","files":{' "$fac_ver" > "$tmp" || return 1
+
+  for rel in $MANAGED_RELS; do
+    [ -f "$SKILL_DIR/$rel" ] || continue
+    current="$(sha "$SKILL_DIR/$rel")"
+    factory=""
+    [ -f "$FACTORY/$rel" ] && factory="$(sha "$FACTORY/$rel")"
+    base="$(manifest_sha "$rel")"
+
+    if [ -n "$factory" ] && [ "$current" = "$factory" ]; then
+      base="$factory"
+    elif [ -z "$base" ]; then
+      continue
+    fi
+
+    [ $first -eq 1 ] && first=0 || printf ',' >> "$tmp"
+    printf '"%s":"%s"' "$rel" "$base" >> "$tmp"
+  done
+  printf '}}\n' >> "$tmp"
+
+  if jq . "$tmp" > "$tmp.j" 2>/dev/null; then
+    mv "$tmp.j" "$MANIFEST" && rm -f "$tmp"
+  else
+    rm -f "$tmp" "$tmp.j"
+    return 1
+  fi
 }
 # rel의 분류 출력(stdout 한 단어).
 classify() {
@@ -130,32 +168,35 @@ case "$CMD" in
 
   apply)
     approve=""
+    apply_fail=0
     if [ "${4:-}" = "--approve" ]; then approve=",${5:-},"; fi
     [ -f "$MANIFEST" ] && command -v jq >/dev/null 2>&1 && ! jq -e . "$MANIFEST" >/dev/null 2>&1 \
       && echo "주의: manifest JSON 파손 → 전부 보수(승인 필요). 'manifest' 재생성 권장." >&2
-    { list_managed "$SKILL_DIR"; list_factory_new; } | sort -u | while IFS= read -r rel; do
+    while IFS= read -r rel; do
       [ -n "$rel" ] || continue
       st="$(classify "$rel")"
       case "$st" in
         SAME|FACTORY-MISSING) : ;;
         UPDATABLE|NEW)
           if atomic_cp "$FACTORY/$rel" "$SKILL_DIR/$rel"; then echo "  적용(자동) [$st] $rel"
-          else echo "  오류: 적용 실패 [$st] $rel — 건너뜀" >&2; fi ;;
+          else echo "  오류: 적용 실패 [$st] $rel — 건너뜀" >&2; apply_fail=1; fi ;;
         USER-MODIFIED|UNKNOWN)
           if [ -n "$approve" ] && case "$approve" in *",$rel,"*) true;; *) false;; esac; then
             if atomic_cp "$FACTORY/$rel" "$SKILL_DIR/$rel"; then echo "  적용(승인) [$st] $rel"
-            else echo "  오류: 적용 실패 [$st] $rel — 건너뜀" >&2; fi
+            else echo "  오류: 적용 실패 [$st] $rel — 건너뜀" >&2; apply_fail=1; fi
           else
             echo "  보류 [$st] $rel  (승인 안 됨 — 사용자 수정 보존)"
           fi ;;
       esac
-    done
-    # manifest 재생성(새 기준선) — jq 있을 때만.
+    done < <({ list_managed "$SKILL_DIR"; list_factory_new; } | sort -u)
+    # manifest 갱신: 보류/실패 파일의 기존 기준선은 보존한다.
     if command -v jq >/dev/null 2>&1; then
-      "$0" manifest "$SKILL_DIR" "$FACTORY" >/dev/null 2>&1 && echo "  manifest 갱신됨"
+      if write_apply_manifest; then echo "  manifest 갱신됨"
+      else echo "  오류: manifest 갱신 실패" >&2; apply_fail=1; fi
     else
       echo "  주의: jq 없음 → manifest 미갱신(다음 plan이 보수 모드)." >&2
     fi
+    [ "$apply_fail" -eq 0 ] || exit 1
     ;;
 
   *) echo "오류: 알 수 없는 명령 '$CMD' (manifest|plan|apply)" >&2; exit 2 ;;
