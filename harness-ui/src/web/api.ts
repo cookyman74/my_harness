@@ -486,6 +486,14 @@ export async function postHarnessDraft(body: { domain: string }): Promise<Harnes
   return r.json() as Promise<HarnessDraftResult>;
 }
 
+// F13(M-b): 공용·서브 스킬 역인덱스·분류(읽기전용).
+export type SkillClassification = "orchestrator" | "shared-sub" | "orphan";
+export interface SkillUsageEntry {
+  skill: string; runtimes: string[]; runtimePaths: string[];
+  classification: SkillClassification; usedBy: string[]; editViaF7: boolean;
+}
+export interface SkillUsageList { skills: SkillUsageEntry[] }
+
 // F11: 팩토리(myharness) 유지관리 — 상태 조회 + 설치/업데이트/제거 + 게이트 토글.
 export type SkillState =
   | { kind: "absent" }

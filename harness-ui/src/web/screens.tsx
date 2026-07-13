@@ -16,6 +16,7 @@ import {
   CONTEXT_TREE_PATH, contextFilePath, downloadContextFile,
   postBuildDraft, postBuildCreate, postHarnessDraft, BuildError, type HarnessDraftResult,
   setFactoryMaintenance, applyFactory, type FactoryStatus, type SkillState, type FactoryTarget, type FactoryAction,
+  type SkillUsageList, type SkillClassification,
   type ContextTree as ContextTreeShape, type ContextNode as CtxNode,
   type ContextFilePreview,
   type DocsNode, type DocsTree, type DocPreview,
@@ -295,6 +296,7 @@ export function Build() {
       </p>
       <FactoryPanel />
       <HarnessList />
+      <SkillUsageSection />
       <h3 className="lens-h">🏗 하네스 전체 자동 빌드 <span className="lens-tag">실험</span></h3>
       <HarnessAutoBuild gateOn={gateOn} onCreated={toHistory} />
       <h3 className="lens-h">🔨 정의 빌더 <span className="lens-tag muted">에이전트/스킬 단건</span></h3>
@@ -1307,6 +1309,36 @@ function ConfirmDialog({ title, onCancel, children }: { title: string; onCancel:
         {children}
       </div>
     </div>
+  );
+}
+
+// ── F13(M-b) 공용·서브 스킬 섹션 (#/build · 읽기전용·분류·역인덱스) ──
+function classBadge(c: SkillClassification): { kind: "ok" | "warn" | "muted"; label: string } {
+  if (c === "orchestrator") return { kind: "ok", label: "오케스트레이터" };
+  if (c === "shared-sub") return { kind: "muted", label: "공용 서브" };
+  return { kind: "warn", label: "orphan(미사용)" };
+}
+function SkillUsageSection() {
+  const st = useApi<SkillUsageList>("/api/skills-usage");
+  return (
+    <>
+      <h3 className="lens-h">🧩 공용·서브 스킬 <span className="lens-tag muted">분류·사용 하네스(역인덱스)</span></h3>
+      <Async state={st}>{(s) => s.skills.length === 0 ? <Card title="스킬"><p className="muted">스킬 없음.</p></Card> : (
+        <Card title={`스킬 ${s.skills.length}개 — 분류·역인덱스`}>
+          <Table cols={["스킬", "런타임", "분류", "사용 하네스", "편집"]} rows={s.skills.map((u) => {
+            const b = classBadge(u.classification);
+            return [
+              u.skill,
+              <span>{u.runtimes.map((r) => <Badge key={r} kind="muted">{r}</Badge>)}{u.runtimePaths.some((p) => p.startsWith(".agents")) && <span className="muted"> (공유)</span>}</span>,
+              <Badge kind={b.kind}>{b.label}</Badge>,
+              u.usedBy.length ? u.usedBy.join(", ") : <span className="muted">—</span>,
+              u.editViaF7 ? <a className="link" href="#/skills">편집 →</a> : <span className="muted" title="현재 Claude 정의만 편집(F14 확장 예정)">읽기전용</span>,
+            ];
+          })} />
+          <p className="muted">편집·생성·삭제는 <a className="link" href="#/skills">Skills</a>(F7)에서 — 중복 편집기 금지. <b>orphan</b> = 어느 하네스도 안 쓰는 스킬.</p>
+        </Card>
+      )}</Async>
+    </>
   );
 }
 

@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import { factoryStatus, applyFactoryAction } from "../adapters/factory.js";
 import { appendConfigChange, readConfigChanges } from "../adapters/confighistory.js";
 import { listHarnesses } from "../adapters/harnesslist.js";
+import { skillUsage } from "../adapters/skillusage.js";
 import { docsTree } from "../adapters/docs.js";
 import { RunsQuery } from "../schemas.js";
 import { z } from "zod";
@@ -80,6 +81,7 @@ export function registerApi(
 
   app.get("/api/harness", async () => harnessInventory(projectRoot));
   app.get("/api/harnesses", async () => listHarnesses(projectRoot)); // 하네스 목록(오케스트레이터→에이전트 파생)
+  app.get("/api/skills-usage", async () => skillUsage(projectRoot)); // F13(M-b): 공용·서브 스킬 역인덱스·분류(읽기전용·"usage" 스킬명 shadow 회피·별 네임스페이스)
 
   // :name 은 논리적 이름(메모리 배열 필터 — FS 접근 아님). 공백 포함 이름 허용, 길이만 제한.
   const okName = (n: string) => n.length > 0 && n.length <= 200;
