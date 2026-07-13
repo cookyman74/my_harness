@@ -10,6 +10,7 @@ import {
 } from "../adapters/defedit.js";
 import { listRuns, getRun, readEvents, readRunAgents, queryRuns } from "../adapters/runs.js";
 import { detectDrift, syncPlan } from "../adapters/drift.js";
+import { skillSyncGroups, isSyncableTarget } from "../adapters/driftsync.js";
 import { stateStats, settings } from "../adapters/statestats.js";
 import { computeHarnessScorecard } from "../adapters/scorecard.js";
 import { writeHarnessScorecardSnapshot, readHarnessTrend } from "../adapters/scorecard-snapshot.js";
@@ -632,6 +633,64 @@ export function registerApi(
   // drift
   app.get("/api/drift", async () => ({ findings: await detectDrift(projectRoot) }));
   app.post("/api/drift/sync-plan", async () => syncPlan(projectRoot)); // 무변경(계획만)
+
+  // F16(M-f): 스킬 사본 (dev,ino) 분류 그룹(읽기전용·side-effect 0). symlink-to-canonical/hardlink/copy-drift 등.
+  app.get("/api/drift/skill-groups", async () => ({ groups: await skillSyncGroups(projectRoot) }));
+
+  // F16(M-f): 명시 다타깃 동기(정본 SKILL.md 를 선택 사본에 전파). 대상별 pathId/baseHash 낙관적 동시성·부분성공.
+  //   자동 동기는 symlink-to-canonical(할 것 없음)만 — copy 만 명시 apply. hardlink/symlink-to-canonical 은 정본과 물리
+  //   동일(내용 항상 같음)이라 동기 대상 아님. 쓰기경계·백업·원자쓰기·게이트 = F7(defedit) 재사용.
+  //   M-e fail-soft: 대상 런타임 스킬이 편집 불가면 차단(현 전부 editable·스킬은 md 공통).
+  const SkillSyncBody = z.object({
+    skill: z.string().min(1).max(200),
+    targets: z.array(z.object({ path: z.string().min(1).max(1024), baseHash: z.string().length(64) })).min(1).max(8),
+  }).strict();
+  app.post("/api/drift/sync-skill", async (req, reply) => {
+    if (!(await isEditEnabled())) return reply.code(403).send({ error: "edit-disabled" });
+    if (winWriteBlocked(reply)) return; // Windows mutation 차단(진입부)
+    const parsed = SkillSyncBody.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: "bad-input", detail: parsed.error.issues });
+    const { skill, targets } = parsed.data;
+    if (!okName(skill)) return reply.code(400).send({ error: "invalid-name" });
+    const groups = await skillSyncGroups(projectRoot);
+    const g = groups.find((x) => x.skill === skill);
+    if (!g) return reply.code(404).send({ error: "skill-group-not-found" });
+    // 정본 SKILL.md 읽기 + 무결성 검증(전파 전 canonical 이 유효 스킬 정의인지·name===skill).
+    const canonAbs = await safeDefPath(projectRoot, g.canonicalPath, "skill");
+    if (!canonAbs) return reply.code(400).send({ error: "path-unsafe" });
+    const canonRead = await readDefSafe(canonAbs);
+    if (!canonRead) return reply.code(404).send({ error: "canonical-not-found" });
+    // 검증만 canonicalizeDefinition(유효 정의·name===skill). 전파는 정본 **원문 바이트**(canonRead.content)로 —
+    //   canonical 형태로 재작성하면 정본(원문)과 바이트 불일치 → drift 무한 재발(agy MED). 원문 전파로 사본=정본 동일.
+    const canon = canonicalizeDefinition(canonRead.content, "skill", skill);
+    if (!canon.ok) return reply.code(400).send({ error: "canonical-integrity", detail: canon.error });
+    const canonicalContent = canonRead.content;
+
+    const results: Array<Record<string, unknown>> = [];
+    for (const t of targets) {
+      const copy = g.copies.find((c) => c.path === t.path);
+      if (!copy) { results.push({ path: t.path, status: "unknown-target" }); continue; }
+      if (copy.cls === "canonical") { results.push({ path: t.path, status: "skip-canonical" }); continue; }
+      // symlink-to-canonical·hardlink-same-inode = 정본과 물리 동일 → 동기 무의미. broken = 안전 쓰기 불가.
+      if (!isSyncableTarget(copy.cls)) { results.push({ path: t.path, status: `not-syncable:${copy.cls}` }); continue; }
+      // 대상별 뮤텍스 + 낙관적 baseHash + 백업 + 경화 원자쓰기(F7 재사용).
+      const r = await withDefLock(t.path, async (): Promise<Record<string, unknown>> => {
+        const abs = await safeDefPath(projectRoot, t.path, "skill");
+        if (!abs) return { status: "path-unsafe" };
+        const cur = await readDefSafe(abs);
+        if (!cur) return { status: "not-found" };
+        const prevHash = sha256(cur.content);
+        if (prevHash !== t.baseHash) return { status: "stale", currentHash: prevHash };
+        if (prevHash === g.canonicalHash) return { status: "already-synced" }; // 내용 이미 동일(경쟁 후)
+        try { await writeBackup(t.path, cur.content); } catch { return { status: "backup-failed" }; }
+        try { await writeDefSafe(projectRoot, t.path, "skill", canonicalContent); }
+        catch { return { status: "path-unsafe" }; }
+        return { status: "applied", newHash: sha256(canonicalContent) };
+      });
+      results.push({ path: t.path, ...r });
+    }
+    return { skill, canonicalHash: g.canonicalHash, results };
+  });
 
   // overview 상태·통계(A35-A38) + settings
   app.get("/api/overview/state-stats", async () => stateStats(projectRoot));

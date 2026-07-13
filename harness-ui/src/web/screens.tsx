@@ -1256,7 +1256,50 @@ export function Drift() {
           <Badge kind={kind(f.severity) as "ok" | "warn" | "err"}>{f.severity}</Badge>, f.runtime, f.paths.join(", "), f.evidence, f.suggestedAction,
         ])} />
       )}</Async>
+      <SkillSyncGroups />
     </div>
+  );
+}
+
+// F16(M-f): 스킬 사본 (dev,ino) 분류·명시 다타깃 동기. symlink-to-canonical/hardlink=물리동일(동기 대상 아님)·copy-drift=동기 대상.
+function SkillSyncGroups() {
+  const st = useApi<{ groups: import("./api.js").SkillSyncGroup[] }>("/api/drift/skill-groups");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const clsBadge = (c: string): "ok" | "warn" | "err" | "muted" =>
+    c === "canonical" ? "ok" : c === "symlink-to-canonical" || c === "copy-insync" ? "ok"
+      : c === "copy-drift" ? "err" : c === "hardlink-same-inode" ? "warn" : "muted";
+  const clsLabel: Record<string, string> = {
+    "canonical": "정본", "symlink-to-canonical": "심링크(물리동일)", "hardlink-same-inode": "하드링크(정본과 물리동일)",
+    "copy-insync": "사본(동기됨)", "copy-drift": "사본(drift)", "broken": "손상/외부심링크",
+  };
+  const doSync = async (skill: string, copy: import("./api.js").SkillCopy) => {
+    if (copy.hash === null) { setMsg(`${copy.path}: 해시 없음(동기 불가)`); return; }
+    setBusy(true); setMsg(null);
+    try {
+      const r = await (await import("./api.js")).syncSkill(skill, [{ path: copy.path, baseHash: copy.hash }]);
+      setMsg(`${skill} → ${copy.path}: ${r.results[0]?.status ?? "?"}`);
+      st.reload();
+    } catch (e) { setMsg(`동기 실패: ${String(e)}`); } finally { setBusy(false); }
+  };
+  return (
+    <section style={{ marginTop: 24 }}>
+      <h3>스킬 사본 동기 (F16)</h3>
+      <p className="muted">여러 런타임에 같은 스킬 사본이 있을 때 물리 관계(심링크/하드링크/복사)를 분류하고, drift 사본에만 정본을 명시 전파합니다. 심링크·하드링크=정본과 물리 동일(내용 항상 같음·동기 불필요), 복사=내용 상이 시에만 명시 동기.</p>
+      {msg && <p className="fac-msg" role="status">{msg}</p>}
+      <Async state={st}>{(d) => d.groups.length === 0 ? <div className="muted">사본 그룹 없음(단일 런타임 스킬만)</div> : (
+        <div>{d.groups.map((g) => (
+          <Card key={g.skill} title={`${g.skill}${g.hasDrift ? " · drift" : g.hasBroken ? " · 점검" : " · 동기됨"}`}>
+            <Table cols={["런타임", "경로", "분류", "동기"]} rows={g.copies.map((c) => [
+              c.runtime, <span className="mono">{c.path}</span>, <Badge kind={clsBadge(c.cls)}>{clsLabel[c.cls] ?? c.cls}</Badge>,
+              c.cls === "copy-drift" ? <button disabled={busy} onClick={() => doSync(g.skill, c)}>정본 전파</button>
+                : c.cls === "hardlink-same-inode" ? <span className="muted" title="정본과 같은 inode — 정본 편집 시 함께 바뀜(동기 불필요)">물리동일</span>
+                : <span className="muted">—</span>,
+            ])} />
+          </Card>
+        ))}</div>
+      )}</Async>
+    </section>
   );
 }
 

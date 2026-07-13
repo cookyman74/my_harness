@@ -254,6 +254,19 @@ export async function cancelActiveRuns(): Promise<{ attempted: number; cancelled
   return { attempted: ids.length, cancelled };
 }
 
+// ── F16(M-f) 스킬 사본 drift 분류·다타깃 동기 ──
+export type SkillCopyClass =
+  | "canonical" | "symlink-to-canonical" | "hardlink-same-inode"
+  | "copy-insync" | "copy-drift" | "broken";
+export type SkillCopy = { dir: string; path: string; runtime: string; cls: SkillCopyClass; hash: string | null; nlink: number | null };
+export type SkillSyncGroup = { skill: string; canonicalPath: string; canonicalHash: string | null; copies: SkillCopy[]; hasDrift: boolean; hasBroken: boolean };
+export type SkillSyncResult = { path: string; status: string; newHash?: string; currentHash?: string };
+
+export const getSkillGroups = () => apiGet<{ groups: SkillSyncGroup[] }>("/api/drift/skill-groups");
+export const syncSkill = (skill: string, targets: { path: string; baseHash: string }[]) =>
+  apiPost<{ skill: string; canonicalHash: string | null; results: SkillSyncResult[] }>(
+    "/api/drift/sync-skill", { skill, targets });
+
 // ── F7 정의 편집기(M12·첫 mutating·중대) ──
 // 서버 확정 계약(server-builder 완료·이대로 소비):
 //   GET  /api/{agents|skills}/:name/definition → 200 { name,sourcePath,pathId,content,baseHash,mtimeMs,editable }
