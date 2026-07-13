@@ -86,12 +86,12 @@ describe("A72/DW2 — GET 정의 조회·이름→정규경로 재조회", () =>
     expect(r.statusCode).toBe(200); // .agents/skills 는 SKILL.md(md) → M-c서 편집 개방
     expect(r.json().sourcePath).toBe(".agents/skills/cx/SKILL.md");
   });
-  it("codex 전용 agent(.codex only) → 409 codex-only-v0.7", async () => {
+  it("codex agent(.codex/*.toml) → M-e(F15) 편집 가능·200 resolve", async () => {
     await mkdir(join(root, ".codex", "agents"), { recursive: true });
-    await writeFile(join(root, ".codex", "agents", "cxa.toml"), 'name = "cxagent"\n');
+    await writeFile(join(root, ".codex", "agents", "cxa.toml"), 'name = "cxagent"\ndescription = "d"\n');
     const r = await getDef("agents", "cxagent");
-    expect(r.statusCode).toBe(409);
-    expect(r.json().error).toBe("codex-only-v0.7");
+    expect(r.statusCode).toBe(200);
+    expect(r.json().sourcePath).toBe(".codex/agents/cxa.toml");
   });
 });
 

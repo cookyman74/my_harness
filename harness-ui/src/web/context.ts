@@ -77,13 +77,17 @@ export function findContextFile(tree: ContextTree, path: string): { runtime: Run
 export type DefKind = "agent" | "skill";
 export type EditTarget = { kind: DefKind; name: string };
 
-// `.claude/agents/<name>.md` → {agent,name} · `.claude/skills/<name>/SKILL.md` → {skill,name}.
-//   그 외(references·top file·codex/agy·nested)는 null(F7 편집 대상 아님). 이름은 ARGV 정합(첫 글자 영숫자).
-const AGENT_DEF = /^\.claude\/agents\/([A-Za-z0-9][A-Za-z0-9._-]*)\.md$/;
-const SKILL_DEF = /^\.claude\/skills\/([A-Za-z0-9][A-Za-z0-9._-]*)\/SKILL\.md$/;
+// F7 편집 대상 정의 경로 → {kind,name}. **컨텍스트 트리가 노출하는 서브루트에 한정**(서버 classifyContextPath 동형):
+//   claude md 에이전트/스킬 · codex toml 에이전트 · shared(.agents) 스킬. `.gemini`는 컨텍스트 트리 스코프 밖
+//   (서버가 classifyContextPath 에서 400 invalid-path·트리 미노출)이라 **제외** — 서버/웹 동형(R5 codex MED).
+//   (gemini 정의 자체는 F7 이름 재조회로 편집 가능하나, 컨텍스트 트리 딥링크 대상은 아님.)
+//   이름 = 파일/디렉토리명(ARGV 정합·첫 글자 영숫자·서버 probe 와 동일 엄격도·R5 codex LOW).
+const MD_AGENT_DEF = /^\.claude\/agents\/([A-Za-z0-9][A-Za-z0-9._-]*)\.md$/;
+const TOML_AGENT_DEF = /^\.codex\/agents\/([A-Za-z0-9][A-Za-z0-9._-]*)\.toml$/;
+const SKILL_DEF = /^(?:\.claude|\.agents)\/skills\/([A-Za-z0-9][A-Za-z0-9._-]*)\/SKILL\.md$/;
 
 export function contextEditTarget(path: string): EditTarget | null {
-  const a = AGENT_DEF.exec(path);
+  const a = MD_AGENT_DEF.exec(path) ?? TOML_AGENT_DEF.exec(path);
   if (a) return { kind: "agent", name: a[1]! };
   const s = SKILL_DEF.exec(path);
   if (s) return { kind: "skill", name: s[1]! };
@@ -101,10 +105,10 @@ export function editDecision(
 ): EditDecision {
   if (!gateOn) return { editable: false, reason: "정의 편집이 비활성입니다" };
   if (node.type !== "file") return { editable: false, reason: "디렉토리는 편집 대상이 아닙니다" };
-  if (node.runtime !== "claude") return { editable: false, reason: contextReadonlyReason(node.runtime, node.path) };
+  // F14/F15(M-c·M-e): 편집 가능 정의(claude·gemini md·codex toml)면 런타임 무관 F7 편집. 그 외는 읽기전용(사유).
   const t = contextEditTarget(node.path);
-  if (!t) return { editable: false, reason: "이 파일은 편집 대상이 아닙니다(에이전트/스킬 정의 파일만 편집 가능·읽기전용)" };
-  return { editable: true, kind: t.kind, name: t.name };
+  if (t) return { editable: true, kind: t.kind, name: t.name };
+  return { editable: false, reason: contextReadonlyReason(node.runtime, node.path) };
 }
 
 // 읽기전용 사유(A128 배지 툴팁·색 비의존 텍스트). 서버 409 신호와 동형(codex/agy=v0.7 비대상·top file=읽기전용 컨텍스트).

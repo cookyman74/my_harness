@@ -10,7 +10,7 @@ import { z } from "zod";
 import { isSafeSegment, isWithinRoot, stateHome } from "../lib/paths.js";
 import { writeAtomic } from "../lib/atomic.js";
 import { parseFrontmatter } from "./harness.js";
-import { editableMdAgentDirs, editableSkillDirs } from "./runtimes.js";
+import { editableMdAgentDirs, editableTomlAgentDirs, editableSkillDirs } from "./runtimes.js";
 
 // F14(M-c·I11 validator 결정): Gemini 에이전트/스킬은 Claude와 **동일 md+YAML frontmatter 컨테이너·동일 canonicalizer/validator**를
 //   의도적으로 재사용한다(선검증: 코어 필드 name·description 공통·미지 필드 보존). 런타임 전용 스키마 분리는 미지 필드
@@ -19,7 +19,12 @@ import { editableMdAgentDirs, editableSkillDirs } from "./runtimes.js";
 //   agent: <editable-md-agent-dir>/*.md · skill: <editable-skill-dir>/*/SKILL.md. (Codex toml=M-e·제외)
 function structOk(segs: string[], kind: DefKind): boolean {
   if (kind === "agent") {
-    return segs.length === 3 && editableMdAgentDirs().includes(segs[0] + "/" + segs[1]) && segs[2]!.endsWith(".md");
+    if (segs.length !== 3) return false;
+    const dir = segs[0] + "/" + segs[1];
+    // F15(M-e): md(claude·gemini) 또는 toml(codex). 포맷별 canonicalizer 라우팅은 caller(api)가 확장자로.
+    if (editableMdAgentDirs().includes(dir) && segs[2]!.endsWith(".md")) return true;
+    if (editableTomlAgentDirs().includes(dir) && segs[2]!.endsWith(".toml")) return true;
+    return false;
   }
   return segs.length === 4 && editableSkillDirs().includes(segs[0] + "/" + segs[1]) && segs[3] === "SKILL.md";
 }

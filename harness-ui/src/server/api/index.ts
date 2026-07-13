@@ -6,7 +6,7 @@ import { detectRuntimes } from "../adapters/runtime.js";
 import { harnessInventory, readAgents, readSkills, findAgent, agentFingerprint, resolveEditableAgent, resolveEditableSkill, type DefResolution } from "../adapters/harness.js";
 import {
   canonicalizeDefinition, safeDefPath, readDefSafe, sha256, writeBackup, readBackup,
-  writeDefSafe, withDefLock, MAX_DEF_BYTES, type DefKind,
+  writeDefSafe, withDefLock, MAX_DEF_BYTES, type DefKind, type CanonResult,
 } from "../adapters/defedit.js";
 import { listRuns, getRun, readEvents, readRunAgents, queryRuns } from "../adapters/runs.js";
 import { detectDrift, syncPlan } from "../adapters/drift.js";
@@ -18,7 +18,25 @@ import { factoryStatus, applyFactoryAction } from "../adapters/factory.js";
 import { appendConfigChange, readConfigChanges } from "../adapters/confighistory.js";
 import { listHarnesses } from "../adapters/harnesslist.js";
 import { skillUsage } from "../adapters/skillusage.js";
-import { runtimeOfPath } from "../adapters/runtimes.js";
+import { runtimeOfPath, editableMdAgentDirs, editableTomlAgentDirs, editableSkillDirs } from "../adapters/runtimes.js";
+import { canonicalizeTomlAgent, validateTomlRestore } from "../adapters/toml.js";
+
+// F15(M-e): 정의 canonicalizer 를 sourcePath 확장자로 라우팅. `.toml`(codex 에이전트)=limited-edit(주석 보존
+//   verbatim·직전본 대비 semantic diff) · 그 외 `.md`=기존 md canonicalizer.
+//   R2(agy HIGH·방어심화): toml + curContent===null 은 **rollback(신뢰 백업 복원) 전용** — semantic diff 를 생략하므로
+//   신규 생성 경로로 흘러들면 임의 구조/특권 필드 주입 우회가 된다. `opts.restore` 명시 없이는 거부(fail-closed).
+//   (현재 create 라우트는 `.claude/*.md`·canonicalizeDefinition 직접 사용이라 여기로 오지 않음 — 미래 배선 실수까지 차단.)
+function canonicalizeByPath(
+  sourcePath: string, content: string, kind: DefKind, name: string, curContent: string | null,
+  opts?: { restore?: boolean },
+): CanonResult {
+  if (sourcePath.endsWith(".toml")) {
+    if (curContent === null && !opts?.restore) return { ok: false, error: "toml-create-unsupported" };
+    const r = curContent === null ? validateTomlRestore(content, name) : canonicalizeTomlAgent(content, name, curContent);
+    return r.ok ? { ok: true, canonical: r.canonical, normalized: r.normalized } : { ok: false, error: r.error };
+  }
+  return canonicalizeDefinition(content, kind, name);
+}
 import { docsTree } from "../adapters/docs.js";
 import { RunsQuery } from "../schemas.js";
 import { z } from "zod";
@@ -183,7 +201,8 @@ export function registerApi(
         if (!cur) return reply.code(404).send({ error: "not-found" });
         const prevHash = sha256(cur.content);
         if (prevHash !== baseHash) return reply.code(409).send({ error: "stale-write", currentHash: prevHash });
-        const canon = canonicalizeDefinition(content, kind, req.params.name);
+        // F15(M-e): toml=limited-edit(직전본 cur.content 대비 semantic diff) · md=기존. 확장자 라우팅.
+        const canon = canonicalizeByPath(r.sourcePath, content, kind, req.params.name, cur.content);
         // agy#1(HIGH): canonical 출력이 read cap 초과면 write 前 400 too-large(디스크 미기록·은폐 불가).
         if (!canon.ok) {
           if (canon.error === "too-large") return reply.code(400).send({ error: "too-large" });
@@ -225,7 +244,9 @@ export function registerApi(
         const backup = await readBackup(r.sourcePath);
         if (backup === null) return reply.code(404).send({ error: "no-backup" });
         if (sha256(backup) !== backupHash) return reply.code(409).send({ error: "backup-hash-mismatch" }); // 손상/변조 백업 거부
-        const canon = canonicalizeDefinition(backup, kind, req.params.name); // 손상본 복원 차단(DW5 재검증)
+        // F15(M-e): 복원=직전 유효본(신뢰 백업) 재검증(semantic diff 없음). restore:true 로 null-toml 복원 허용
+        //   (일반 create 경로의 null-toml 우회는 restore 플래그 부재로 fail-closed·R2 방어).
+        const canon = canonicalizeByPath(r.sourcePath, backup, kind, req.params.name, null, { restore: true }); // 손상본 복원 차단(DW5 재검증)
         // agy#1(HIGH): 복원본 canonical 도 read cap 이내여야 write(은폐 유발 복원 차단).
         if (!canon.ok) {
           if (canon.error === "too-large") return reply.code(400).send({ error: "too-large" });
@@ -271,25 +292,30 @@ export function registerApi(
     } finally { await r.fh.close().catch(() => {}); }
   });
 
-  // A130·HR6: 편집=Claude 스코프만. 이 라우트는 **아무것도 쓰지 않는다**(I8 — 쓰기 경계 불변). Codex/agy/
-  //   GEMINI.md 편집 시도 → 409 `<runtime>-edit-v0.7`(읽기전용 뷰). `.claude/agents·skills` 정의 → F7 라우트로.
+  // 이 라우트는 **아무것도 쓰지 않는다**(I8 — 쓰기 경계 불변). 편집 진입 안내만: 편집 가능 **정의 파일**(F7 대상)은
+  //   edit-via-f7 로 딥링크, 그 외는 읽기전용. F15(M-e·R4 drift 해소): 편집 가능 판정을 **레지스트리 editable dir**
+  //   기준으로 일반화 — claude·gemini md 에이전트/스킬 + codex toml 에이전트가 모두 F7 편집 가능해졌으므로
+  //   런타임 하드코딩(claude만 f7·나머지 -edit-v0.7) drift 제거. 비-정의(references·top rules 파일)는 여전히 읽기전용.
   const ContextEditBody = z.object({ path: z.string().min(1).max(1024) }).passthrough();
   app.put("/api/context/edit", async (req, reply) => {
     const parsed = ContextEditBody.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "bad-input", detail: parsed.error.issues });
     const c = classifyContextPath(parsed.data.path.split("/").filter((s) => s.length > 0));
     if (!c) return reply.code(400).send({ error: "invalid-path" });
-    if (c.runtime === "claude") {
-      // CLAUDE.md(top file) = 읽기전용 컨텍스트(쓰기 라우트 없음). `.claude/agents·skills` **정의 파일만** F7 편집
-      //   대상 → edit-via-f7. references/보조 파일 등 비-정의(정규형 아님)는 F7 편집 불가 → context-file-readonly
-      //   (LOW-2: edit-via-f7 오인 방지 — F7 GET/PUT 은 논리 name→정규 sourcePath 만 편집).
-      const rs = c.restSegs;
-      const isDef =
-        (c.baseSegs[1] === "agents" && rs.length === 1 && rs[0]!.endsWith(".md")) ||
-        (c.baseSegs[1] === "skills" && rs.length === 2 && rs[1] === "SKILL.md");
-      if (c.baseSegs.length === 2 && isDef) return reply.code(409).send({ error: "edit-via-f7", runtime: c.runtime });
-      return reply.code(409).send({ error: "context-file-readonly", runtime: c.runtime });
-    }
+    const dir = c.baseSegs.join("/");
+    const rs = c.restSegs;
+    // F7 편집 가능 정의: 에이전트(editable md dir + *.md · editable toml dir + *.toml) 또는 스킬(editable dir + */SKILL.md).
+    //   R5(codex LOW): 파일/디렉토리명은 ARGV_TOKEN(첫 글자 영숫자·점시작 dotfile 거부) — 웹 정규식과 동일 엄격도
+    //   (`.hidden.toml` 류 false-positive edit-via-f7 차단). `.gemini`는 애초에 classifyContextPath 에서 400(트리 밖).
+    const nameOk = (s: string) => ARGV_TOKEN.test(s);
+    const isAgentDef = rs.length === 1 && (
+      (editableMdAgentDirs().includes(dir) && rs[0]!.endsWith(".md") && nameOk(rs[0]!.slice(0, -3))) ||
+      (editableTomlAgentDirs().includes(dir) && rs[0]!.endsWith(".toml") && nameOk(rs[0]!.slice(0, -5)))
+    );
+    const isSkillDef = rs.length === 2 && editableSkillDirs().includes(dir) && rs[1] === "SKILL.md" && nameOk(rs[0]!);
+    if (isAgentDef || isSkillDef) return reply.code(409).send({ error: "edit-via-f7", runtime: c.runtime });
+    // claude 서브루트의 비-정의(references·CLAUDE.md 등) = 읽기전용. 그 외 런타임의 비-정의 = v0.7 비대상 읽기전용.
+    if (c.runtime === "claude") return reply.code(409).send({ error: "context-file-readonly", runtime: c.runtime });
     return reply.code(409).send({ error: `${c.runtime}-edit-v0.7`, runtime: c.runtime });
   });
 

@@ -5,7 +5,17 @@ import { readdir, stat, open } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { ARGV_TOKEN, isSafeSegment } from "../lib/paths.js";
-import { agentSources, skillDirs, editableMdAgentDirs, editableSkillDirs, type RuntimeId } from "./runtimes.js";
+import { agentSources, skillDirs, editableMdAgentDirs, editableTomlAgentDirs, editableSkillDirs, type RuntimeId } from "./runtimes.js";
+import TOML from "@iarna/toml";
+
+// F15(M-e·R1): TOML top-level `name`(문자열)만 추출. multiline 문자열 내부 오탐 차단(정규식 대체).
+//   파싱 실패/비문자열 = null → caller 가 파일명 폴백(resolve 용도·PUT 은 별도 strict 검증).
+function tomlTopLevelName(text: string): string | null {
+  try {
+    const d = TOML.parse(text) as Record<string, unknown>;
+    return typeof d.name === "string" ? d.name : null;
+  } catch { return null; }
+}
 
 // 정의 스캔 바운드(agy#2 OOM/DoS 방어): 파일당 read 상한 + 디렉토리당 개수 상한.
 const MAX_DEF_BYTES = 262144;   // 정의 파일당 read 상한(256KB) — 거대 파일 OOM 차단
@@ -280,7 +290,7 @@ export type DefResolution =
   | { ok: false; error: "not-found" | "ambiguous-definition" | "codex-only-v0.7" };
 
 // 에이전트: `.claude/agents/*.md` 를 dedupe 없이 원본 스캔해 frontmatter name(부재 시 파일명) === name 매칭
-// 수를 센다. ≥2 → ambiguous(비결정 해소 금지). 0 이면 `.codex/agents/*.toml` 에 있으면 codex-only-v0.7·없으면 404.
+// 수를 센다. md(claude·gemini) + toml(codex) 편집 가능 dir 전부 스캔. ≥2 → ambiguous. 0 → not-found.
 export async function resolveEditableAgent(root: string, name: string): Promise<DefResolution> {
   // F14(M-c): 편집 가능 md 에이전트 dir(claude·gemini) 전건 스캔. 다중 매치(런타임/파일) = ambiguous(비결정 해소 금지·runtime 파라미터는 후속).
   const matches: string[] = [];
@@ -293,15 +303,20 @@ export async function resolveEditableAgent(root: string, name: string): Promise<
       if (canonical === name) matches.push(dir + "/" + f);
     }
   }
+  // F15(M-e): 편집 가능 TOML 에이전트 dir(codex) 도 동일 매치 집계 — md·toml 교차 다중매치 = ambiguous.
+  //   R1(agy HIGH): 정규식 name 추출은 multiline 문자열(prompt/instructions) 내부 `name = "..."` 를 오탐 →
+  //   에이전트 self-DoS. **strict TOML 파싱으로 top-level name 만** 인정(파싱 실패 = 파일명 폴백·명시 정책).
+  for (const dir of editableTomlAgentDirs()) {
+    const adir = join(root, ...dir.split("/"));
+    for (const f of await listFiles(adir, ".toml")) {
+      const text = await readCappedDef(join(adir, f));
+      if (text === null) continue;
+      const canonical = tomlTopLevelName(text) ?? f.replace(/\.toml$/, "");
+      if (canonical === name) matches.push(dir + "/" + f);
+    }
+  }
   if (matches.length > 1) return { ok: false, error: "ambiguous-definition" };
   if (matches.length === 1) return { ok: true, sourcePath: matches[0]! };
-  // 0: Codex TOML(M-e까지 편집 불가) 있으면 codex-only-v0.7.
-  for (const f of await listFiles(join(root, ".codex", "agents"), ".toml")) {
-    const text = await readCappedDef(join(root, ".codex", "agents", f));
-    if (text === null) continue;
-    const nm = text.match(/^\s*name\s*=\s*["'](.+?)["']/m);
-    if ((nm?.[1] ?? f.replace(/\.toml$/, "")) === name) return { ok: false, error: "codex-only-v0.7" };
-  }
   return { ok: false, error: "not-found" };
 }
 

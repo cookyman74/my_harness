@@ -47,7 +47,8 @@ export const RUNTIMES: readonly RuntimeAdapter[] = [
   },
   {
     id: "codex", label: "Codex",
-    agent: { dir: ".codex/agents", ext: ".toml", format: "toml", editable: false },
+    // M-e(F15): Codex 에이전트 = TOML → limited-edit 개방(주석 보존 verbatim·semantic diff). toml.ts 경유.
+    agent: { dir: ".codex/agents", ext: ".toml", format: "toml", editable: true },
     skills: [{ dir: ".agents/skills", priority: 10, editable: false }],
     rulesFile: "AGENTS.md",
     install: { channel: "shared", userDest: join(H, ".agents", "skills", "myharness") },
@@ -69,9 +70,13 @@ export function runtimeById(id: string): RuntimeAdapter | undefined {
   return RUNTIMES.find((r) => r.id === id);
 }
 
-// F14(M-c): 편집 가능 md 에이전트 dir(claude·gemini). Codex toml(.codex/agents)은 M-e까지 제외.
+// F14(M-c): 편집 가능 md 에이전트 dir(claude·gemini). md 파서 경유(canonicalizeDefinition).
 export function editableMdAgentDirs(): string[] {
   return RUNTIMES.filter((r) => r.agent.editable && r.agent.format === "md-frontmatter").map((r) => r.agent.dir);
+}
+// F15(M-e): 편집 가능 TOML 에이전트 dir(codex). toml 파서 경유(canonicalizeTomlAgent·limited-edit).
+export function editableTomlAgentDirs(): string[] {
+  return RUNTIMES.filter((r) => r.agent.editable && r.agent.format === "toml").map((r) => r.agent.dir);
 }
 // F14(M-c): 편집 가능 스킬 dir(SKILL.md·md). 어느 런타임이든 editable=true 면 편집 가능(.agents/skills 공유 포함).
 export function editableSkillDirs(): string[] {

@@ -102,12 +102,19 @@ describe("contextEditTarget — 정의 경로 파싱(F7 편집 대상만)", () =
   it("skill 정의(.claude/skills/<name>/SKILL.md)", () => {
     expect(contextEditTarget(".claude/skills/alpha/SKILL.md")).toEqual({ kind: "skill", name: "alpha" });
   });
-  it("정의 아님(references·top file·codex/agy·중첩) → null", () => {
+  it("F15: codex toml 에이전트·shared(.agents) 스킬 = 컨텍스트 트리 편집 대상", () => {
+    expect(contextEditTarget(".codex/agents/cx.toml")).toEqual({ kind: "agent", name: "cx" });
+    expect(contextEditTarget(".agents/skills/beta/SKILL.md")).toEqual({ kind: "skill", name: "beta" });
+  });
+  it("정의 아님·트리 밖 → null(.gemini 는 트리 스코프 밖·서버 동형·dotfile 거부)", () => {
     expect(contextEditTarget(".claude/skills/alpha/notes.md")).toBeNull();
     expect(contextEditTarget(".claude/skills/alpha/references/x.md")).toBeNull();
     expect(contextEditTarget("CLAUDE.md")).toBeNull();
-    expect(contextEditTarget(".codex/agents/cx.toml")).toBeNull();
-    expect(contextEditTarget(".agents/skills/beta/SKILL.md")).toBeNull();
+    expect(contextEditTarget("GEMINI.md")).toBeNull();
+    expect(contextEditTarget(".codex/agents/cx.md")).toBeNull();          // codex 에이전트는 toml 만
+    expect(contextEditTarget(".gemini/agents/g1.md")).toBeNull();         // .gemini = 트리 밖(서버 400 동형·R5 MED)
+    expect(contextEditTarget(".gemini/skills/gs/SKILL.md")).toBeNull();
+    expect(contextEditTarget(".codex/agents/.hidden.toml")).toBeNull();   // dotfile 첫 글자 점 → 거부(R5 LOW)
   });
 });
 
@@ -123,11 +130,17 @@ describe("editDecision — 편집 활성 계약(runtime==claude && 정의경로 
     expect(editDecision({ runtime: "claude", path: ".claude/skills/alpha/SKILL.md", type: "file" }, true))
       .toEqual({ editable: true, kind: "skill", name: "alpha" });
   });
-  it("게이트 on 이어도 codex/agy/codex-agy → 비활성(현재 미지원)", () => {
-    for (const rt of ["codex", "agy", "codex/agy"] as Runtime[]) {
+  it("F15(M-e): 게이트 on + codex toml 에이전트 정의 → 활성(런타임 무관 편집)", () => {
+    for (const rt of ["codex", "codex/agy"] as Runtime[]) {
       const d = editDecision({ runtime: rt, path: ".codex/agents/cx.toml", type: "file" }, true);
-      expect(d.editable).toBe(false);
+      expect(d).toEqual({ editable: true, kind: "agent", name: "cx" });
     }
+    // 공유 스킬도 편집 가능
+    expect(editDecision({ runtime: "codex/agy", path: ".agents/skills/beta/SKILL.md", type: "file" }, true))
+      .toEqual({ editable: true, kind: "skill", name: "beta" });
+  });
+  it("정의 아님 런타임 파일(top rules·references) → 비활성(읽기전용 사유)", () => {
+    expect(editDecision({ runtime: "agy", path: "GEMINI.md", type: "file" }, true).editable).toBe(false);
   });
   it("게이트 on·claude 인데 정의 파일 아님(references·top file) → 비활성", () => {
     expect(editDecision({ runtime: "claude", path: ".claude/skills/alpha/notes.md", type: "file" }, true).editable).toBe(false);

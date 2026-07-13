@@ -81,21 +81,25 @@ describe("A122 — GET /api/context/file (HR5=DV8·md/TOML 렌더·실행 안 �
 });
 
 describe("A130/HR6 — 편집=Claude 스코프만(PUT /api/context/edit·아무것도 안 씀)", () => {
-  it("Codex/agy/GEMINI.md → 409 <runtime>-edit-v0.7·CLAUDE.md → readonly·.claude → f7", async () => {
-    const cases: [string, string][] = [
-      [".codex/agents/cx.toml", "codex-edit-v0.7"],
-      [".agents/skills/beta/SKILL.md", "codex/agy-edit-v0.7"],
-      ["GEMINI.md", "agy-edit-v0.7"],
-    ];
-    for (const [path, err] of cases) {
+  it("편집 가능 정의(codex toml·shared skill·claude md) → edit-via-f7·top rules 파일 → readonly(M-e drift 해소)", async () => {
+    // F15(M-e): codex toml 에이전트·공유 스킬도 F7 편집 가능 → edit-via-f7. GEMINI.md/CLAUDE.md(top rules) 는 정의 아님 → 읽기전용.
+    const f7cases = [".codex/agents/cx.toml", ".agents/skills/beta/SKILL.md", ".claude/agents/a1.md"];
+    for (const path of f7cases) {
       const r = await app().inject({ method: "PUT", url: "/api/context/edit", payload: { path } });
       expect(r.statusCode).toBe(409);
-      expect(r.json().error).toBe(err);
+      expect(r.json().error).toBe("edit-via-f7");
     }
-    const claude = await app().inject({ method: "PUT", url: "/api/context/edit", payload: { path: ".claude/agents/a1.md" } });
-    expect(claude.json().error).toBe("edit-via-f7");
+    const gem = await app().inject({ method: "PUT", url: "/api/context/edit", payload: { path: "GEMINI.md" } });
+    expect(gem.statusCode).toBe(409);
+    expect(gem.json().error).toBe("agy-edit-v0.7"); // top rules 파일(정의 아님) — v0.7 비대상
     const cmd = await app().inject({ method: "PUT", url: "/api/context/edit", payload: { path: "CLAUDE.md" } });
     expect(cmd.json().error).toBe("context-file-readonly");
+    // R5(codex MED): .gemini 는 컨텍스트 트리 밖 → 서버/웹 동형(edit-via-f7 아님·트리 미노출). classify 400 invalid-path.
+    const gemDef = await app().inject({ method: "PUT", url: "/api/context/edit", payload: { path: ".gemini/agents/g1.md" } });
+    expect(gemDef.statusCode).toBe(400);
+    // R5(codex LOW): dotfile 명(첫 글자 점)은 edit-via-f7 false-positive 금지(웹 정규식과 동일 엄격도).
+    const dot = await app().inject({ method: "PUT", url: "/api/context/edit", payload: { path: ".codex/agents/.hidden.toml" } });
+    expect(dot.json().error).not.toBe("edit-via-f7");
   });
   it("LOW-2: claude 서브루트의 비-정의 파일(references/*)은 edit-via-f7 아닌 context-file-readonly", async () => {
     await mkdir(join(root, ".claude", "skills", "alpha", "references"), { recursive: true });

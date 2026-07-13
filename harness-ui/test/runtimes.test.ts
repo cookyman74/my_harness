@@ -32,10 +32,10 @@ describe("RUNTIMES 레지스트리 (SSOT)", () => {
     expect(runtimeOfPath(".codex/agents/x")).toBe("codex");
     expect(runtimeOfPath(".claude/agents/x")).toBe("claude");
   });
-  it("editable — M-c: claude·gemini md 에이전트 편집 가능·codex(toml)은 M-e까지 false", () => {
+  it("editable — claude·gemini md·codex toml 에이전트 모두 편집 가능(M-c·M-e)", () => {
     expect(runtimeById("claude")?.agent.editable).toBe(true);
     expect(runtimeById("gemini")?.agent.editable).toBe(true);  // M-c: md=Claude 동일 파서
-    expect(runtimeById("codex")?.agent.editable).toBe(false);  // M-e(TOML)까지
+    expect(runtimeById("codex")?.agent.editable).toBe(true);   // M-e(F15): Codex TOML limited-edit 개방
   });
 });
 
