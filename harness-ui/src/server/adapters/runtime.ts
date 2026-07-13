@@ -1,10 +1,14 @@
 // 런타임 감지 (설계 §API /api/runtimes). claude/codex/agy 설치·버전·경로 + 비-TTY 인증 상태.
 import { safeExec } from "../lib/exec.js";
+import { stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
-// authenticated: "authenticated" | "unauthenticated" | "unknown"
+// authenticated: "authenticated" | "configured" | "unauthenticated" | "unknown"
 //   - claude: `claude auth status`(JSON .loggedIn) — 비-TTY 지원.
 //   - codex: `codex login status`("Logged in …") — 비-TTY 지원.
-//   - agy: 비-TTY status 미지원(bubbletea /dev/tty 요구)·자격 파일 휴리스틱 부재 → "조회 미지원"(고장 아님·리뷰 사용은 정상).
+//   - agy: 비-TTY status 미지원(bubbletea /dev/tty 요구) → 자격 파일(`~/.gemini/oauth_creds.json`) 기반 추정.
+//     존재+현재유저 owner="configured"(설정 감지), 부재="unauthenticated", owner 검증 불가(Windows)="unknown". "인증됨" 단정 아님(만료/폐기 미구분).
 export type RuntimeInfo = { installed: boolean; version: string | null; path: string | null; authenticated: string };
 
 async function probeAuth(bin: string): Promise<string> {
@@ -27,8 +31,20 @@ async function probeAuth(bin: string): Promise<string> {
     if (/logged in/i.test(out)) return "authenticated";
     return "unknown";
   }
-  // agy 및 기타: 비대화형 인증 조회 수단 없음(TTY 요구·자격 파일 부재). "unknown"(고장 암시) 대신 정직하게 "조회 미지원".
-  return "조회 미지원";
+  // agy(Gemini): CLI 비대화형 인증 조회 미지원. **자격 파일 근거**로 상태 추정(F17·design §7-4):
+  //   ~/.gemini/oauth_creds.json 존재 + 현재 유저 owner → "configured(설정 감지)". 부재 → "unauthenticated".
+  //   내용 미판독(비밀 미접근). "인증됨" 단정 금지(만료/폐기 구분 불가).
+  //   - stat(=심링크 추종): stow 등으로 자격 파일을 심링크한 파워유저도 정상 감지(agy LOW).
+  //   - owner 검증 불가 환경(Windows·getuid 부재)에서는 "configured" 단정 금지 → "unknown"(정직·codex MED).
+  if (bin === "agy" || bin === "gemini") {
+    try {
+      const st = await stat(join(homedir(), ".gemini", "oauth_creds.json"));
+      if (!st.isFile()) return "unauthenticated";
+      if (typeof process.getuid !== "function") return "unknown"; // owner 검증 불가 → 단정 금지
+      return st.uid === process.getuid() ? "configured" : "unauthenticated";
+    } catch { return "unauthenticated"; }
+  }
+  return "unknown";
 }
 
 async function probe(bin: string): Promise<RuntimeInfo> {

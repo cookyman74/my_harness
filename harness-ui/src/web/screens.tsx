@@ -1271,7 +1271,12 @@ export function Ops() {
           {/* usage/quota 컬럼 제거 — 비-TTY 서버서 상시 조회 불가(개선 불가·무의미)라 삭제. */}
           <Table cols={["런타임", "건강", "버전", "인증"]} rows={Object.entries(s.runtimes).map(([k, v]) => [
             k, <Badge kind={v.health === "ok" ? "ok" : "muted"}>{v.health}</Badge>, v.version ?? "—",
-            v.authenticated === "조회 미지원" ? <span className="muted" title="agy는 CLI 비대화형 인증 조회를 지원하지 않습니다 · 설치·리뷰 사용은 정상">조회 미지원</span> : v.authenticated,
+            v.authenticated === "configured" ? <span title="agy: 자격 파일(~/.gemini/oauth_creds.json) 감지 · CLI 인증 조회 미지원이라 '인증됨' 단정 아님"><Badge kind="ok">설정 감지</Badge></span>
+              : v.authenticated === "unauthenticated" ? <Badge kind="warn">미인증</Badge>
+              : v.authenticated === "unknown"
+                // agy는 CLI 인증 조회를 설계상 지원 안 함(=미지원) / claude·codex의 unknown은 조회·파싱 실패(=원인 구분·codex LOW).
+                ? <span className="muted">{k === "agy" || k === "gemini" ? "조회 미지원" : "조회 실패"}</span>
+              : v.authenticated,
           ])} />
         </Card>
       )}</Async>
@@ -1398,11 +1403,12 @@ export function FactoryPanel() {
   const [toggling, setToggling] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [open, setOpen] = useState(false); // 관리 상세 펼침(설치돼 있으면 기본 접힘)
+  const [bulk, setBulk] = useState<FactoryAction | null>(null); // 전체 채널 일괄 진행 중 액션
   // useApi 는 reload 시 data 를 null 로 비운다 → 마지막 상태를 캐시해 재조회 중 카드/메시지 소멸 방지.
   const [cached, setCached] = useState<FactoryStatus | null>(null);
   useEffect(() => { if (st.data) setCached(st.data); }, [st.data]);
   // 재조회(st.loading) 중에도 버튼 잠금 유지 → 성공 후 stale 버튼 재클릭 경쟁 차단.
-  const busy = pending !== null || toggling || st.loading;
+  const busy = pending !== null || bulk !== null || toggling || st.loading;
 
   const toggleMaint = async (enabled: boolean) => {
     if (busy) return; // 쓰기 진행 중 게이트 변경 금지
@@ -1411,7 +1417,7 @@ export function FactoryPanel() {
     catch (e) { setMsg({ ok: false, text: "유지관리 토글 실패: " + readErrorText(e) }); } finally { setToggling(false); }
   };
   const apply = async (target: FactoryTarget, action: FactoryAction) => {
-    const label = target === "claude-skill" ? "Claude 글로벌 스킬" : "Codex 글로벌 스킬";
+    const label = target === "claude-skill" ? "Claude 글로벌 스킬" : "공유(Codex+Gemini) 글로벌 스킬";
     const verb = action === "install" ? "설치" : action === "update" ? "업데이트" : "제거";
     if (action === "remove" && !window.confirm(`${label} 을(를) 제거할까요?\n(실물 디렉토리는 하드삭제 없이 백업 후 이동됩니다.)`)) return;
     setOpen(true); // 결과를 계속 보이도록 상세 유지(설치 성공→installed 로 자동 접힘 방지)
@@ -1419,7 +1425,7 @@ export function FactoryPanel() {
     try {
       const r = await applyFactory(target, action, action === "remove" ? true : undefined);
       // 낙관적 캐시 패치(codex R2): 재조회 전/실패해도 배지가 결과와 즉시 일치(제거 후 '설치됨' 모순 방지).
-      const key = target === "claude-skill" ? "claudeSkill" : "codexSkill";
+      const key = target === "claude-skill" ? "claudeSkill" : "sharedSkill";
       setCached((prev) => (prev ? { ...prev, targets: { ...prev.targets, [key]: r.state } } : prev));
       setMsg({ ok: true, text: `${label} ${verb} 완료 · ${methodText(r.method)}${r.backup ? ` (기존은 백업됨)` : ""}` });
       st.reload();
@@ -1429,6 +1435,29 @@ export function FactoryPanel() {
   };
   const pendingFor = (target: FactoryTarget): FactoryAction | null =>
     pending && pending.target === target ? pending.action : null;
+
+  // 벌크(두 채널 순차 적용·부분성공 보고). 각 채널 독립 apply — 하나 실패해도 나머지 진행(원자성은 채널 단위).
+  const ALL_TARGETS: FactoryTarget[] = ["claude-skill", "shared-skill"];
+  const applyAll = async (action: FactoryAction) => {
+    if (busy) return; // 진입 즉시 가드(codex MED — disabled state 반영 前 더블클릭/동시 이벤트 HOME 쓰기 경쟁 차단)
+    const verb = action === "install" ? "설치" : action === "update" ? "업데이트" : "제거";
+    if (action === "remove" && !window.confirm(`모든 글로벌 스킬 채널(Claude·공유)을 제거할까요?\n(실물 디렉토리는 백업 후 이동됩니다.)`)) return;
+    setOpen(true); setBulk(action); setMsg(null);
+    const results: string[] = [];
+    for (const target of ALL_TARGETS) {
+      try {
+        const r = await applyFactory(target, action, action === "remove" ? true : undefined);
+        const key = target === "claude-skill" ? "claudeSkill" : "sharedSkill";
+        setCached((prev) => (prev ? { ...prev, targets: { ...prev.targets, [key]: r.state } } : prev));
+        results.push(`${target === "claude-skill" ? "Claude" : "공유"} ✓ ${methodText(r.method)}${r.backup ? " (백업됨)" : ""}`);
+      } catch (e) {
+        results.push(`${target === "claude-skill" ? "Claude" : "공유"} ✗ ${readErrorText(e)}`);
+      }
+    }
+    const ok = !results.some((x) => x.includes("✗"));
+    setMsg({ ok, text: `전체 ${verb}: ${results.join(" · ")}` });
+    setBulk(null); st.reload();
+  };
 
   const s = st.data ?? cached; // 재조회 중엔 캐시로 유지
   if (!s) { // 최초 로딩 or 에러(캐시 없음)
@@ -1442,10 +1471,10 @@ export function FactoryPanel() {
   if (!s.isFactoryRepo) return null; // 비팩토리 레포 → 숨김(build 는 계속 동작)
 
   // 설치 여부(어떤 방식이든) + 주의 필요(미설치·마켓 구버전·비동기 복사본).
-  const installed = s.targets.marketplace.installed || s.targets.claudeSkill.kind !== "absent" || s.targets.codexSkill.kind !== "absent";
+  const installed = s.targets.marketplace.installed || s.targets.claudeSkill.kind !== "absent" || s.targets.sharedSkill.kind !== "absent";
   const attention = !installed || s.targets.marketplace.updateAvailable
     || (s.targets.claudeSkill.kind !== "absent" && !skillSynced(s.targets.claudeSkill))
-    || (s.targets.codexSkill.kind !== "absent" && !skillSynced(s.targets.codexSkill));
+    || (s.targets.sharedSkill.kind !== "absent" && !skillSynced(s.targets.sharedSkill));
   const expanded = open || !installed; // 미설치면 강제 펼침(온보딩 강조)
   const summary = !installed ? "팩토리(myharness) 미설치" : attention ? "팩토리 점검 필요" : "팩토리 최신 ✓";
   const summaryKind: "ok" | "warn" = !installed || attention ? "warn" : "ok";
@@ -1465,7 +1494,7 @@ export function FactoryPanel() {
         {!installed && <p className="fac-lead">이 하네스를 찍어내는 <b>팩토리(myharness)</b>를 설치하면 Claude Code/Codex에서 하네스를 직접 만들 수 있습니다. (웹 자동 빌드는 설치 없이도 동작합니다.)</p>}
         {msg && <p className={msg.ok ? "fac-msg ok" : "fac-msg err"} role={msg.ok ? "status" : "alert"}>{msg.text}</p>}
         <Card title="유지관리 게이트">
-          <p className="muted">설치·업데이트·제거는 HOME(<span className="mono">~/.claude</span>·<span className="mono">~/.codex</span>)에 스킬 파일을 씁니다. 안전을 위해 기본 잠금.</p>
+          <p className="muted">설치·업데이트·제거는 HOME(<span className="mono">~/.claude</span>·<span className="mono">~/.agents</span> 공유)에 스킬 파일을 씁니다. 안전을 위해 기본 잠금.</p>
           <label className={"fac-gate" + (s.maintenanceEnabled ? "" : " locked")} style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <input type="checkbox" checked={s.maintenanceEnabled} disabled={busy} onChange={(e) => toggleMaint(e.target.checked)} />
             <span>{s.maintenanceEnabled ? "유지관리 허용됨 — 아래 버튼 사용 가능" : "🔒 잠김 — 설치·업데이트하려면 여기를 켜세요"}</span>
@@ -1474,9 +1503,17 @@ export function FactoryPanel() {
         <FactoryTargetCard title="Claude Code · 글로벌 스킬" dest="~/.claude/skills/myharness"
           state={s.targets.claudeSkill} enabled={s.maintenanceEnabled} busy={busy}
           pendingAction={pendingFor("claude-skill")} onApply={(a) => apply("claude-skill", a)} />
-        <FactoryTargetCard title="Codex · 글로벌 스킬" dest="~/.codex/skills/myharness"
-          state={s.targets.codexSkill} enabled={s.maintenanceEnabled} busy={busy}
-          pendingAction={pendingFor("codex-skill")} onApply={(a) => apply("codex-skill", a)} />
+        <FactoryTargetCard title="Codex + Gemini · 공유 글로벌 스킬" dest="~/.agents/skills/myharness"
+          state={s.targets.sharedSkill} enabled={s.maintenanceEnabled} busy={busy}
+          pendingAction={pendingFor("shared-skill")} onApply={(a) => apply("shared-skill", a)} />
+        <Card title="전체 채널 일괄">
+          <p className="muted">Claude·공유(Codex+Gemini) 두 채널을 한 번에. 채널별 독립 적용(하나 실패해도 나머지 진행·부분성공 보고).</p>
+          <div className="fac-bulk" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button disabled={!s.maintenanceEnabled || busy} onClick={() => applyAll("install")}>{bulk === "install" ? "설치 중…" : "전체 설치"}</button>
+            <button disabled={!s.maintenanceEnabled || busy} onClick={() => applyAll("update")}>{bulk === "update" ? "업데이트 중…" : "전체 업데이트"}</button>
+            <button className="danger" disabled={!s.maintenanceEnabled || busy} onClick={() => applyAll("remove")}>{bulk === "remove" ? "제거 중…" : "전체 제거"}</button>
+          </div>
+        </Card>
         <Card title="Claude Code · marketplace 플러그인">
           {s.targets.marketplace.installed ? <>
             <p><Badge kind={s.targets.marketplace.updateAvailable ? "warn" : "ok"}>

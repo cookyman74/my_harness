@@ -506,11 +506,11 @@ export interface FactoryStatus {
   maintenanceEnabled: boolean;
   targets: {
     claudeSkill: SkillState;
-    codexSkill: SkillState;
+    sharedSkill: SkillState;
     marketplace: { installed: boolean; version: string | null; updateAvailable: boolean };
   };
 }
-export type FactoryTarget = "claude-skill" | "codex-skill";
+export type FactoryTarget = "claude-skill" | "shared-skill";
 export type FactoryAction = "install" | "update" | "remove";
 export const setFactoryMaintenance = (enabled: boolean) =>
   apiPost<{ ok: true; factoryMaintenanceEnabled: boolean }>("/api/settings/factory-maintenance", { enabled });

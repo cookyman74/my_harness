@@ -396,7 +396,7 @@ export function registerApi(
     return { ok: true, factoryMaintenanceEnabled: next.factoryMaintenanceEnabled };
   });
   const FactoryApplyBody = z.object({
-    target: z.enum(["claude-skill", "codex-skill"]),
+    target: z.enum(["claude-skill", "shared-skill"]),
     action: z.enum(["install", "update", "remove"]),
     confirm: z.boolean().optional(),
   }).strict();
@@ -664,7 +664,8 @@ export function registerApi(
 
   // ops status(A7·A8): 런타임 설치·버전 + 비-TTY 인증 상태.
   //   authenticated: detectRuntimes 가 claude(`auth status` JSON)·codex(`login status`)를 실조회.
-  //     agy 는 CLI 비대화형 인증 조회 미지원(bubbletea /dev/tty 요구) → "조회 미지원"(런타임 한계·고장 아님).
+  //     agy 는 CLI 비대화형 인증 조회 미지원(bubbletea /dev/tty 요구) → 자격 파일 기반 추정
+  //     ("configured" 설정 감지 / "unauthenticated" 부재 / "unknown" owner 검증 불가). "인증됨" 단정 아님.
   //   usage/quota 컬럼은 제거됨 — 런타임 CLI 가 대화형 /status·provider API 로만 제공해 비-TTY 서버서 항상 조회 불가(개선 불가·상시 '불가'라 무의미).
   app.get("/api/ops/status", async () => {
     const rt = await detectRuntimes();

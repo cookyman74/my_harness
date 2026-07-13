@@ -22,7 +22,7 @@ describe("factoryStatus — 감지(읽기)", () => {
     expect(s.isFactoryRepo).toBe(true);
     expect(s.sourceVersion).toMatch(/^\d+\.\d+\.\d+$/); // plugin.json version
     expect(s.targets.claudeSkill).toEqual({ kind: "absent" });
-    expect(s.targets.codexSkill).toEqual({ kind: "absent" });
+    expect(s.targets.sharedSkill).toEqual({ kind: "absent" });
     expect(s.maintenanceEnabled).toBe(false);
   });
   it("비팩토리 projectRoot → isFactoryRepo false", async () => {
@@ -56,6 +56,18 @@ describe("applyFactoryAction — 적용(쓰기)", () => {
     const st = await lstat(claudeDest());
     if (r.method === "symlink") { expect(st.isSymbolicLink()).toBe(true); expect(resolve(await readlink(claudeDest()))).toBe(resolve(srcSkill)); }
     else expect(st.isDirectory()).toBe(true);
+  });
+  it("shared-skill install → ~/.agents/skills/myharness 로 씀(Codex+Gemini 공유 채널)", async () => {
+    const r = await applyFactoryAction({ projectRoot: repoRoot, home, target: "shared-skill", action: "install", nowMs: 11 });
+    expect(r.ok).toBe(true);
+    expect(["symlink", "copy"]).toContain(r.method);
+    const dest = join(home, ".agents", "skills", "myharness");
+    const st = await lstat(dest);
+    if (r.method === "symlink") expect(resolve(await readlink(dest))).toBe(resolve(srcSkill));
+    else expect(st.isDirectory()).toBe(true);
+    // 상태 조회도 공유 타깃을 인식
+    const s = await factoryStatus({ projectRoot: repoRoot, home, maintenanceEnabled: true });
+    expect(s.targets.sharedSkill.kind).not.toBe("absent");
   });
   it("update 재실행(이미 정본 심링크) → noop", async () => {
     await mkdir(join(home, ".claude", "skills"), { recursive: true });
@@ -113,6 +125,13 @@ describe("applyFactoryAction — 적용(쓰기)", () => {
     await rm(join(home, ".claude"), { recursive: true, force: true });
     await symlink(elsewhere, join(home, ".claude"), "dir"); // ~/.claude 를 심링크로
     await expect(applyFactoryAction({ projectRoot: repoRoot, home, target: "claude-skill", action: "install", nowMs: 7 }))
+      .rejects.toThrow("parent-unsafe");
+    await rm(elsewhere, { recursive: true, force: true });
+  });
+  it("shared 채널: 부모 ~/.agents 가 심링크 → parent-unsafe 거부(F17 안전경계)", async () => {
+    const elsewhere = await mkdtemp(join(tmpdir(), "hui-else2-"));
+    await symlink(elsewhere, join(home, ".agents"), "dir"); // ~/.agents 를 심링크로
+    await expect(applyFactoryAction({ projectRoot: repoRoot, home, target: "shared-skill", action: "install", nowMs: 8 }))
       .rejects.toThrow("parent-unsafe");
     await rm(elsewhere, { recursive: true, force: true });
   });

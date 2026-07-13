@@ -1,7 +1,7 @@
 // F11: 팩토리(myharness) 유지관리 — 하네스웹에서 설치·업데이트·제거를 명확히.
 //
 // 보안 경계(HOME 쓰기 = projectRoot 밖 신규 mutation):
-//   - 대상 경로는 **고정 리터럴**(~/.claude/skills/myharness · ~/.codex/skills/myharness) — 사용자 입력 경로 없음 = 경로탈출 불가.
+//   - 대상 경로는 **고정 리터럴**(~/.claude/skills/myharness · ~/.agents/skills/myharness 공유) — 사용자 입력 경로 없음 = 경로탈출 불가.
 //   - 소스는 projectRoot/skills/myharness — 링크/복사 전 **팩토리 검증**(SKILL.md 존재)으로 임의 디렉토리 링크 차단.
 //   - 쓰기(apply)는 config.factoryMaintenanceEnabled 게이트(라우트에서 확인·기본 false) + 세션 인증 뒤에서만.
 //   - 실물 디렉토리 파괴 전 **백업**(사용자 데이터 하드삭제 금지). 제거는 confirm 필요.
@@ -9,13 +9,15 @@
 import { lstat, stat, readlink, symlink, rm, mkdir, cp, rename, readFile } from "node:fs/promises";
 import { join, resolve, dirname } from "node:path";
 
-export type SkillTargetId = "claude-skill" | "codex-skill";
+// F17(M-d·design §7-2): 설치 채널 2개. claude-skill=`~/.claude/skills`(Claude) · shared-skill=`~/.agents/skills`(Codex+Gemini 공유·공식).
+//   (구 codex-skill=`~/.codex/skills`는 shared 로 이관 — 선검증서 `.agents/skills` 유저 공유 실재 확인.)
+export type SkillTargetId = "claude-skill" | "shared-skill";
 export type FactoryAction = "install" | "update" | "remove";
 
 // 대상별 고정 경로(home 주입 — 테스트 가능·사용자 입력 아님).
 function skillDest(home: string, target: SkillTargetId): string {
   if (target === "claude-skill") return join(home, ".claude", "skills", "myharness");
-  if (target === "codex-skill") return join(home, ".codex", "skills", "myharness");
+  if (target === "shared-skill") return join(home, ".agents", "skills", "myharness"); // Codex+Gemini 공유 채널
   throw new Error("unknown-target"); // enum 밖 — 방어
 }
 
@@ -43,7 +45,7 @@ async function isFactorySource(projectRoot: string): Promise<boolean> {
 // 대상의 상위 경로(홈 하위 고정 세그먼트)가 심링크로 리다이렉트되지 않는지(codex MED — parent symlink).
 //   존재하는 부모가 심링크면 쓰기가 의도 밖 위치로 새어나갈 수 있어 거부. 부재는 mkdir 이 실디렉토리로 생성(안전).
 async function assertParentChainSafe(home: string, target: SkillTargetId): Promise<void> {
-  const segs = target === "claude-skill" ? [".claude", "skills"] : [".codex", "skills"];
+  const segs = target === "claude-skill" ? [".claude", "skills"] : [".agents", "skills"];
   let cur = home;
   for (const s of segs) {
     cur = join(cur, s);
@@ -104,7 +106,7 @@ export interface FactoryStatus {
   maintenanceEnabled: boolean;     // 쓰기 게이트 상태
   targets: {
     claudeSkill: SkillState;
-    codexSkill: SkillState;
+    sharedSkill: SkillState; // Codex+Gemini 공유(`~/.agents/skills`)
     marketplace: { installed: boolean; version: string | null; updateAvailable: boolean }; // 앱 제어 불가·감지/안내만
   };
 }
@@ -120,7 +122,7 @@ export async function factoryStatus(opts: { projectRoot: string; home: string; m
     maintenanceEnabled,
     targets: {
       claudeSkill: isRepo ? await detectSkill(home, projectRoot, "claude-skill") : { kind: "absent" },
-      codexSkill: isRepo ? await detectSkill(home, projectRoot, "codex-skill") : { kind: "absent" },
+      sharedSkill: isRepo ? await detectSkill(home, projectRoot, "shared-skill") : { kind: "absent" },
       marketplace: { installed: mkt.installed, version: mkt.version, updateAvailable: mkt.installed && src != null && mkt.version !== src },
     },
   };
