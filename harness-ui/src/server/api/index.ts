@@ -1,5 +1,5 @@
 // API 라우트 등록. 보안 미들웨어(token/Host/Origin/denylist)는 security.ts.
-import { readdir } from "node:fs/promises";
+import { readdir, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { detectRuntimes } from "../adapters/runtime.js";
@@ -677,6 +677,11 @@ export function registerApi(
       const r = await withDefLock(t.path, async (): Promise<Record<string, unknown>> => {
         const abs = await safeDefPath(projectRoot, t.path, "skill");
         if (!abs) return { status: "path-unsafe" };
+        // R3(codex LOW): classify→write TOCTOU 봉쇄 — 쓰기 직전 lock 안에서 nlink 재검증. 분류 후 대상이 foreign
+        //   hardlink(nlink>1)로 바뀌면 rename 이 링크 관계를 끊는다 → 여기서 fail-closed(분류뿐 아니라 최종 쓰기 직전에도 강제).
+        const l = await lstat(abs).catch(() => null);
+        if (!l || l.isSymbolicLink() || !l.isFile()) return { status: "not-syncable:non-file" };
+        if (l.nlink > 1) return { status: "not-syncable:foreign-hardlink" };
         const cur = await readDefSafe(abs);
         if (!cur) return { status: "not-found" };
         const prevHash = sha256(cur.content);
