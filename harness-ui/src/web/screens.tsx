@@ -1260,15 +1260,16 @@ export function Drift() {
 
 // ── 7. Ops (A7·A8) ──
 export function Ops() {
-  const st = useApi<{ updatedAt: string; runtimes: Record<string, { installed: boolean; version: string | null; health: string; authenticated: string; usage: { available: boolean; reason?: string } }> }>("/api/ops/status");
+  const st = useApi<{ updatedAt: string; runtimes: Record<string, { installed: boolean; version: string | null; health: string; authenticated: string }> }>("/api/ops/status");
   return (
     <div className="screen">
       <h2>Ops</h2>
       <Async state={st}>{(s) => (
         <Card title={`런타임 상태 · ${s.updatedAt.slice(0, 19)}`}>
-          <Table cols={["런타임", "건강", "버전", "인증", "usage"]} rows={Object.entries(s.runtimes).map(([k, v]) => [
-            k, <Badge kind={v.health === "ok" ? "ok" : "muted"}>{v.health}</Badge>, v.version ?? "—", v.authenticated,
-            v.usage.available ? "가능" : <span className="muted" title={v.usage.reason}>불가</span>,
+          {/* usage/quota 컬럼 제거 — 비-TTY 서버서 상시 조회 불가(개선 불가·무의미)라 삭제. */}
+          <Table cols={["런타임", "건강", "버전", "인증"]} rows={Object.entries(s.runtimes).map(([k, v]) => [
+            k, <Badge kind={v.health === "ok" ? "ok" : "muted"}>{v.health}</Badge>, v.version ?? "—",
+            v.authenticated === "조회 미지원" ? <span className="muted" title="agy는 CLI 비대화형 인증 조회를 지원하지 않습니다 · 설치·리뷰 사용은 정상">조회 미지원</span> : v.authenticated,
           ])} />
         </Card>
       )}</Async>
