@@ -5,6 +5,7 @@ import { readdir, stat, open } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { ARGV_TOKEN, isSafeSegment } from "../lib/paths.js";
+import { agentSources, skillDirs, type RuntimeId } from "./runtimes.js";
 
 // 정의 스캔 바운드(agy#2 OOM/DoS 방어): 파일당 read 상한 + 디렉토리당 개수 상한.
 const MAX_DEF_BYTES = 262144;   // 정의 파일당 read 상한(256KB) — 거대 파일 OOM 차단
@@ -112,7 +113,7 @@ export function parseFrontmatter(textIn: string): Record<string, string> {
 
 // F2(M10): tools = U⊆D 상한 D의 소스(정의 frontmatter → argv-token 필터). targets/domainTemplate/permissionMode = run-template 프리필 초안.
 export type AgentInfo = {
-  name: string; runtime: "claude" | "codex"; sourcePath: string; role: string; skills: string[];
+  name: string; runtime: RuntimeId; sourcePath: string; role: string; skills: string[];
   skillsDeclared: boolean; skillsSyntax: ListSyntax;   // M-A: 선언 여부(present)·문법(scalar 거부) — link_unknown/orphan 분류
   tools: string[]; targets: string[]; domainTemplate: string; permissionMode: string | null;
 };
@@ -174,58 +175,61 @@ export function agentFingerprint(a: AgentInfo): string {
 
 // 단일 파일 → AgentInfo 구성(전건 스캔·단건 fast-path 공유 — 동일 구성 보장으로 지문 일치).
 // sourcePath 는 POSIX 리터럴 결합("/") — OS 구분자 무관 결정적 지문(agy#3). 파일 접근엔 미사용(표시·지문 전용).
-function buildClaudeAgent(f: string, text: string): AgentInfo {
+// md-frontmatter 에이전트(Claude·Gemini 공통 포맷·F12 레지스트리). runtime·dir 주입(하드코딩 제거).
+function buildMdAgent(runtime: RuntimeId, dir: string, f: string, text: string): AgentInfo {
   const fm = parseFrontmatter(text);
   const sk = parseFrontmatterList(text, "skills");   // M-A: skills:[] 하드코딩 제거 → 실파싱
   return {
-    name: fm.name ?? f.replace(/\.md$/, ""), runtime: "claude", sourcePath: ".claude/agents/" + f,
+    name: fm.name ?? f.replace(/\.md$/, ""), runtime, sourcePath: dir + "/" + f,
     role: fm.description ?? "", skills: sk.items, skillsDeclared: sk.present, skillsSyntax: sk.syntax,
     tools: deriveTools(fm.tools), targets: deriveTargets(fm.targets),
     domainTemplate: fm.domainTemplate ?? "", permissionMode: fm.permissionMode ?? null,
   };
 }
-function buildCodexAgent(f: string, text: string): AgentInfo {
+// TOML 에이전트(Codex). runtime·dir 주입.
+function buildTomlAgent(runtime: RuntimeId, dir: string, f: string, text: string): AgentInfo {
   const nm = text.match(/^\s*name\s*=\s*["'](.+?)["']/m);
   // codex .toml `tools = ["Read", ...]` / `targets = [...]` — 배열 문법은 splitList 가 정제(agy#1).
   const toolsM = text.match(/^\s*tools\s*=\s*(.+)$/m);
   const targetsM = text.match(/^\s*targets\s*=\s*(.+)$/m);
   const sk = parseFrontmatterList(text, "skills");   // TOML 다중행 배열 지원(R2 agy)
   return {
-    name: nm?.[1] ?? f.replace(/\.toml$/, ""), runtime: "codex", sourcePath: ".codex/agents/" + f,
+    name: nm?.[1] ?? f.replace(/\.toml$/, ""), runtime, sourcePath: dir + "/" + f,
     role: "", skills: sk.items, skillsDeclared: sk.present, skillsSyntax: sk.syntax,
     tools: deriveTools(toolsM?.[1]), targets: deriveTargets(targetsM?.[1]),
     domainTemplate: "", permissionMode: null,
   };
 }
+// dir(POSIX 상대) → OS 결합 세그먼트. 파일 접근용(cross-platform).
+const segsOf = (dir: string): string[] => dir.split("/");
 
 // run-template·POST U⊆D 재도출의 단일 진입점(동일 재도출 함수 — 템플릿/제출 D 일치 보장).
 // fast-path(agy#2): 이름=파일명 규약이면 후보 1~2개만 크기캡 read — 전 디렉토리 read 폭발 회피.
 // 불일치(fm.name≠파일명)·비안전 세그먼트 시 전건 스캔 폴백(정확성 유지).
 export async function findAgent(root: string, name: string): Promise<AgentInfo | undefined> {
   if (isSafeSegment(name)) {
-    const claudeFile = name + ".md";
-    const ct = await readCappedDef(join(root, ".claude", "agents", claudeFile));
-    if (ct !== null) { const a = buildClaudeAgent(claudeFile, ct); if (a.name === name) return a; }
-    const codexFile = name + ".toml";
-    const xt = await readCappedDef(join(root, ".codex", "agents", codexFile));
-    if (xt !== null) { const a = buildCodexAgent(codexFile, xt); if (a.name === name) return a; }
+    // F12: 레지스트리 순회 fast-path(런타임별 dir·ext·format).
+    for (const s of agentSources()) {
+      const file = name + s.ext;
+      const t = await readCappedDef(join(root, ...segsOf(s.dir), file));
+      if (t === null) continue;
+      const a = s.format === "toml" ? buildTomlAgent(s.id, s.dir, file, t) : buildMdAgent(s.id, s.dir, file, t);
+      if (a.name === name) return a;
+    }
   }
   return (await readAgents(root)).find((a) => a.name === name);
 }
 
 export async function readAgents(root: string): Promise<AgentInfo[]> {
   const out: AgentInfo[] = [];
-  const cdir = join(root, ".claude", "agents");
-  for (const f of await listFiles(cdir, ".md")) {
-    const text = await readCappedDef(join(cdir, f));
-    if (text === null) continue; // 초과/비정규/오픈실패 skip(OOM 방어)
-    out.push(buildClaudeAgent(f, text));
-  }
-  const xdir = join(root, ".codex", "agents");
-  for (const f of await listFiles(xdir, ".toml")) {
-    const text = await readCappedDef(join(xdir, f));
-    if (text === null) continue;
-    out.push(buildCodexAgent(f, text));
+  // F12: 레지스트리 순회(claude .md · codex .toml · gemini .md). 하드코딩 경로 제거(I9).
+  for (const s of agentSources()) {
+    const adir = join(root, ...segsOf(s.dir));
+    for (const f of await listFiles(adir, s.ext)) {
+      const text = await readCappedDef(join(adir, f));
+      if (text === null) continue; // 초과/비정규/오픈실패 skip(OOM 방어)
+      out.push(s.format === "toml" ? buildTomlAgent(s.id, s.dir, f, text) : buildMdAgent(s.id, s.dir, f, text));
+    }
   }
   return out;
 }
@@ -233,8 +237,9 @@ export async function readAgents(root: string): Promise<AgentInfo[]> {
 export async function readSkills(root: string): Promise<SkillInfo[]> {
   const out: SkillInfo[] = [];
   const seen = new Set<string>();
-  for (const base of [".claude/skills", ".agents/skills"]) {
-    const sdir = join(root, base);
+  // F12: 레지스트리 스킬 dir 합집합(priority 내림차순 — 동일 name 시 상위 채택). .claude/skills·.agents/skills·.gemini/skills.
+  for (const { dir: base } of skillDirs()) {
+    const sdir = join(root, ...segsOf(base));
     for (const dir of await listDirs(sdir)) {
       const skillMd = join(sdir, dir, "SKILL.md");
       const text = await readCappedDef(skillMd);   // O_NOFOLLOW·크기캡(무제한 readFile 금지·OOM/symlink 방어·impl R1 HIGH)
@@ -333,11 +338,11 @@ export async function harnessInventory(root: string) {
       agents: agents.filter((a) => a.runtime === "codex").length,
       skills: skills.filter((s) => s.runtimePaths.some((p) => p.startsWith(".agents"))).length,
     },
-    // F10(M15·A129): agy 분기(additive). 규칙/컨텍스트=GEMINI.md·스킬=`.agents/skills`(Codex 공유 경로).
-    //   agy 에이전트는 파일규약 없음(SDK subagent) → agents 카운트 없음.
+    // F12(M-a): agy/gemini 편입. 규칙=GEMINI.md·에이전트=`.gemini/agents/*.md`(md·레지스트리)·스킬=`.gemini/skills`+`.agents/skills`(공유).
     agy: {
       entrypoint: (await exists(join(root, "GEMINI.md"))) ? "GEMINI.md" : null,
-      skills: skills.filter((s) => s.runtimePaths.some((p) => p.startsWith(".agents"))).length,
+      agents: agents.filter((a) => a.runtime === "gemini").length,
+      skills: skills.filter((s) => s.runtimePaths.some((p) => p.startsWith(".agents") || p.startsWith(".gemini"))).length,
     },
     workspace: { exists: await exists(join(root, "_workspace")), runs: (await listDirs(join(root, "_workspace", "runs"))).length },
   };

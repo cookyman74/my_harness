@@ -2,6 +2,7 @@
 // 명시 엔티티가 없어 연결 그래프에서 파생(harness_scorecard 와 동일 소스). backfill(orchestrates 선언) 전엔
 // 오케스트레이터 추정 스킬을 "미선언"으로 표기(빈 배정) — 배선 필요를 가시화.
 import { readAgents, readSkills } from "./harness.js";
+import { runtimeOfPath } from "./runtimes.js";
 
 export interface HarnessEntry {
   name: string;                 // 오케스트레이터 스킬명
@@ -12,8 +13,12 @@ export interface HarnessEntry {
   skillCount: number;           // 배정 에이전트들이 선언한 스킬(중복 제거)
   status: "linked" | "unmigrated" | "broken"; // 선언·정상 / 미선언(추정) / 대상부재
 }
-const isOrchestratorName = (n: string, d: string) => /orchestrat|오케스트/i.test(n + " " + d);
-const skillRuntime = (rp: string): string => (rp.startsWith(".agents") ? "codex" : "claude");
+// 오케스트레이터 휴리스틱은 **이름만** 본다(설명 매칭 금지). 설명에 "오케스트레이터"를 언급하는 서브스킬
+//   (예: external-review-loop — "오케스트레이터가 판정"이라는 설명)이 하네스로 오탐되던 버그 수정.
+//   실제 하네스는 orchestrates: frontmatter 로 판정(선언), 이름 휴리스틱은 미선언 보조.
+const isOrchestratorName = (n: string) => /orchestrat|오케스트/i.test(n);
+// F12: 런타임 판정 = 레지스트리 단일출처(runtimeOfPath). skillRuntime 하드코딩 제거.
+const skillRuntime = (rp: string): string => runtimeOfPath(rp);
 
 export async function listHarnesses(root: string): Promise<{ harnesses: HarnessEntry[] }> {
   const agents = await readAgents(root);
@@ -28,7 +33,7 @@ export async function listHarnesses(root: string): Promise<{ harnesses: HarnessE
       if (ev.declared) { declared = true; for (const a of ev.items) orchItems.add(a); }
     }
     // 오케스트레이터 = orchestrates 선언 OR 이름/설명 휴리스틱(미선언 추정도 목록에 노출).
-    if (!declared && !isOrchestratorName(s.name, s.description)) continue;
+    if (!declared && !isOrchestratorName(s.name)) continue;
 
     const agentsFound: string[] = [], missing: string[] = [];
     for (const a of orchItems) (agentByName.has(a) ? agentsFound : missing).push(a);
