@@ -3,7 +3,7 @@
 //   분류(상호배타): orchestrator(orchestrates: 선언 + 팀 보유) / shared-sub(≥1 하네스가 씀) / orphan(아무도 안 씀).
 import { readAgents, readSkills } from "./harness.js";
 import { listHarnesses } from "./harnesslist.js";
-import type { RuntimeId } from "./runtimes.js";
+import { editableSkillDirs, type RuntimeId } from "./runtimes.js";
 
 export type SkillClassification = "orchestrator" | "shared-sub" | "orphan";
 export interface SkillUsageEntry {
@@ -54,7 +54,8 @@ export async function skillUsage(root: string): Promise<{ skills: SkillUsageEntr
     return {
       skill: s.name, runtimes, runtimePaths: s.runtimePaths, classification,
       usedBy: used ? [...used].sort() : [],
-      editViaF7: s.runtimePaths.some((p) => p.startsWith(".claude")), // M-b: claude 정의만 편집(M-c 확장)
+      // F14(M-c): 편집 가능 스킬 dir(.claude/.agents/.gemini·SKILL.md md)면 F7 편집 가능. (동일 name 다중 런타임은 ambiguous 409 — 드묾)
+      editViaF7: s.runtimePaths.some((p) => editableSkillDirs().some((d) => p === d || p.startsWith(d + "/"))),
     };
   });
   out.sort((a, b) => {

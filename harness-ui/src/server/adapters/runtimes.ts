@@ -55,9 +55,10 @@ export const RUNTIMES: readonly RuntimeAdapter[] = [
   },
   {
     id: "gemini", label: "Antigravity (Gemini)",
-    agent: { dir: ".gemini/agents", ext: ".md", format: "md-frontmatter", editable: false },
-    // 공식 별칭 우선순위: .agents/skills > .gemini/skills(동일 tier).
-    skills: [{ dir: ".agents/skills", priority: 10, editable: false }, { dir: ".gemini/skills", priority: 5, editable: false }],
+    // M-c(F14): Gemini 에이전트 = md(Claude 동일 파서) → editable. 선검증 결정.
+    agent: { dir: ".gemini/agents", ext: ".md", format: "md-frontmatter", editable: true },
+    // 공식 별칭 우선순위: .agents/skills > .gemini/skills(동일 tier). 스킬=SKILL.md(md) → editable(M-c).
+    skills: [{ dir: ".agents/skills", priority: 10, editable: true }, { dir: ".gemini/skills", priority: 5, editable: true }],
     rulesFile: "GEMINI.md",
     install: { channel: "shared", userDest: join(H, ".agents", "skills", "myharness") },
     authBin: null, // 비대화형 CLI 인증 조회 미지원 → 파일 근거(runtime.ts).
@@ -66,6 +67,17 @@ export const RUNTIMES: readonly RuntimeAdapter[] = [
 
 export function runtimeById(id: string): RuntimeAdapter | undefined {
   return RUNTIMES.find((r) => r.id === id);
+}
+
+// F14(M-c): 편집 가능 md 에이전트 dir(claude·gemini). Codex toml(.codex/agents)은 M-e까지 제외.
+export function editableMdAgentDirs(): string[] {
+  return RUNTIMES.filter((r) => r.agent.editable && r.agent.format === "md-frontmatter").map((r) => r.agent.dir);
+}
+// F14(M-c): 편집 가능 스킬 dir(SKILL.md·md). 어느 런타임이든 editable=true 면 편집 가능(.agents/skills 공유 포함).
+export function editableSkillDirs(): string[] {
+  const s = new Set<string>();
+  for (const r of RUNTIMES) for (const sk of r.skills) if (sk.editable) s.add(sk.dir);
+  return [...s];
 }
 
 // readAgents 순회용: {runtime, dir, ext, format}.

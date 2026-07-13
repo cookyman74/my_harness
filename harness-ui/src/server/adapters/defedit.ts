@@ -10,6 +10,19 @@ import { z } from "zod";
 import { isSafeSegment, isWithinRoot, stateHome } from "../lib/paths.js";
 import { writeAtomic } from "../lib/atomic.js";
 import { parseFrontmatter } from "./harness.js";
+import { editableMdAgentDirs, editableSkillDirs } from "./runtimes.js";
+
+// F14(M-c·I11 validator 결정): Gemini 에이전트/스킬은 Claude와 **동일 md+YAML frontmatter 컨테이너·동일 canonicalizer/validator**를
+//   의도적으로 재사용한다(선검증: 코어 필드 name·description 공통·미지 필드 보존). 런타임 전용 스키마 분리는 미지 필드
+//   보존이라 보안 fail-open 아님(런타임 로드 시 fail-closed) — 실 필드 차이가 드러나면 후속서 validator registry 분리.
+// F14(M-c): 구조 화이트리스트 = 레지스트리의 편집 가능 md 정의 경로. 리터럴 dot-dir 만(traversal 불가).
+//   agent: <editable-md-agent-dir>/*.md · skill: <editable-skill-dir>/*/SKILL.md. (Codex toml=M-e·제외)
+function structOk(segs: string[], kind: DefKind): boolean {
+  if (kind === "agent") {
+    return segs.length === 3 && editableMdAgentDirs().includes(segs[0] + "/" + segs[1]) && segs[2]!.endsWith(".md");
+  }
+  return segs.length === 4 && editableSkillDirs().includes(segs[0] + "/" + segs[1]) && segs[3] === "SKILL.md";
+}
 
 // 정의 파일당 크기 상한(256KB·OOM 방어·harness.readCappedDef 정합).
 export const MAX_DEF_BYTES = 262144;
@@ -126,12 +139,8 @@ export function canonicalizeDefinition(content: string, kind: DefKind, expectedN
 // server-derived sourcePath(`.claude/agents/*.md`·`.claude/skills/*/SKILL.md`) 만 통과. 클라 경로 금지.
 export async function safeDefPath(root: string, sourcePath: string, kind: DefKind): Promise<string | null> {
   const segs = sourcePath.split("/");
-  // 구조 화이트리스트(위치+확장자·이중방어).
-  if (kind === "agent") {
-    if (segs.length !== 3 || segs[0] !== ".claude" || segs[1] !== "agents" || !segs[2]!.endsWith(".md")) return null;
-  } else {
-    if (segs.length !== 4 || segs[0] !== ".claude" || segs[1] !== "skills" || segs[3] !== "SKILL.md") return null;
-  }
+  // 구조 화이트리스트(레지스트리 편집 가능 경로·claude+gemini md·이중방어).
+  if (!structOk(segs, kind)) return null;
   for (const s of segs) if (!isSafeSegment(s)) return null; // 빈/`.`/`..`/메타 거부
   let realRoot: string;
   try { realRoot = await realpath(root); } catch { return null; }
@@ -184,16 +193,15 @@ export function withDefLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 //   (M8 servefile TOCTOU 패턴 준용). rename 은 심링크 leaf 를 추종하지 않아 write-through-symlink 불가.
 let defWriteCounter = 0;
 export async function writeDefSafe(root: string, sourcePath: string, kind: DefKind, content: string): Promise<void> {
+  // F14(M-c·§8-2): Windows mutation 기본 차단 — O_NOFOLLOW·심링크·POSIX 경로안전이 Windows서 무의미/오작동.
+  //   safePathWindows 증명 전 write 강행 금지(design §8-2·A184 platform matrix). 읽기는 무영향.
+  if (process.platform === "win32") throw new Error("unsupported-platform-write");
   // agy#1(HIGH·불변식 하드가드): 최하위 계층에서 write ≤ read cap 을 물리 보증 — caller 우회·회귀와 무관하게
   //   MAX_DEF_BYTES 초과분은 절대 디스크에 기록되지 않음(은폐 유발 파일 생성 원천 봉쇄).
   if (Buffer.byteLength(content, "utf8") > MAX_DEF_BYTES) throw new Error("too-large");
   const segs = sourcePath.split("/");
-  // 구조 화이트리스트(safeDefPath 와 동일·이중방어). 위반 = fail-closed.
-  if (kind === "agent") {
-    if (segs.length !== 3 || segs[0] !== ".claude" || segs[1] !== "agents" || !segs[2]!.endsWith(".md")) throw new Error("path-unsafe");
-  } else {
-    if (segs.length !== 4 || segs[0] !== ".claude" || segs[1] !== "skills" || segs[3] !== "SKILL.md") throw new Error("path-unsafe");
-  }
+  // 구조 화이트리스트(structOk·레지스트리 편집 가능 경로·이중방어). 위반 = fail-closed.
+  if (!structOk(segs, kind)) throw new Error("path-unsafe");
   for (const s of segs) if (!isSafeSegment(s)) throw new Error("path-unsafe");
   let realRoot: string;
   try { realRoot = await realpath(root); } catch { throw new Error("path-unsafe"); }

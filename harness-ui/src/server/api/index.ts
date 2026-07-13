@@ -18,6 +18,7 @@ import { factoryStatus, applyFactoryAction } from "../adapters/factory.js";
 import { appendConfigChange, readConfigChanges } from "../adapters/confighistory.js";
 import { listHarnesses } from "../adapters/harnesslist.js";
 import { skillUsage } from "../adapters/skillusage.js";
+import { runtimeOfPath } from "../adapters/runtimes.js";
 import { docsTree } from "../adapters/docs.js";
 import { RunsQuery } from "../schemas.js";
 import { z } from "zod";
@@ -121,6 +122,12 @@ export function registerApi(
   // ── F7(M12) 정의 편집기 — DW1~DW11. I8 읽기전용 원칙의 유일 예외(`.claude` 정의 편집만·게이트 스코프) ──
   // mutating(PUT/rollback/설정)은 security.ts onRequest 훅이 Host/Origin/token 자동 게이트(추가 배선 불요·/api 하위).
   // DW1 매 요청 strict boolean 판독 — 부재/손상/판독불가 config → false(fail-closed) → 403.
+  // F14(M-c·§8-2·A184): Windows mutation 차단을 **route 진입부**에 — writeBackup/ensureCreatePath 등 어떤 FS 변경보다 앞.
+  //   (writeDefSafe 내부 차단은 최종 방어이나 backup·dir 생성이 그 전에 일어날 수 있어 route 진입에서 선차단.)
+  const winWriteBlocked = (reply: import("fastify").FastifyReply): boolean => {
+    if (process.platform === "win32") { reply.code(501).send({ error: "unsupported-platform-write" }); return true; }
+    return false;
+  };
   async function isEditEnabled(): Promise<boolean> {
     try { return (await loadConfigFromDisk()).definitionEditEnabled === true; }
     catch { return false; } // unsupported-schema 등 throw → fail-closed
@@ -154,6 +161,7 @@ export function registerApi(
     //   백업(DW7)·원자 쓰기(DW4). 저장은 파일 기록만·실행 트리거 안 함(DW9).
     app.put<{ Params: { name: string } }>(`/api/${seg}/:name/definition`, async (req, reply) => {
       if (!(await isEditEnabled())) return reply.code(403).send({ error: "edit-disabled" });
+      if (winWriteBlocked(reply)) return; // F14(M-c): Windows write 차단(진입부)
       if (!editName(req.params.name)) return reply.code(400).send({ error: "invalid-name" });
       const parsed = PutDefBody.safeParse(req.body);
       if (!parsed.success) return reply.code(400).send({ error: "bad-input", detail: parsed.error.issues });
@@ -187,7 +195,7 @@ export function registerApi(
         // DW3/DW4 경화쓰기(부모 체인 재검증·TOCTOU 스왑 감지). 스왑 등 위반 = fail-closed 400.
         try { await writeDefSafe(projectRoot, r.sourcePath, kind, canon.canonical); }
         catch { return reply.code(400).send({ error: "path-unsafe" }); }
-        await appendConfigChange(projectRoot, { at: new Date().toISOString(), action: "edit", kind, name: req.params.name, runtime: "claude", path: r.sourcePath });
+        await appendConfigChange(projectRoot, { at: new Date().toISOString(), action: "edit", kind, name: req.params.name, runtime: runtimeOfPath(r.sourcePath), path: r.sourcePath }); // F14: 런타임 태그=sourcePath 기반(claude/gemini)
         return {
           ok: true, prevHash, newHash: sha256(canon.canonical), pathId, sourcePath: r.sourcePath,
           codexDriftWarning: true, // DW8/F7.7: Codex 듀얼(.codex/.agents) 피어는 v0.7 비대상 — drift 경고만.
@@ -199,6 +207,7 @@ export function registerApi(
     //   백업 DW5 재검증(손상본 복원 차단) → DW3 재실행 → 원자 복원.
     app.post<{ Params: { name: string } }>(`/api/${seg}/:name/definition/rollback`, async (req, reply) => {
       if (!(await isEditEnabled())) return reply.code(403).send({ error: "edit-disabled" });
+      if (winWriteBlocked(reply)) return; // F14(M-c): Windows write 차단(진입부)
       if (!editName(req.params.name)) return reply.code(400).send({ error: "invalid-name" });
       const parsed = RollbackBody.safeParse(req.body);
       if (!parsed.success) return reply.code(400).send({ error: "bad-input", detail: parsed.error.issues });
@@ -290,6 +299,7 @@ export function registerApi(
     //   400 bad-input)이 쿨다운(lastDraftMs)을 소비하거나 in-flight 를 점유하지 않게. 유효 요청만 acquire →
     //   동시성/쿨다운 계약은 실제 exec 시도 간에만 성립(HB8 의미 불변).
     if (!(await isEditEnabled())) return reply.code(403).send({ error: "edit-disabled" }); // HB7 fail-closed
+    if (winWriteBlocked(reply)) return; // F14(M-c): Windows write 차단(진입부)
     const parsed = BuildDraftInput.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "bad-input", detail: parsed.error.issues }); // HB1 bounded
     const g = buildGate.acquire(true); // HB8 in-flight 뮤텍스 + 쿨다운(유효 요청·exec 진입 직전)
@@ -304,6 +314,7 @@ export function registerApi(
   // C: 하네스 전체 초안(오케스트레이터+에이전트+스킬 세트). draft 만·디스크 미기록. 생성은 사람 승인 후 build/create 반복.
   app.post("/api/context/build/harness-draft", async (req, reply) => {
     if (!(await isEditEnabled())) return reply.code(403).send({ error: "edit-disabled" }); // HB7 fail-closed
+    if (winWriteBlocked(reply)) return; // F14(M-c): Windows write 차단(진입부)
     const parsed = BuildHarnessInput.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "bad-input", detail: parsed.error.issues });
     const g = buildGate.acquire(true); // HB8 in-flight + 쿨다운(exec spawn)
@@ -324,6 +335,7 @@ export function registerApi(
   app.post("/api/context/build/create", async (req, reply) => {
     // MED(R4 codex 정합): 게이트/입력 검증은 백프레셔 게이트 밖에서(403/400 은 in-flight 미점유). 유효 요청만 acquire.
     if (!(await isEditEnabled())) return reply.code(403).send({ error: "edit-disabled" }); // HB7
+    if (winWriteBlocked(reply)) return; // F14(M-c): Windows write 차단(진입부)
     const parsed = BuildCreateBody.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: "bad-input", detail: parsed.error.issues });
     const { kind, name, content } = parsed.data;

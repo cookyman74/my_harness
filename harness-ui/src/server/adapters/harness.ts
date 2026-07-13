@@ -5,7 +5,7 @@ import { readdir, stat, open } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { ARGV_TOKEN, isSafeSegment } from "../lib/paths.js";
-import { agentSources, skillDirs, type RuntimeId } from "./runtimes.js";
+import { agentSources, skillDirs, editableMdAgentDirs, editableSkillDirs, type RuntimeId } from "./runtimes.js";
 
 // 정의 스캔 바운드(agy#2 OOM/DoS 방어): 파일당 read 상한 + 디렉토리당 개수 상한.
 const MAX_DEF_BYTES = 262144;   // 정의 파일당 read 상한(256KB) — 거대 파일 OOM 차단
@@ -282,16 +282,20 @@ export type DefResolution =
 // 에이전트: `.claude/agents/*.md` 를 dedupe 없이 원본 스캔해 frontmatter name(부재 시 파일명) === name 매칭
 // 수를 센다. ≥2 → ambiguous(비결정 해소 금지). 0 이면 `.codex/agents/*.toml` 에 있으면 codex-only-v0.7·없으면 404.
 export async function resolveEditableAgent(root: string, name: string): Promise<DefResolution> {
-  const cdir = join(root, ".claude", "agents");
-  const claudeMatches: string[] = [];
-  for (const f of await listFiles(cdir, ".md")) {
-    const text = await readCappedDef(join(cdir, f));
-    if (text === null) continue;
-    const canonical = parseFrontmatter(text).name ?? f.replace(/\.md$/, "");
-    if (canonical === name) claudeMatches.push(f);
+  // F14(M-c): 편집 가능 md 에이전트 dir(claude·gemini) 전건 스캔. 다중 매치(런타임/파일) = ambiguous(비결정 해소 금지·runtime 파라미터는 후속).
+  const matches: string[] = [];
+  for (const dir of editableMdAgentDirs()) {
+    const adir = join(root, ...dir.split("/"));
+    for (const f of await listFiles(adir, ".md")) {
+      const text = await readCappedDef(join(adir, f));
+      if (text === null) continue;
+      const canonical = parseFrontmatter(text).name ?? f.replace(/\.md$/, "");
+      if (canonical === name) matches.push(dir + "/" + f);
+    }
   }
-  if (claudeMatches.length > 1) return { ok: false, error: "ambiguous-definition" };
-  if (claudeMatches.length === 1) return { ok: true, sourcePath: ".claude/agents/" + claudeMatches[0]! };
+  if (matches.length > 1) return { ok: false, error: "ambiguous-definition" };
+  if (matches.length === 1) return { ok: true, sourcePath: matches[0]! };
+  // 0: Codex TOML(M-e까지 편집 불가) 있으면 codex-only-v0.7.
   for (const f of await listFiles(join(root, ".codex", "agents"), ".toml")) {
     const text = await readCappedDef(join(root, ".codex", "agents", f));
     if (text === null) continue;
@@ -316,10 +320,14 @@ async function scanSkillDir(root: string, base: string, name: string): Promise<s
   return matches;
 }
 export async function resolveEditableSkill(root: string, name: string): Promise<DefResolution> {
-  const claudeMatches = await scanSkillDir(root, ".claude/skills", name);
-  if (claudeMatches.length > 1) return { ok: false, error: "ambiguous-definition" };
-  if (claudeMatches.length === 1) return { ok: true, sourcePath: ".claude/skills/" + claudeMatches[0]! + "/SKILL.md" };
-  if ((await scanSkillDir(root, ".agents/skills", name)).length >= 1) return { ok: false, error: "codex-only-v0.7" };
+  // F14(M-c): 편집 가능 스킬 dir(.claude/skills·.agents/skills·.gemini/skills·SKILL.md md) 전건 스캔.
+  //   다중 매치(런타임/dir) = ambiguous(비결정 해소 금지). `.agents/skills`도 이제 편집 가능(codex-only-v0.7 제거).
+  const matches: string[] = [];
+  for (const base of editableSkillDirs()) {
+    for (const dir of await scanSkillDir(root, base, name)) matches.push(base + "/" + dir + "/SKILL.md");
+  }
+  if (matches.length > 1) return { ok: false, error: "ambiguous-definition" };
+  if (matches.length === 1) return { ok: true, sourcePath: matches[0]! };
   return { ok: false, error: "not-found" };
 }
 

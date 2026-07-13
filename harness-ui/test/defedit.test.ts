@@ -79,12 +79,12 @@ describe("A72/DW2 — GET 정의 조회·이름→정규경로 재조회", () =>
     expect(r.statusCode).toBe(409);
     expect(r.json().error).toBe("ambiguous-definition");
   });
-  it(".agents 전용 스킬 → 409 codex-only-v0.7", async () => {
+  it(".agents 전용 스킬(SKILL.md·md) → M-c(F14): 편집 가능(200·codex-only-v0.7 아님)", async () => {
     await mkdir(join(root, ".agents", "skills", "cx"), { recursive: true });
     await writeFile(join(root, ".agents", "skills", "cx", "SKILL.md"), "---\nname: cxonly\ndescription: c\n---\nz\n");
     const r = await getDef("skills", "cxonly");
-    expect(r.statusCode).toBe(409);
-    expect(r.json().error).toBe("codex-only-v0.7");
+    expect(r.statusCode).toBe(200); // .agents/skills 는 SKILL.md(md) → M-c서 편집 개방
+    expect(r.json().sourcePath).toBe(".agents/skills/cx/SKILL.md");
   });
   it("codex 전용 agent(.codex only) → 409 codex-only-v0.7", async () => {
     await mkdir(join(root, ".codex", "agents"), { recursive: true });
