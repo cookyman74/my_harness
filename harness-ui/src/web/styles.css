@@ -299,6 +299,11 @@ details.tier-b[open] > summary { margin-bottom:8px; }
 .def-mode-toggle button { padding:3px 12px; border-radius:6px; font-size:12px; }
 .def-render { margin-top:0; max-height:520px; overflow:auto; }
 pre.def-render { background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:10px; font-family:var(--mono); font-size:12px; line-height:1.5; }
+/* frontmatter 요약 메타 블록(타이틀 폰트 아님·key-value) */
+.def-fm-meta { background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin:0 0 12px; font-size:12px; }
+.def-fm-row { display:flex; gap:8px; padding:2px 0; }
+.def-fm-row dt { flex:0 0 96px; color:var(--muted); font-family:var(--mono); }
+.def-fm-row dd { margin:0; color:var(--fg); word-break:break-word; }
 .def-diff { margin-top:10px; }
 .def-diff-body { font-family:var(--mono); font-size:12px; line-height:1.5; max-height:360px; overflow:auto; padding:8px; }
 .dl { display:flex; gap:8px; }

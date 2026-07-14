@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   DEF_EDIT_ERRORS, INTEGRITY_DETAIL, defEditErrorText,
   diffLines, diffStats, hasChanges, isDiffCoarse, sideRows,
-  skillNeedsName, skillHasClaudePath, isDirty, rollbackBodyFromSave,
+  skillNeedsName, skillHasClaudePath, isDirty, rollbackBodyFromSave, splitFrontmatter,
   type PutDefResult,
 } from "../src/web/defedit.js";
 
@@ -142,6 +142,28 @@ describe("sideRows — 409 병합 나란히 비교(A93 · 디스크↔편집분)
     expect(del).toMatchObject({ left: "disk", right: null });
     expect(add).toMatchObject({ left: null, right: "edit" });
     expect(same).toMatchObject({ left: "shared", right: "shared" });
+  });
+});
+
+describe("splitFrontmatter — 렌더 모드 frontmatter/본문 분리(타이틀 폰트 오해석 방지)", () => {
+  it("frontmatter + 본문 분리", () => {
+    const src = "---\nname: doc-syncer\ndescription: 3개국어 동기화\nmodel: opus\n---\n# 본문\n내용\n";
+    const { frontmatter, body } = splitFrontmatter(src);
+    expect(frontmatter).toContain("name: doc-syncer");
+    expect(frontmatter).toContain("model: opus");
+    expect(frontmatter).not.toContain("---");   // 구분자 제외
+    expect(body).toBe("# 본문\n내용\n");           // 본문만(frontmatter 제거)
+    expect(body).not.toContain("name:");
+  });
+  it("frontmatter 없음 → 전체가 본문", () => {
+    const { frontmatter, body } = splitFrontmatter("# 그냥 본문\n텍스트");
+    expect(frontmatter).toBeNull();
+    expect(body).toBe("# 그냥 본문\n텍스트");
+  });
+  it("CRLF frontmatter 처리", () => {
+    const { frontmatter, body } = splitFrontmatter("---\r\nname: x\r\n---\r\nbody\r\n");
+    expect(frontmatter).toContain("name: x");
+    expect(body).toBe("body\r\n");
   });
 });
 

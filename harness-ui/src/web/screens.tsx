@@ -36,7 +36,7 @@ import {
 } from "./evals.js";
 import {
   defEditErrorText, diffLines, diffStats, hasChanges, isDiffCoarse, sideRows,
-  skillNeedsName, skillHasClaudePath, isDirty, rollbackBodyFromSave,
+  skillNeedsName, skillHasClaudePath, isDirty, rollbackBodyFromSave, splitFrontmatter,
 } from "./defedit.js";
 import { projectRootErrorText, canSave, requiresOrphanChoice, type OrphanChoice } from "./settings.js";
 import {
@@ -726,10 +726,28 @@ function DefinitionEditor({ kind, name, onClose }: { kind: DefKind; name: string
           </div>
 
           {mode === "render" ? (
-            // 렌더: md 정의는 markdown-it+DOMPurify(renderMarkdown·docs DV8 동일 경로)로 미리보기, 그 외(toml)는 raw <pre>.
-            //   미리보기는 편집 버퍼(edited) 기준 → 편집 반영. 저장은 원문 모드에서만.
+            // 렌더: md 정의는 frontmatter(요약정보)를 **메타 블록**으로 분리 표시 + 본문만 renderMarkdown
+            //   (markdown-it+DOMPurify·docs DV8 동일 경로). frontmatter 를 md 로 렌더하면 `---` 가 setext heading 으로
+            //   오해석돼 요약정보가 타이틀 폰트로 보이는 문제 → 분리로 해소. toml 등은 raw <pre>.
             doc.sourcePath.endsWith(".md")
-              ? <div className="md-body def-render" dangerouslySetInnerHTML={{ __html: renderMarkdown(edited) }} />
+              ? (() => {
+                  const { frontmatter, body } = splitFrontmatter(edited);
+                  return (
+                    <div className="def-render">
+                      {frontmatter && (
+                        <dl className="def-fm-meta" aria-label="정의 요약(frontmatter)">
+                          {frontmatter.split(/\r?\n/).filter((l) => l.trim()).map((line, i) => {
+                            const idx = line.indexOf(":");
+                            const key = idx > 0 ? line.slice(0, idx).trim() : line;
+                            const val = idx > 0 ? line.slice(idx + 1).trim() : "";
+                            return <div className="def-fm-row" key={i}><dt>{key}</dt><dd>{val}</dd></div>;
+                          })}
+                        </dl>
+                      )}
+                      <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }} />
+                    </div>
+                  );
+                })()
               : <pre className="out def-render">{edited}</pre>
           ) : (
             <label className="def-textarea-label">
