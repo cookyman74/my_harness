@@ -414,21 +414,22 @@ function AgentRunFormBody({ template }: { template: RunTemplate }) {
           <option value="codex">codex</option><option value="claude">claude</option>
         </select>
       </label>
-      <label>모드<input value={mode} onChange={(e) => setMode(e.target.value)} maxLength={40} /></label>
+      <label>모드 (실행 이름표·자유 입력)<input value={mode} onChange={(e) => setMode(e.target.value)} maxLength={40} placeholder="예: build · 실행 식별용 라벨" /></label>
       <label>권한
         <select value={perm} onChange={(e) => changePerm(e.target.value as "read-only" | "workspace-write")}>
           <option value="read-only">read-only (기본·보수적)</option>
           <option value="workspace-write">workspace-write</option>
         </select>
       </label>
-      <label className="full">작업(domain)<textarea value={domain} onChange={(e) => setDomain(e.target.value)} maxLength={4000} rows={4} /></label>
+      <label className="full">작업 지시 · 이 에이전트에게 시킬 일<textarea value={domain} onChange={(e) => setDomain(e.target.value)} maxLength={4000} rows={4} placeholder="무엇을 해야 하는지 구체적으로 적으세요. 이 내용이 에이전트에게 전달되는 지시(프롬프트)가 됩니다." /></label>
 
       {/* F2 W2/A100: allowedTools = 에이전트 정의 D 체크박스로만(자유입력 없음 → U⊆D 구조 보장) */}
       <fieldset className="tool-fieldset full">
-        <legend>도구 (allowedTools)</legend>
-        <p className="muted">이 에이전트가 선언한 도구만 선택 가능 · D 밖 추가 불가(뺄 수만).</p>
+        <legend>이 실행에서 쓸 도구</legend>
+        <p className="muted">이 에이전트가 정의에 적어둔 도구 목록입니다. 체크된 것만 이번 실행에서 씁니다.
+          여기서 <b>뺄 수만</b> 있고, 목록에 없는 도구는 추가할 수 없습니다(실행 권한이 정의보다 넓어지지 않도록).</p>
         {D.length === 0
-          ? <p className="muted">🕳 이 에이전트는 도구를 선언하지 않았습니다(도구 없이 실행).</p>
+          ? <p className="muted">이 에이전트는 정의에 사용할 도구를 지정하지 않았습니다 · 도구 없이 실행됩니다.</p>
           : D.map((t) => (
               <label key={t} className="check">
                 <input type="checkbox" checked={tools.includes(t)}
@@ -440,7 +441,9 @@ function AgentRunFormBody({ template }: { template: RunTemplate }) {
 
       {/* targets(정의 프리필·enum 편집) */}
       <fieldset className="target-fieldset full">
-        <legend>대상(targets)</legend>
+        <legend>대상 · 이 실행이 다루는 범위(기록용 표시)</legend>
+        <p className="muted">이 실행이 무엇을 대상으로 하는지 나타내는 <b>표시(태그)</b>입니다. 실행 기록(History)에 남아 나중에 구분하는 용도이며,
+          현재는 실제 실행 동작 자체를 바꾸지는 않습니다.</p>
         {TARGET_ENUM.map((t) => (
           <label key={t} className="check">
             <input type="checkbox" checked={targets.includes(t)} onChange={(e) => toggleTarget(t, e.target.checked)} />
