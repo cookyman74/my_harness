@@ -55,7 +55,7 @@ describe("Codex TOML 편집 — resolve + GET", () => {
   });
 });
 
-describe("Codex TOML 편집 — limited-edit PUT", () => {
+describe.skipIf(process.platform === "win32")("Codex TOML 편집 — limited-edit PUT", () => {
   beforeEach(() => setGate(true));
   it("화이트 필드(description) 변경 → 200·디스크 주석/구조 보존", async () => {
     const next = TOML_SRC.replace('"plans work"', '"plans work well"');

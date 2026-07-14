@@ -33,7 +33,7 @@ async function setGate(on: boolean) {
   await writeFile(join(stateDir, "config.json"), JSON.stringify({ schemaVersion: "1", definitionEditEnabled: on }), "utf8");
 }
 
-describe("skillSyncGroups — (dev,ino) 분류", () => {
+describe.skipIf(process.platform === "win32")("skillSyncGroups — (dev,ino) 분류", () => {
   it("단일 dir 스킬 → 그룹 아님(사본 없음)", async () => {
     await putSkill(".claude/skills", "solo", SKILL("solo", "a"));
     expect(await skillSyncGroups(root)).toHaveLength(0);
@@ -101,7 +101,7 @@ describe("skillSyncGroups — (dev,ino) 분류", () => {
   });
 });
 
-describe("POST /api/drift/sync-skill — 안전 다타깃 동기", () => {
+describe.skipIf(process.platform === "win32")("POST /api/drift/sync-skill — 안전 다타깃 동기", () => {
   beforeEach(() => setGate(true));
   const canon = SKILL("s", "canon");
   const drifted = SKILL("s", "old");

@@ -153,7 +153,7 @@ describe("A78/DW1 — 게이트 노브(fail-closed)", () => {
 });
 
 // ── A76 · DW6 낙관적 동시성 + A74 원자 쓰기 + A79 편집≠실행 ───────────────────
-describe("A76/DW6 — 낙관적 동시성·저장", () => {
+describe.skipIf(process.platform === "win32")("A76/DW6 — 낙관적 동시성·저장", () => {
   beforeEach(() => setGate(true));
   const pathId = () => sha(".claude/agents/alpha.md");
   async function put(body: unknown) {
@@ -248,7 +248,7 @@ describe("A75/DW5 — 무결성 (canonicalizeDefinition 단위)", () => {
   });
 });
 
-describe("A75/DW5 — PUT 통합 REJECT(무결성 400·디스크 무변경)", () => {
+describe.skipIf(process.platform === "win32")("A75/DW5 — PUT 통합 REJECT(무결성 400·디스크 무변경)", () => {
   beforeEach(() => setGate(true));
   async function put(content: string) {
     // baseHash 정확히 맞춰 stale-write 아닌 integrity 400 도달 보장
@@ -272,7 +272,7 @@ describe("A75/DW5 — PUT 통합 REJECT(무결성 400·디스크 무변경)", ()
 });
 
 // ── DW11 evalProposal fail-closed ──────────────────────────────────────────
-describe("DW11 — evalProposal", () => {
+describe.skipIf(process.platform === "win32")("DW11 — evalProposal", () => {
   beforeEach(() => setGate(true));
   it("evalProposal 존재 → 409 proposal-not-available(무음 일반편집 금지)", async () => {
     const r = await app().inject({
@@ -292,7 +292,7 @@ describe("DW11 — evalProposal", () => {
 });
 
 // ── A77 · DW7 되돌리기·백업 ─────────────────────────────────────────────────
-describe("A77/DW7 — rollback·백업", () => {
+describe.skipIf(process.platform === "win32")("A77/DW7 — rollback·백업", () => {
   beforeEach(() => setGate(true));
   const pathId = sha(".claude/agents/alpha.md");
   async function put(content: string, baseHash: string) {

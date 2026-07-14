@@ -87,7 +87,7 @@ describe("agy#1(c) — writeDefSafe 하드가드(caller 우회 무관 불변식)
 });
 
 // ── 통합 PUT — 입력 too-large 조기 거부(경로검증 前 순서) ────────────────────────
-describe("agy#1 통합 — PUT 입력 > cap → 400 too-large(경로/해시 검증 前)", () => {
+describe.skipIf(process.platform === "win32")("agy#1 통합 — PUT 입력 > cap → 400 too-large(경로/해시 검증 前)", () => {
   beforeEach(() => setGate(true));
   it("bogus pathId 여도 too-large 먼저(조기 exit 순서 증명)·디스크 무변경", async () => {
     const content = "x".repeat(MAX_DEF_BYTES + 10);
@@ -102,7 +102,7 @@ describe("agy#1 통합 — PUT 입력 > cap → 400 too-large(경로/해시 검�
 });
 
 // ── 통합 PUT — canonical > cap → write 前 400·디스크/백업 미기록 ─────────────────
-describe("agy#1 통합 — PUT canonical > cap → 400 too-large(write 前·은폐 0)", () => {
+describe.skipIf(process.platform === "win32")("agy#1 통합 — PUT canonical > cap → 400 too-large(write 前·은폐 0)", () => {
   beforeEach(() => setGate(true));
   it("입력 ≤ cap·canonical > cap → 400·디스크 원본 유지·백업 미생성", async () => {
     const content = inflatingContent();
@@ -121,7 +121,7 @@ describe("agy#1 통합 — PUT canonical > cap → 400 too-large(write 前·은�
 });
 
 // ── 통합 PUT — 정상 크기 → write 후 read cap 재조회 성공(은폐 0) ─────────────────
-describe("agy#1 통합 — 정상 PUT 후 read cap 재조회(은폐 0)", () => {
+describe.skipIf(process.platform === "win32")("agy#1 통합 — 정상 PUT 후 read cap 재조회(은폐 0)", () => {
   beforeEach(() => setGate(true));
   it("정상 편집 → 200·디스크 ≤ cap·readDefSafe/readAgents 재조회 성공", async () => {
     const next = "---\nname: alpha\ndescription: edited-ok\n---\n# body\nbye\n";

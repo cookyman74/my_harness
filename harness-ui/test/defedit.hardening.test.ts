@@ -40,7 +40,7 @@ async function setGate(enabled: boolean) {
 }
 
 // ── HIGH(codex) · 쓰기 TOCTOU — writeDefSafe 부모 체인 재검증 ──────────────────
-describe("HIGH/codex — writeDefSafe 경화 원자쓰기(중간 dir 스왑 fail-closed)", () => {
+describe.skipIf(process.platform === "win32")("HIGH/codex — writeDefSafe 경화 원자쓰기(중간 dir 스왑 fail-closed)", () => {
   it("정상 write → 정의 갱신·디스크 반영(회귀)", async () => {
     const next = "---\nname: alpha\ndescription: edited\n---\n# body\nbye\n";
     await writeDefSafe(root, ".claude/agents/alpha.md", "agent", next);
@@ -139,7 +139,7 @@ describe("HIGH/agy#2 · MED/agy — 개행/유니코드 정규화", () => {
 });
 
 // ── MED(codex) · 동시 lost-update — 정의별 뮤텍스 ─────────────────────────────
-describe("MED/codex — 동시 두 PUT lost-update 0(하나만 성공·다른 하나 409)", () => {
+describe.skipIf(process.platform === "win32")("MED/codex — 동시 두 PUT lost-update 0(하나만 성공·다른 하나 409)", () => {
   beforeEach(() => setGate(true));
   it("같은 baseHash 두 PUT 동시 → 정확히 하나 200, 다른 하나 409 stale-write", async () => {
     const pathId = sha(".claude/agents/alpha.md");

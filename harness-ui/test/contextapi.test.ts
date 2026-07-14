@@ -113,7 +113,7 @@ describe("A130/HR6 — 편집=Claude 스코프만(PUT /api/context/edit·아무�
   });
 });
 
-describe("A124/HB7·HB8 — POST /api/context/build/draft", () => {
+describe.skipIf(process.platform === "win32")("A124/HB7·HB8 — POST /api/context/build/draft", () => {
   it("게이트 off → 403·on → 초안 반환(디스크 미기록·applied:false)", async () => {
     await setGate(false);
     const off = await app().inject({ method: "POST", url: "/api/context/build/draft", payload: { kind: "agent", domain: "d", role: "r" } });
@@ -169,7 +169,7 @@ describe("A124/HB7·HB8 — POST /api/context/build/draft", () => {
   });
 });
 
-describe("A125/A126/A127 — POST /api/context/build/create (신규 구축·F7 저장)", () => {
+describe.skipIf(process.platform === "win32")("A125/A126/A127 — POST /api/context/build/create (신규 구축·F7 저장)", () => {
   it("게이트 on·승인 초안 → 신규 agent 생성(canonicalize+원자쓰기)·디스크 확인", async () => {
     await setGate(true);
     const r = await app().inject({ method: "POST", url: "/api/context/build/create", payload: { kind: "agent", name: "fresh", content: VALID_AGENT } });

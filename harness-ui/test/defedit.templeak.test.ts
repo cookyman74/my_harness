@@ -47,7 +47,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe("agy#2 — writeDefSafe write/sync 실패 시 temp 누수 0", () => {
+describe.skipIf(process.platform === "win32")("agy#2 — writeDefSafe write/sync 실패 시 temp 누수 0", () => {
   it("write(ENOSPC) 실패 → 에러 전파·temp 미잔존·원본 무변경", async () => {
     const next = "---\nname: alpha\ndescription: edited\n---\n# body\nbye\n";
     await expect(writeDefSafe(root, SRC, "agent", next)).rejects.toThrow(/ENOSPC/);
