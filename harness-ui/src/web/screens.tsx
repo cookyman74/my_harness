@@ -321,7 +321,7 @@ export function Agents() {
             {d.agents.length === 0 && <p className="muted">에이전트 없음</p>}
             {d.agents.map((a) => (
               <button key={a.name} role="listitem" className={a.name === sel ? "item on" : "item"}
-                aria-current={a.name === sel} onClick={() => setSel(a.name)}>
+                aria-current={a.name === sel} onClick={() => { setSel(a.name); setRunFor(null); }}>
                 <span className="item-top">
                   <span className="item-name">{a.name}</span>
                   <span className="badge muted">{a.runtime}</span>
@@ -339,8 +339,12 @@ export function Agents() {
               <>
                 <div className="detail-actions">
                   {/* F2 W1/A67: 프리필 New Run 진입점(라벨 RF2 정합) — 유지 */}
-                  <button className="primary" onClick={() => setRunFor(a.name)}>이 에이전트에게 요청 (New Run)</button>
+                  <button className="primary" aria-pressed={runFor === a.name}
+                    onClick={() => setRunFor((v) => (v === a.name ? null : a.name))}>이 에이전트에게 요청 (New Run)</button>
                 </div>
+                {/* F2 W1/A83: New Run 폼을 버튼 **바로 아래**(편집기 위)에 렌더 — 편집기가 full-height 로 커져도
+                    폼이 화면 밖으로 밀리지 않게(구: md-layout 바깥 맨 아래 렌더 → 무반응처럼 보임). 자체 Async 3-state 로 실패 격리. */}
+                {runFor === a.name && <AgentRunForm key={a.name} name={a.name} onClose={() => setRunFor(null)} />}
                 <DefinitionEditor key={"agent:" + a.name} kind="agent" name={a.name} onClose={() => setSel(null)} />
               </>
             ) : null; })() : (
@@ -349,8 +353,6 @@ export function Agents() {
           </div>
         </div>
       )}</Async>
-      {/* F2 W1/A83: 프리필 폼은 독립 카드로 렌더 — run-template 로드 실패가 Agents 화면 전체를 무너뜨리지 않음 */}
-      {runFor && <AgentRunForm key={runFor} name={runFor} onClose={() => setRunFor(null)} />}
     </div>
   );
 }
