@@ -54,7 +54,7 @@ import {
 } from "./docs-sources.js";
 import {
   type RunTemplate, type RunSubmitResult,
-  toggleSelected, runSubmitErrorText, focusRunFromHash, runsDeepLink,
+  runSubmitErrorText, focusRunFromHash, runsDeepLink,
 } from "./agent-run.js";
 import { renderMarkdown } from "./render.js";
 import { breadcrumbTrail, isMarkdownName, viewerBanner, localDocPath, localArtifactPath, focusDocFromHash, filterDocTree } from "./docs-view.js";
@@ -380,7 +380,7 @@ function AgentRunFormBody({ template }: { template: RunTemplate }) {
   const [perm, setPerm] = useState<"read-only" | "workspace-write">(template.permissionMode);
   const [permConfirmed, setPermConfirmed] = useState(false); // A85: workspace-write 상향 명시 확인
   const [targets, setTargets] = useState<string[]>(() => TARGET_ENUM.filter((x) => template.targets.includes(x)));
-  const [tools, setTools] = useState<string[]>(() => [...D]); // U=D 기본(사용자는 D 내에서 뺄 수만)
+  const [tools] = useState<string[]>(() => [...D]); // allowedTools = 정의 선언분 전체(U=D·UI 미노출·서버 재검증)
   const [dry, setDry] = useState(true);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<RunSubmitResult | null>(null);
@@ -423,21 +423,8 @@ function AgentRunFormBody({ template }: { template: RunTemplate }) {
       </label>
       <label className="full">작업 지시 · 이 에이전트에게 시킬 일<textarea value={domain} onChange={(e) => setDomain(e.target.value)} maxLength={4000} rows={4} placeholder="무엇을 해야 하는지 구체적으로 적으세요. 이 내용이 에이전트에게 전달되는 지시(프롬프트)가 됩니다." /></label>
 
-      {/* F2 W2/A100: allowedTools = 에이전트 정의 D 체크박스로만(자유입력 없음 → U⊆D 구조 보장) */}
-      <fieldset className="tool-fieldset full">
-        <legend>이 실행에서 쓸 도구</legend>
-        <p className="muted">이 에이전트가 정의에 적어둔 도구 목록입니다. 체크된 것만 이번 실행에서 씁니다.
-          여기서 <b>뺄 수만</b> 있고, 목록에 없는 도구는 추가할 수 없습니다(실행 권한이 정의보다 넓어지지 않도록).</p>
-        {D.length === 0
-          ? <p className="muted">이 에이전트는 정의에 사용할 도구를 지정하지 않았습니다 · 도구 없이 실행됩니다.</p>
-          : D.map((t) => (
-              <label key={t} className="check">
-                <input type="checkbox" checked={tools.includes(t)}
-                  onChange={(e) => setTools((prev) => toggleSelected(prev, t, e.target.checked, D))} />
-                {t}
-              </label>
-            ))}
-      </fieldset>
+      {/* 도구(allowedTools)는 UI 노출 없이 에이전트 정의 선언분(D) 전체를 그대로 사용(tools 기본값=[...D]·U=D).
+          사용자 편집 불필요 판단(요청)으로 fieldset 제거 — 권한 상한(U⊆D)은 서버가 재검증. */}
 
       {/* targets(정의 프리필·enum 편집) */}
       <fieldset className="target-fieldset full">
