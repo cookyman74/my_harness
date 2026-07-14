@@ -379,7 +379,7 @@ function AgentRunFormBody({ template }: { template: RunTemplate }) {
   const [domain, setDomain] = useState(template.domainTemplate);
   const [perm, setPerm] = useState<"read-only" | "workspace-write">(template.permissionMode);
   const [permConfirmed, setPermConfirmed] = useState(false); // A85: workspace-write 상향 명시 확인
-  const [targets, setTargets] = useState<string[]>(() => TARGET_ENUM.filter((x) => template.targets.includes(x)));
+  const [targets] = useState<string[]>(() => TARGET_ENUM.filter((x) => template.targets.includes(x))); // 정의 프리필·기록용(UI 미노출)
   const [tools] = useState<string[]>(() => [...D]); // allowedTools = 정의 선언분 전체(U=D·UI 미노출·서버 재검증)
   const [dry, setDry] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -388,8 +388,6 @@ function AgentRunFormBody({ template }: { template: RunTemplate }) {
 
   const permBlocked = perm === "workspace-write" && !permConfirmed; // A85 미확인 시 제출 차단
   const changePerm = (v: "read-only" | "workspace-write") => { setPerm(v); if (v === "read-only") setPermConfirmed(false); };
-  const toggleTarget = (t: string, on: boolean) =>
-    setTargets((prev) => on ? [...new Set([...prev, t])] : prev.filter((x) => x !== t));
 
   const submit = async () => {
     setBusy(true); setErr(null); setResult(null);
@@ -426,18 +424,7 @@ function AgentRunFormBody({ template }: { template: RunTemplate }) {
       {/* 도구(allowedTools)는 UI 노출 없이 에이전트 정의 선언분(D) 전체를 그대로 사용(tools 기본값=[...D]·U=D).
           사용자 편집 불필요 판단(요청)으로 fieldset 제거 — 권한 상한(U⊆D)은 서버가 재검증. */}
 
-      {/* targets(정의 프리필·enum 편집) */}
-      <fieldset className="target-fieldset full">
-        <legend>대상 · 이 실행이 다루는 범위(기록용 표시)</legend>
-        <p className="muted">이 실행이 무엇을 대상으로 하는지 나타내는 <b>표시(태그)</b>입니다. 실행 기록(History)에 남아 나중에 구분하는 용도이며,
-          현재는 실제 실행 동작 자체를 바꾸지는 않습니다.</p>
-        {TARGET_ENUM.map((t) => (
-          <label key={t} className="check">
-            <input type="checkbox" checked={targets.includes(t)} onChange={(e) => toggleTarget(t, e.target.checked)} />
-            {t}
-          </label>
-        ))}
-      </fieldset>
+      {/* 대상(targets)은 실행 동작을 바꾸지 않는 기록용 태그라 UI 미노출(요청) — 정의 프리필값을 그대로 manifest 에 기록. */}
 
       <label className="check"><input type="checkbox" checked={dry} onChange={(e) => setDry(e.target.checked)} /> dry-run(미리보기만)</label>
 
