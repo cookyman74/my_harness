@@ -575,9 +575,17 @@ function DefinitionEditor({ kind, name, onClose }: { kind: DefKind; name: string
   const [mode, setMode] = useState<"render" | "edit">("render"); // 렌더(미리보기)/원문 편집 — docs 뷰어 동형(기본 렌더)
   const taRef = useRef<HTMLTextAreaElement>(null); // 원문 textarea auto-grow(내부 스크롤 제거 → 페이지 단일 스크롤)
   // 콘텐츠 높이만큼 textarea 를 늘려 내부 스크롤을 없앤다(이중 스크롤 방지·편집내용 끝까지 표시).
+  //   창 폭 변경 시에도 재측정(agy/codex MED: 리사이즈로 줄바꿈 변화 시 하단 잘림). border-box 테두리 보정(offset-client).
   useEffect(() => {
     const el = taRef.current;
-    if (el && mode === "edit") { el.style.height = "auto"; el.style.height = el.scrollHeight + "px"; }
+    if (!el || mode !== "edit") return;
+    const grow = () => {
+      el.style.height = "auto";
+      el.style.height = el.scrollHeight + (el.offsetHeight - el.clientHeight) + "px"; // +테두리(border-box 잘림 보정)
+    };
+    grow();
+    window.addEventListener("resize", grow);
+    return () => window.removeEventListener("resize", grow);
   }, [edited, mode]);
 
   // 정의 로드(이름→서버 정규경로 재조회). A83: 편집기 카드 안에서만 3-state.
