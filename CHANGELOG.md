@@ -4,6 +4,22 @@
 
 ## [Unreleased]
 
+## [1.5.7] - 2026-07-15
+
+My Harness Web **F7 정의 편집기·New Run 폼 UX 개선**(v0.8 후속). 편집기 렌더/원문 모드·이중 스크롤 제거·Agents/Skills 직접 편집·New Run 폼 단순화. 각 UI 변경 외부감사(codex+agy) 수렴. 하네스웹 0.8.1.
+
+### Changed
+
+- **정의 편집기**: 단일 textarea → **[렌더]/[원문 편집] 모드 토글**(docs 뷰어 동형). 렌더 모드는 frontmatter 를 메타 블록으로 분리 + 본문만 markdown 렌더(요약이 타이틀 폰트로 보이던 문제 해소).
+- **Agents/Skills**: 좌측 항목 선택 시 **정의 편집기 바로 표시**(별도 '정의 편집' 버튼·상세 카드 제거). 에이전트 New Run 버튼 유지. codex/gemini 정의도 편집 가능(런타임 게이트 정합).
+- **편집기 세로 확장·단일 스크롤**: 콘텐츠 full-height(textarea auto-grow)·페이지 단일 스크롤(이중 스크롤 제거)·창 리사이즈 재측정.
+- **New Run 폼 단순화**: 도구(allowedTools)·대상(targets)·dry-run 토글 제거. 런타임·모드·권한·작업 지시만 노출. 안내 문구 평이화(모드=실행 이름표·작업 지시=프롬프트).
+
+### Fixed
+
+- New Run '이 에이전트에게 요청' 버튼 무반응(폼이 full-height 편집기 아래로 밀림) → 버튼 바로 아래 렌더.
+- 편집기 렌더 모드 frontmatter BOM 미검출·ARIA tab 불완전·sticky 툴바 도달성·textarea border-box 잘림 보정.
+
 ## [1.5.5] - 2026-07-14
 
 My Harness Web **v0.8 — 멀티런타임(Claude·Codex·Gemini/agy) 통합관리**. 코덱스·클로드·제미나이 에이전트/스킬 하네스를 하나의 로컬 dev-tool에서 읽기·편집·설치·동기. `harness-ui-dev` 하네스로 TDD 구현·각 중대 마일스톤 외부감사(codex+agy·러너 제외) no-high 2연속 수렴. 하네스웹 0.8.0.
