@@ -165,6 +165,11 @@ describe("splitFrontmatter — 렌더 모드 frontmatter/본문 분리(타이틀
     expect(frontmatter).toContain("name: x");
     expect(body).toBe("body\r\n");
   });
+  it("BOM 선행 frontmatter 도 분리(codex LOW)", () => {
+    const { frontmatter, body } = splitFrontmatter("\uFEFF---\nname: x\n---\n# 본문\n");
+    expect(frontmatter).toContain("name: x");
+    expect(body).toBe("# 본문\n");
+  });
 });
 
 describe("skillNeedsName — name 없는 스킬 저장 전 힌트(400 integrity field:name 예방)", () => {

@@ -669,11 +669,12 @@ function DefinitionEditor({ kind, name, onClose }: { kind: DefKind; name: string
             <p className="banner warn" role="note">⚠ 이 스킬 정의에 <code>name:</code> 필드가 없습니다 — 저장하려면 frontmatter 에 <code>name: {name}</code> 를 명시하세요.</p>
           )}
 
-          {/* 렌더/원문 편집 모드 토글 — docs 뷰어(FileViewer) 동형. md 정의는 렌더 미리보기, toml 등은 raw. */}
-          <div className="def-mode-toggle" role="tablist" aria-label="편집기 보기 모드">
-            <button role="tab" aria-selected={mode === "render"} className={mode === "render" ? "primary" : "link"}
+          {/* 렌더/원문 편집 모드 토글 — docs 뷰어(FileViewer) 동형. 2-버튼 모드 스위치(aria-pressed·색 비의존).
+              완전한 ARIA tab 위젯(roving focus)이 아니라 tablist/tab role 미사용(codex LOW: 불완전 tab 패턴 지양). */}
+          <div className="def-mode-toggle" role="group" aria-label="편집기 보기 모드">
+            <button aria-pressed={mode === "render"} className={mode === "render" ? "primary" : "link"}
               onClick={() => setMode("render")}>렌더</button>
-            <button role="tab" aria-selected={mode === "edit"} className={mode === "edit" ? "primary" : "link"}
+            <button aria-pressed={mode === "edit"} className={mode === "edit" ? "primary" : "link"}
               onClick={() => setMode("edit")}>{editable ? "원문 편집" : "원문"}</button>
           </div>
 

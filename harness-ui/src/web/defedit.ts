@@ -159,9 +159,10 @@ function extractFrontmatter(content: string): string | null {
 // 렌더 미리보기용: frontmatter(--- 블록)와 본문 분리. 정의는 YAML frontmatter 를 가져 md 렌더 시 `---` 가
 //   setext heading 으로 오해석(요약정보가 타이틀 폰트) → 렌더 모드는 frontmatter 를 떼고 본문만 md 렌더한다.
 export function splitFrontmatter(content: string): { frontmatter: string | null; body: string } {
-  const m = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(content);
-  if (!m) return { frontmatter: null, body: content };
-  return { frontmatter: m[1]!, body: content.slice(m[0].length) };
+  const s = content.replace(/^\uFEFF/, ""); // BOM 제거 후 매칭(codex LOW: BOM 선행 시 frontmatter 미검출)
+  const m = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(s);
+  if (!m) return { frontmatter: null, body: s };
+  return { frontmatter: m[1]!, body: s.slice(m[0].length) };
 }
 
 // 스킬이고 frontmatter 에 name 키가 없으면 true(저장 시 400 integrity field:name 예방 안내).

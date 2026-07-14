@@ -290,14 +290,14 @@ details.tier-b[open] > summary { margin-bottom:8px; }
 .edit-btn.primary { background:var(--accent); color:var(--on-accent); border:none; font-weight:600; }
 .edit-btn:disabled { opacity:.5; cursor:not-allowed; }
 .def-textarea-label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); margin-top:10px; }
-.def-textarea { background:var(--panel-2); border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px; font-family:var(--mono); font-size:12px; line-height:1.5; width:100%; box-sizing:border-box; resize:vertical; }
+.def-textarea { background:var(--panel-2); border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px; font-family:var(--mono); font-size:12px; line-height:1.5; width:100%; box-sizing:border-box; resize:vertical; min-height:64vh; }
 .def-textarea[readonly] { opacity:.75; }
 .def-editor-toolbar { display:flex; gap:12px; align-items:center; margin-top:10px; }
 .def-editor-toolbar .primary { margin-left:auto; }
 /* 렌더/원문 모드 토글(docs 뷰어 동형) */
 .def-mode-toggle { display:flex; gap:6px; margin:10px 0 6px; }
 .def-mode-toggle button { padding:3px 12px; border-radius:6px; font-size:12px; }
-.def-render { margin-top:0; max-height:520px; overflow:auto; }
+.def-render { margin-top:0; min-height:64vh; max-height:78vh; overflow:auto; }
 pre.def-render { background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:10px; font-family:var(--mono); font-size:12px; line-height:1.5; }
 /* frontmatter 요약 메타 블록(타이틀 폰트 아님·key-value) */
 .def-fm-meta { background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin:0 0 12px; font-size:12px; }
