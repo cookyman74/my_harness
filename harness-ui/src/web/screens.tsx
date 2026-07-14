@@ -381,7 +381,6 @@ function AgentRunFormBody({ template }: { template: RunTemplate }) {
   const [permConfirmed, setPermConfirmed] = useState(false); // A85: workspace-write 상향 명시 확인
   const [targets] = useState<string[]>(() => TARGET_ENUM.filter((x) => template.targets.includes(x))); // 정의 프리필·기록용(UI 미노출)
   const [tools] = useState<string[]>(() => [...D]); // allowedTools = 정의 선언분 전체(U=D·UI 미노출·서버 재검증)
-  const [dry, setDry] = useState(true);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<RunSubmitResult | null>(null);
   const [err, setErr] = useState<string | null>(null); // 400/409 인라인 매핑(A100)
@@ -394,7 +393,7 @@ function AgentRunFormBody({ template }: { template: RunTemplate }) {
     try {
       const r = await submitRun({
         runtime, mode, domain, permissionMode: perm, targets,
-        allowedTools: tools, dryRun: dry,
+        allowedTools: tools, dryRun: false, // dry-run 토글 제거(요청) — 항상 실제 실행. 안전은 read-only 권한 + git.
         agent: template.agent, agentFingerprint: template.fingerprint, // 지문 echo(stale 폼 → 409)
       });
       setResult(r);
@@ -426,8 +425,6 @@ function AgentRunFormBody({ template }: { template: RunTemplate }) {
 
       {/* 대상(targets)은 실행 동작을 바꾸지 않는 기록용 태그라 UI 미노출(요청) — 정의 프리필값을 그대로 manifest 에 기록. */}
 
-      <label className="check"><input type="checkbox" checked={dry} onChange={(e) => setDry(e.target.checked)} /> 실행 계획만 확인 (실제 실행·파일 변경 안 함)</label>
-      {dry && <p className="muted">체크 시 <b>어떤 명령이 실행될지(런타임·권한·지시)</b>만 보여줍니다. 문서 변경 내용은 미리 보이지 않습니다(실제 실행해야 에이전트가 결정).</p>}
 
       {/* A85: 권한 상향 위험 확인(색 아님·아이콘+텍스트·명시 확인 게이트) */}
       {perm === "workspace-write" && (
@@ -438,23 +435,19 @@ function AgentRunFormBody({ template }: { template: RunTemplate }) {
       )}
 
       <button className="primary" disabled={busy || !domain || !mode || permBlocked} onClick={submit}>
-        {busy ? "제출 중…" : dry ? "미리보기" : "실행"}
+        {busy ? "제출 중…" : "실행"}
       </button>
-      {!dry && <p className="warn-text">⚠ 실 실행은 CLI 프로세스를 spawn합니다(fire-and-observe · 대화형 아님).</p>}
+      <p className="warn-text">⚠ 실 실행은 CLI 프로세스를 spawn합니다(fire-and-observe · 대화형 아님). 결과는 History에서 관찰.</p>
 
       {/* A100: 서버 거부(400 unauthorized-tool·409 agent-definition-changed) 인라인 — 조용한 드롭 아님 */}
       {err && <p className="banner err full" role="alert">⚠ {err}</p>}
 
-      {/* A87: 제출 성공 착지 배너 + runId 딥링크(→ History에서 관찰) */}
-      {result && (result.dryRun
-        ? <div className="banner full" role="status">
-            <p>👁 실행 계획 · 아래 명령이 실행될 예정입니다(아직 실행 안 함·파일 미변경) · runId <code className="path">{result.runId}</code></p>
-            <pre className="out">{JSON.stringify(result.preview, null, 2)}</pre>
-          </div>
-        : <div className="banner ok full" role="status">
-            <p>✓ 실행이 생성되었습니다 · runId <code className="path">{result.runId}</code></p>
-            <a className="link" href={runsDeepLink(result.runId)}>→ History에서 관찰</a>
-          </div>)}
+      {/* A87: 제출 성공 착지 배너 + runId 딥링크(→ History에서 관찰). dry-run 제거로 항상 실 실행. */}
+      {result && !result.dryRun && (
+        <div className="banner ok full" role="status">
+          <p>✓ 실행이 생성되었습니다 · runId <code className="path">{result.runId}</code></p>
+          <a className="link" href={runsDeepLink(result.runId)}>→ History에서 관찰</a>
+        </div>)}
     </div>
   );
 }
