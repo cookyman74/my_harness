@@ -290,16 +290,16 @@ details.tier-b[open] > summary { margin-bottom:8px; }
 .edit-btn.primary { background:var(--accent); color:var(--on-accent); border:none; font-weight:600; }
 .edit-btn:disabled { opacity:.5; cursor:not-allowed; }
 .def-textarea-label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); margin-top:10px; }
-/* 높이: sticky 컬럼(top:78px) + 헤더/토글/툴바 고정분을 뺀 가용 뷰포트로 상한 — 세로 확장하되 하단 저장 툴바
-   도달성 보장(agy HIGH: sticky 트랩 clipping 방지). min 은 짧은 화면에서 max 를 넘지 않는 값. */
-.def-textarea { background:var(--panel-2); border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px; font-family:var(--mono); font-size:12px; line-height:1.5; width:100%; box-sizing:border-box; resize:vertical; min-height:min(45vh, calc(100vh - 260px)); max-height:calc(100vh - 240px); }
+/* 높이: 콘텐츠만큼 자라 내부 스크롤 없음(auto-grow·JS) → 페이지 단일 스크롤. 이중 스크롤 방지·편집내용 끝까지 표시. */
+.def-textarea { background:var(--panel-2); border:1px solid var(--line); color:var(--fg); border-radius:8px; padding:8px; font-family:var(--mono); font-size:12px; line-height:1.5; width:100%; box-sizing:border-box; resize:none; overflow:hidden; min-height:280px; }
 .def-textarea[readonly] { opacity:.75; }
 .def-editor-toolbar { display:flex; gap:12px; align-items:center; margin-top:10px; }
 .def-editor-toolbar .primary { margin-left:auto; }
 /* 렌더/원문 모드 토글(docs 뷰어 동형) */
 .def-mode-toggle { display:flex; gap:6px; margin:10px 0 6px; }
 .def-mode-toggle button { padding:3px 12px; border-radius:6px; font-size:12px; }
-.def-render { margin-top:0; min-height:min(45vh, calc(100vh - 260px)); max-height:calc(100vh - 240px); overflow:auto; }
+/* 렌더 미리보기: 콘텐츠 full-height(내부 스크롤 없음·overflow visible) → 페이지 단일 스크롤. */
+.def-render { margin-top:0; }
 pre.def-render { background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:10px; font-family:var(--mono); font-size:12px; line-height:1.5; }
 /* frontmatter 요약 메타 블록(타이틀 폰트 아님·key-value) */
 .def-fm-meta { background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin:0 0 12px; font-size:12px; }
@@ -385,7 +385,9 @@ pre.def-render { background:var(--panel-2); border:1px solid var(--line); border
 .item-name { font-weight:600; font-size:13.5px; }
 .item-top .badge { margin-left:auto; }
 .item-meta { color:var(--muted); font-size:12px; word-break:break-word; line-height:1.4; }
-.detail-sticky { position:sticky; top:78px; min-width:0; max-height:calc(100vh - 90px); overflow-y:auto; }
+/* 편집기가 full-height 로 자라므로 sticky/내부 overflow 제거 → 페이지가 유일 스크롤 컨테이너(이중 스크롤 방지·
+   sticky 트랩 없음이라 하단 툴바도 페이지 스크롤로 도달). 좁은 화면은 아래 @media 로 1열. */
+.detail-sticky { min-width:0; }
 .detail-empty { border:1px dashed var(--line-strong); border-radius:var(--radius); padding:44px 24px; text-align:center; color:var(--muted); font-size:13.5px; }
 .chipset { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
 .chip-soft { background:var(--panel-2); border:1px solid var(--line); border-radius:999px; padding:1px 9px; font-size:12px; color:var(--fg-2); }

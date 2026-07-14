@@ -573,6 +573,12 @@ function DefinitionEditor({ kind, name, onClose }: { kind: DefKind; name: string
   const [conflict, setConflict] = useState<StaleConflict | null>(null); // A93
   const [copied, setCopied] = useState(false);
   const [mode, setMode] = useState<"render" | "edit">("render"); // 렌더(미리보기)/원문 편집 — docs 뷰어 동형(기본 렌더)
+  const taRef = useRef<HTMLTextAreaElement>(null); // 원문 textarea auto-grow(내부 스크롤 제거 → 페이지 단일 스크롤)
+  // 콘텐츠 높이만큼 textarea 를 늘려 내부 스크롤을 없앤다(이중 스크롤 방지·편집내용 끝까지 표시).
+  useEffect(() => {
+    const el = taRef.current;
+    if (el && mode === "edit") { el.style.height = "auto"; el.style.height = el.scrollHeight + "px"; }
+  }, [edited, mode]);
 
   // 정의 로드(이름→서버 정규경로 재조회). A83: 편집기 카드 안에서만 3-state.
   useEffect(() => {
@@ -705,7 +711,7 @@ function DefinitionEditor({ kind, name, onClose }: { kind: DefKind; name: string
           ) : (
             <label className="def-textarea-label">
               정의 원문 (frontmatter + 본문)
-              <textarea className="def-textarea" value={edited} onChange={(e) => setEdited(e.target.value)}
+              <textarea ref={taRef} className="def-textarea" value={edited} onChange={(e) => setEdited(e.target.value)}
                 readOnly={!editable} aria-label="정의 원문 편집" spellCheck={false} rows={20} />
             </label>
           )}
