@@ -10,7 +10,7 @@
       "name": "myharness",
       "source": "./",
       "description": "myharness — Claude Code·Codex 듀얼 런타임 하네스 팩토리. 도메인 한 문장을 에이전트 팀+스킬로 변환하고, 내부 QA + 외부 리뷰(codex/agy) 2층 게이트를 적용하는 메타 스킬.",
-      "version": "1.5.1"
+      "version": "1.5.5"
     }
   ]
 }

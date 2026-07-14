@@ -4,6 +4,24 @@
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-07-14
+
+My Harness Web **v0.8 — 멀티런타임(Claude·Codex·Gemini/agy) 통합관리**. 코덱스·클로드·제미나이 에이전트/스킬 하네스를 하나의 로컬 dev-tool에서 읽기·편집·설치·동기. `harness-ui-dev` 하네스로 TDD 구현·각 중대 마일스톤 외부감사(codex+agy·러너 제외) no-high 2연속 수렴. 하네스웹 0.8.0.
+
+### Added
+
+- **F12 런타임 어댑터 레지스트리(M-a)** — 하드코딩 런타임 경로를 단일 SSOT(agent{dir,ext,format,editable}·skills[]·install·authProbe)로 통합. Gemini 읽기 편입.
+- **F13 멀티런타임 읽기·스킬 역인덱스(M-b)** — `.gemini` 에이전트/스킬 읽기·공용/서브/orphan 스킬 분류·역인덱스(`/api/skills-usage`)·broken symlink fail-soft.
+- **F14 Claude+Gemini md 정의 편집(M-c)** — F7 편집을 Gemini md 에이전트/스킬로 확장(파서 재사용·쓰기경계 풀스택·심링크/TOCTOU/Windows 차단).
+- **F17 설치 매트릭스·agy 인증(M-d)** — 설치 채널 2개(Claude / 공유 `~/.agents/skills` Codex+Gemini)·전체 채널 일괄·agy 4-state 인증(자격 파일 근거·"인증됨" 단정 금지).
+- **F15 Codex TOML 편집(M-e)** — `.codex/agents/*.toml` limited-edit(주석 보존 verbatim·`@iarna/toml` strict parse + semantic diff·injection 방어·중복키/이스케이프 fail-closed). 외부감사 R1~R6 수렴.
+- **F16 트리런타임 스킬 동기(M-f)** — 스킬 사본 `(dev,ino)` 튜플 분류(symlink/hardlink/copy·cross-fs 오판 차단)·copy-drift 명시 다타깃 동기(원문 전파·낙관적 동시성·nlink 재검증). 외부감사 R1~R4 수렴.
+
+### Fixed
+
+- 컨텍스트 트리 편집 진입 판정을 레지스트리 editable dir 기준 서버/웹 동형화(codex toml·shared 스킬 edit-via-f7·`.gemini`/dotfile 배제).
+- Ops agy 인증 표기 정직화(configured/unauthenticated/unknown 원인 구분).
+
 ## [1.5.1] - 2026-07-12
 
 My Harness Web에 **팩토리(myharness) 유지관리** 기능 추가 — 웹에서 설치·업데이트·제거를 명확히. 보안(HOME 쓰기)·UX 각각 codex+agy 외부감사 수렴(양엔진 no-high).
