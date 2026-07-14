@@ -426,7 +426,8 @@ function AgentRunFormBody({ template }: { template: RunTemplate }) {
 
       {/* 대상(targets)은 실행 동작을 바꾸지 않는 기록용 태그라 UI 미노출(요청) — 정의 프리필값을 그대로 manifest 에 기록. */}
 
-      <label className="check"><input type="checkbox" checked={dry} onChange={(e) => setDry(e.target.checked)} /> dry-run(미리보기만)</label>
+      <label className="check"><input type="checkbox" checked={dry} onChange={(e) => setDry(e.target.checked)} /> 실행 계획만 확인 (실제 실행·파일 변경 안 함)</label>
+      {dry && <p className="muted">체크 시 <b>어떤 명령이 실행될지(런타임·권한·지시)</b>만 보여줍니다. 문서 변경 내용은 미리 보이지 않습니다(실제 실행해야 에이전트가 결정).</p>}
 
       {/* A85: 권한 상향 위험 확인(색 아님·아이콘+텍스트·명시 확인 게이트) */}
       {perm === "workspace-write" && (
@@ -447,7 +448,7 @@ function AgentRunFormBody({ template }: { template: RunTemplate }) {
       {/* A87: 제출 성공 착지 배너 + runId 딥링크(→ History에서 관찰) */}
       {result && (result.dryRun
         ? <div className="banner full" role="status">
-            <p>👁 미리보기(파일 미기록) · runId <code className="path">{result.runId}</code></p>
+            <p>👁 실행 계획 · 아래 명령이 실행될 예정입니다(아직 실행 안 함·파일 미변경) · runId <code className="path">{result.runId}</code></p>
             <pre className="out">{JSON.stringify(result.preview, null, 2)}</pre>
           </div>
         : <div className="banner ok full" role="status">
