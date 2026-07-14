@@ -36,7 +36,7 @@ import {
 } from "./evals.js";
 import {
   defEditErrorText, diffLines, diffStats, hasChanges, isDiffCoarse, sideRows,
-  skillNeedsName, skillHasClaudePath, isDirty, rollbackBodyFromSave, splitFrontmatter,
+  skillNeedsName, isDirty, rollbackBodyFromSave, splitFrontmatter,
 } from "./defedit.js";
 import { projectRootErrorText, canSave, requiresOrphanChoice, type OrphanChoice } from "./settings.js";
 import {
@@ -308,11 +308,8 @@ export function Build() {
 // ── 3. Agents (A3 · F2 M10 프리필 New Run) ──
 export function Agents() {
   const st = useApi<{ agents: Array<{ name: string; runtime: string; sourcePath: string; role: string; skills: string[] }> }>("/api/agents");
-  const set = useApi<SettingsInfo>("/api/settings"); // F7: definitionEditEnabled(편집 버튼 게이트·A81)
   const [sel, setSel] = useState<string | null>(null);
   const [runFor, setRunFor] = useState<string | null>(null); // F2: New Run 프리필 폼 대상 에이전트
-  const [editFor, setEditFor] = useState<string | null>(null); // F7: 정의 편집 대상 에이전트
-  const gateOn = set.data?.definitionEditEnabled === true;
   return (
     <div className="screen">
       <h2>Agents</h2>
@@ -336,31 +333,19 @@ export function Agents() {
           </div>
           {/* 상세(스티키) — 미선택 시 빈 상태 안내 */}
           <div className="detail-sticky">
+            {/* 선택 시 정의 편집기를 **바로** 표시(별도 상세 카드·편집 버튼 없이). New Run 버튼은 유지(요청 진입점).
+                요약(role/연결 스킬)은 편집기 렌더 모드가 frontmatter 메타 + 본문으로 보여준다. */}
             {sel ? (() => { const a = d.agents.find((x) => x.name === sel); return a ? (
-              <Card title={a.name}>
-                <p className="muted">{a.sourcePath} · {a.runtime}</p>
-                <p>{a.role || "(설명 없음)"}</p>
-                {a.skills.length > 0 && (
-                  <div className="chipset" aria-label="연결 스킬">
-                    {a.skills.map((sk) => <span key={sk} className="chip-soft">{sk}</span>)}
-                  </div>
-                )}
+              <>
                 <div className="detail-actions">
-                  {/* F2 W1/A67: 프리필 New Run 진입점(라벨 RF2 정합) */}
+                  {/* F2 W1/A67: 프리필 New Run 진입점(라벨 RF2 정합) — 유지 */}
                   <button className="primary" onClick={() => setRunFor(a.name)}>이 에이전트에게 요청 (New Run)</button>
-                  {/* F7 A80/A81: 정의 편집 진입(게이트 off·codex → 비활성 + 이유 툴팁 + Settings 딥링크) */}
-                  <EditButton
-                    reason={!gateOn ? "정의 편집이 비활성입니다" : a.runtime !== "claude" ? "Codex 에이전트 정의 편집은 현재 지원하지 않습니다" : null}
-                    showSettingsLink={!gateOn}
-                    onEdit={() => setEditFor(a.name)}
-                  />
                 </div>
-              </Card>
+                <DefinitionEditor key={"agent:" + a.name} kind="agent" name={a.name} onClose={() => setSel(null)} />
+              </>
             ) : null; })() : (
-              <div className="detail-empty" role="note">← 왼쪽에서 에이전트를 선택하면 상세·요청·편집이 열립니다.</div>
+              <div className="detail-empty" role="note">← 왼쪽에서 에이전트를 선택하면 요청·정의가 바로 열립니다.</div>
             )}
-            {/* F7 A80/A83: 편집기 인라인 — 상세 컬럼 안에서 펼침(자체 Card·3-state 유지·실패 격리) */}
-            {editFor && <DefinitionEditor key={"agent:" + editFor} kind="agent" name={editFor} onClose={() => setEditFor(null)} />}
           </div>
         </div>
       )}</Async>
@@ -497,10 +482,7 @@ function AgentRunFormBody({ template }: { template: RunTemplate }) {
 // ── 4. Skills (A4·A43 triggers) ──
 export function Skills() {
   const st = useApi<{ skills: Array<{ name: string; description: string; triggers: string; references: string[]; runtimePaths: string[] }> }>("/api/skills");
-  const set = useApi<SettingsInfo>("/api/settings"); // F7: definitionEditEnabled(편집 버튼 게이트·A81)
   const [sel, setSel] = useState<string | null>(null);
-  const [editFor, setEditFor] = useState<string | null>(null); // F7: 정의 편집 대상 스킬
-  const gateOn = set.data?.definitionEditEnabled === true;
   return (
     <div className="screen">
       <h2>Skills</h2>
@@ -518,30 +500,13 @@ export function Skills() {
             ))}
           </div>
           <div className="detail-sticky">
-            {sel ? (() => { const s = d.skills.find((x) => x.name === sel); return s ? (
-              <Card title={s.name}>
-                <p className="muted">{s.runtimePaths.join(", ")}</p>
-                <p>{s.description || "(설명 없음)"}</p>
-                {s.triggers && <p className="item-meta">트리거: {s.triggers}</p>}
-                {s.references.length > 0 && (
-                  <div className="chipset" aria-label="참조">
-                    {s.references.map((r) => <span key={r} className="chip-soft">{r}</span>)}
-                  </div>
-                )}
-                <div className="detail-actions">
-                  {/* F7 A80/A81: 정의 편집 진입(게이트 off·codex-only → 비활성 + 이유 툴팁 + Settings 딥링크) */}
-                  <EditButton
-                    reason={!gateOn ? "정의 편집이 비활성입니다" : !skillHasClaudePath(s.runtimePaths) ? "Codex 전용 스킬 정의 편집은 현재 지원하지 않습니다" : null}
-                    showSettingsLink={!gateOn}
-                    onEdit={() => setEditFor(s.name)}
-                  />
-                </div>
-              </Card>
-            ) : null; })() : (
-              <div className="detail-empty" role="note">← 왼쪽에서 스킬을 선택하면 상세·편집이 열립니다.</div>
+            {/* 선택 시 정의 편집기를 **바로** 표시(별도 상세 카드·편집 버튼 없이). 요약(name/트리거/참조)은
+                편집기 렌더 모드가 frontmatter 메타 + 본문으로 보여준다. 게이트/편집가능은 편집기가 내부 판정. */}
+            {sel ? (
+              <DefinitionEditor key={"skill:" + sel} kind="skill" name={sel} onClose={() => setSel(null)} />
+            ) : (
+              <div className="detail-empty" role="note">← 왼쪽에서 스킬을 선택하면 정의가 바로 열립니다.</div>
             )}
-            {/* F7 A80/A83: 편집기 인라인 — 상세 컬럼 안에서 펼침(자체 Card·3-state·실패 격리) */}
-            {editFor && <DefinitionEditor key={"skill:" + editFor} kind="skill" name={editFor} onClose={() => setEditFor(null)} />}
           </div>
         </div>
       )}</Async>
@@ -551,19 +516,6 @@ export function Skills() {
 
 // ── F7 정의 편집기 (M12 · A80·A81·A85·A86·A93 · 첫 mutating·중대) ──
 // XSS: textarea·diff·merge 는 전부 React escape(순수 텍스트) — dangerouslySetInnerHTML 금지(마크다운 렌더 아님).
-
-// A81: 편집 진입 버튼. reason!=null → 비활성 + 이유 툴팁(색 비의존·텍스트 병기·빈 비활성 금지) + Settings 딥링크.
-function EditButton({ reason, showSettingsLink, onEdit }: { reason: string | null; showSettingsLink: boolean; onEdit: () => void }) {
-  if (!reason) return <button className="primary edit-btn" onClick={onEdit}>✎ 정의 편집</button>;
-  return (
-    <span className="edit-disabled-wrap">
-      <button className="edit-btn" disabled aria-disabled="true" title={reason}>✎ 정의 편집</button>
-      <span className="muted edit-reason" role="note">🔒 {reason}
-        {showSettingsLink && <> · <a className="link" href="#/settings">Settings에서 켜기 →</a></>}
-      </span>
-    </span>
-  );
-}
 
 // 통합 diff 미리보기(로드본→편집본) — +/−/space 마크로 색 비의존(A92). 순수 텍스트 렌더.
 function DiffView({ before, after }: { before: string; after: string }) {
