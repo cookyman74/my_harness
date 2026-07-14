@@ -620,6 +620,7 @@ function DefinitionEditor({ kind, name, onClose }: { kind: DefKind; name: string
   const [err, setErr] = useState<string | null>(null); // 400/403/409 인라인(A80)
   const [conflict, setConflict] = useState<StaleConflict | null>(null); // A93
   const [copied, setCopied] = useState(false);
+  const [mode, setMode] = useState<"render" | "edit">("render"); // 렌더(미리보기)/원문 편집 — docs 뷰어 동형(기본 렌더)
 
   // 정의 로드(이름→서버 정규경로 재조회). A83: 편집기 카드 안에서만 3-state.
   useEffect(() => {
@@ -716,11 +717,27 @@ function DefinitionEditor({ kind, name, onClose }: { kind: DefKind; name: string
             <p className="banner warn" role="note">⚠ 이 스킬 정의에 <code>name:</code> 필드가 없습니다 — 저장하려면 frontmatter 에 <code>name: {name}</code> 를 명시하세요.</p>
           )}
 
-          <label className="def-textarea-label">
-            정의 원문 (frontmatter + 본문)
-            <textarea className="def-textarea" value={edited} onChange={(e) => setEdited(e.target.value)}
-              readOnly={!editable} aria-label="정의 원문 편집" spellCheck={false} rows={20} />
-          </label>
+          {/* 렌더/원문 편집 모드 토글 — docs 뷰어(FileViewer) 동형. md 정의는 렌더 미리보기, toml 등은 raw. */}
+          <div className="def-mode-toggle" role="tablist" aria-label="편집기 보기 모드">
+            <button role="tab" aria-selected={mode === "render"} className={mode === "render" ? "primary" : "link"}
+              onClick={() => setMode("render")}>렌더</button>
+            <button role="tab" aria-selected={mode === "edit"} className={mode === "edit" ? "primary" : "link"}
+              onClick={() => setMode("edit")}>{editable ? "원문 편집" : "원문"}</button>
+          </div>
+
+          {mode === "render" ? (
+            // 렌더: md 정의는 markdown-it+DOMPurify(renderMarkdown·docs DV8 동일 경로)로 미리보기, 그 외(toml)는 raw <pre>.
+            //   미리보기는 편집 버퍼(edited) 기준 → 편집 반영. 저장은 원문 모드에서만.
+            doc.sourcePath.endsWith(".md")
+              ? <div className="md-body def-render" dangerouslySetInnerHTML={{ __html: renderMarkdown(edited) }} />
+              : <pre className="out def-render">{edited}</pre>
+          ) : (
+            <label className="def-textarea-label">
+              정의 원문 (frontmatter + 본문)
+              <textarea className="def-textarea" value={edited} onChange={(e) => setEdited(e.target.value)}
+                readOnly={!editable} aria-label="정의 원문 편집" spellCheck={false} rows={20} />
+            </label>
+          )}
 
           <div className="def-editor-toolbar">
             <button className="link" aria-pressed={showDiff} onClick={() => setShowDiff((v) => !v)}>
