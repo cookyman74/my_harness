@@ -616,7 +616,11 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
         if (!live) return;
         setRemed(r);
         if (r.status === "running") { timer = setTimeout(poll, 2000); return; }
-        if (r.status === "ready") { setEdited(r.proposedContent); setShowDiff(true); setMode("edit"); }
+        // 초안이 현재 편집기 대상과 일치할 때만 주입(딥링크/stale runId 로 엉뚱한 초안 표시 방지·codex MED).
+        if (r.status === "ready") {
+          if (r.kind !== kind || r.name !== name) { setRemed({ status: "invalid", error: "mismatched-target" }); return; }
+          setEdited(r.proposedContent); setShowDiff(true); setMode("edit");
+        }
       } catch (e) { if (live) setRemed({ status: "invalid", error: e instanceof DefEditError ? e.code : String(e) }); }
     };
     poll();

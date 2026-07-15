@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { buildServer } from "../src/server/index.js";
 import {
   actionSurface, surfacesOf, conflictOf, buildRemediationPrompt, extractEdited, validateProposal,
-  readRemediationResult, EDIT_OPEN, EDIT_CLOSE, type RemediationFinding,
+  readRemediationResult, remediationArgv, EDIT_OPEN, EDIT_CLOSE, type RemediationFinding,
 } from "../src/server/adapters/remediate.js";
 
 const sha = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
@@ -40,6 +40,17 @@ describe("extractEdited — 태그 내부만·1개", () => {
   it("2블록 → multi-edited-block", () => { const r = extractEdited(`${EDIT_OPEN}a${EDIT_CLOSE}\n${EDIT_OPEN}b${EDIT_CLOSE}`); expect(r).toEqual({ ok: false, error: "multi-edited-block" }); });
   it("미종결 → unterminated", () => expect(extractEdited(`${EDIT_OPEN}\nabc`)).toEqual({ ok: false, error: "unterminated-edited-block" }));
   it("빈 블록 → empty", () => expect(extractEdited(`${EDIT_OPEN}\n \n${EDIT_CLOSE}`)).toEqual({ ok: false, error: "empty-edited-block" }));
+});
+
+describe("remediationArgv — 도구 차단 하드닝", () => {
+  it("plan·safe-mode·tools 비활성·disallow *·positional prompt", () => {
+    const a = remediationArgv("hello");
+    expect(a).toContain("--permission-mode"); expect(a[a.indexOf("--permission-mode") + 1]).toBe("plan");
+    expect(a).toContain("--safe-mode");
+    expect(a).toContain("--tools"); expect(a[a.indexOf("--tools") + 1]).toBe(""); // built-in 전체 비활성
+    expect(a).toContain("--disallowedTools"); expect(a[a.indexOf("--disallowedTools") + 1]).toBe("*");
+    expect(a[a.length - 2]).toBe("--"); expect(a[a.length - 1]).toContain("hello");
+  });
 });
 
 describe("buildRemediationPrompt — 데이터 경계·태그·타겟 명시", () => {

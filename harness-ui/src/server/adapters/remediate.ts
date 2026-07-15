@@ -3,7 +3,8 @@
 // 핵심 안전: AI=초안만·사람 diff 승인=유일 적용(적용은 기존 defedit PUT·여기 없음). 삭제/자동커밋 없음.
 //   read-only(plan) 러너 강제(P0 실측)·action-타겟 영역 인지 검증(description 항상변경 구멍 차단)·injection=출력검증+사람승인.
 import { join } from "node:path";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { open, writeFile, mkdir } from "node:fs/promises";
+import { constants } from "node:fs";
 import { z } from "zod";
 import { canonicalizeDefinition, sha256, MAX_DEF_BYTES, type DefKind } from "./defedit.js";
 import { superviseRun, newRunId, writeManifest, writeStatus, SUPERVISOR_VERSION } from "../supervisor/supervisor.js";
@@ -168,13 +169,21 @@ function baseStatus(runId: string) {
   };
 }
 
-// 초안 잡 시작. read-only(plan)·allowedTools 없음(plan 이 쓰기 차단·P0 실측). 큰 프롬프트라 RunRequest(4000 캡) 우회·서버 조립.
+// 러너 argv(하드닝·builddraft HB3 선례). **도구 완전 차단**이 핵심 방어: plan 은 쓰기만 막지만
+//   `--tools ""`(built-in 전체 비활성)+`--disallowedTools "*"`(belt) 로 Read/Grep/Bash 등 도구 자체가 없어
+//   injection 이 파일 read/exfil 을 못 함(도구 없이 순수 텍스트 생성만). `--safe-mode`=MCP/hooks/plugins/CLAUDE.md 비활성.
+//   (HOME 격리는 미채택 — OAuth/keychain 인증 유지·P0 실측 정상. 도구 0 이라 파일접근 자체가 없어 exfil 벡터 닫힘.)
+export function remediationArgv(prompt: string): string[] {
+  return ["-p", "--output-format", "stream-json", "--permission-mode", "plan",
+    "--safe-mode", "--tools", "", "--disallowedTools", "*", "--", `Task:\n${prompt}`];
+}
+
+// 초안 잡 시작. read-only(plan)+도구 차단. 큰 프롬프트라 RunRequest(4000 캡) 우회·서버 조립.
 export async function startRemediationRun(projectRoot: string, kind: DefKind, name: string, content: string, findings: RemediationFinding[]): Promise<{ runId: string; runDir: string; pid: number }> {
   const runId = newRunId("remediate");
   const runDir = join(projectRoot, "_workspace", "runs", runId);
   const prompt = buildRemediationPrompt(content, findings);
-  // claude -p plan 모드·stream-json. allowedTools 미지정(plan 이 파일쓰기 차단). `--` 뒤 positional.
-  const args = ["-p", "--output-format", "stream-json", "--permission-mode", "plan", "--", `Task:\n${prompt}`];
+  const args = remediationArgv(prompt);
   await writeManifest(runDir, remediationManifest(runId, projectRoot, kind, name));
   await writeStatus(runDir, baseStatus(runId));
   // 초안 요청 메타(baseHash·findings) 영속 — GET 이 검증·stale 판정에 사용.
@@ -183,6 +192,21 @@ export async function startRemediationRun(projectRoot: string, kind: DefKind, na
     JSON.stringify({ kind, name, baseHash: sha256(content), originalContent: content, findings, createdAt: new Date().toISOString() }, null, 2), "utf8");
   const { pid } = await superviseRun(runDir, "claude", args);
   return { runId, runDir, pid };
+}
+
+// 캡드 nofollow 리더(O_NOFOLLOW·fstat.size 체크 후 read — leaf 심링크 거부·OOM 방어·runs.ts readCappedDef 정합).
+async function readCapped(path: string, maxBytes: number): Promise<string | null> {
+  let fh;
+  try { fh = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)); }
+  catch { return null; }
+  try {
+    const st = await fh.stat();
+    if (!st.isFile() || st.size > maxBytes) return null; // 초과·비파일 → read 미수행
+    const buf = Buffer.alloc(st.size);
+    await fh.read(buf, 0, st.size, 0);
+    return buf.toString("utf8");
+  } catch { return null; }
+  finally { await fh.close().catch(() => {}); }
 }
 
 const TERMINAL = new Set(["completed", "failed", "cancelled", "stale", "blocked"]);
@@ -198,27 +222,25 @@ export type RemediationResult =
 export async function readRemediationResult(projectRoot: string, runId: string, resolveCurrent: (kind: DefKind, name: string) => Promise<string | null>): Promise<RemediationResult | null> {
   const dir = await resolveRunDir(projectRoot, runId);
   if (!dir) return null;
-  // 상태
-  let statusRaw: string;
-  try { statusRaw = await readFile(join(dir, "status.json"), "utf8"); } catch { return { status: "running" }; }
-  if (Buffer.byteLength(statusRaw, "utf8") > MAX_DEF_BYTES) return { status: "failed", error: "status-oversize" };
+  // 상태(캡드 nofollow 리더 — size 체크 후 read·심링크 거부)
+  const statusRaw = await readCapped(join(dir, "status.json"), MAX_DEF_BYTES);
+  if (statusRaw == null) return { status: "running" }; // 미기록·초과·심링크 → 아직/거부
   let state: string | undefined;
   try { state = JSON.parse(statusRaw)?.state; } catch { return { status: "failed", error: "status-parse" }; }
   if (!state || !TERMINAL.has(state)) return { status: "running" };
   if (state !== "completed") return { status: "failed", error: `run-${state}` };
-  // 요청 메타
+  // 요청 메타(originalContent 스냅샷 포함 → 2×캡)
+  const rr = await readCapped(join(dir, "remediation", "request.json"), MAX_DEF_BYTES * 2);
+  if (rr == null) return { status: "failed", error: "request-missing" };
   let req: z.infer<typeof ReqShape>;
   try {
-    const rr = await readFile(join(dir, "remediation", "request.json"), "utf8");
-    if (Buffer.byteLength(rr, "utf8") > MAX_DEF_BYTES * 2) return { status: "failed", error: "request-oversize" };
     const parsed = ReqShape.safeParse(JSON.parse(rr));
     if (!parsed.success) return { status: "failed", error: "request-invalid" };
     req = parsed.data;
-  } catch { return { status: "failed", error: "request-missing" }; }
-  // 러너 출력 추출
-  let raw: string;
-  try { raw = await readFile(join(dir, "agents", "last-message.md"), "utf8"); } catch { return { status: "invalid", error: "no-output" }; }
-  if (Buffer.byteLength(raw, "utf8") > MAX_DEF_BYTES * 2) return { status: "invalid", error: "output-oversize" };
+  } catch { return { status: "failed", error: "request-parse" }; }
+  // 러너 출력 추출(preamble+정의전문 → 2×캡)
+  const raw = await readCapped(join(dir, "agents", "last-message.md"), MAX_DEF_BYTES * 2);
+  if (raw == null) return { status: "invalid", error: "no-output" };
   const ex = extractEdited(raw);
   if (!ex.ok) return { status: "invalid", error: ex.error };
   // 검증(원본=요청시 스냅샷)
