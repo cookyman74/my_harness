@@ -2193,15 +2193,25 @@ export function Eval() {
                 );
               })}
             </div>
+            {/* 관계 건강 — 바차트와 구분되는 별도 항목 블록. 4축이 못 잡는 그래프 신호(구성 자기평가 흡수). */}
+            <div className="rel-health">
+              <span className="rel-health-label">구성 관계</span>
+              <div className="rel-health-items">
+                {([
+                  ["고아", d.rollup.health.orphan, d.rollup.health.orphan ? "err" : ""],
+                  ["끊긴링크", d.rollup.health.deadLink, d.rollup.health.deadLink ? "err" : ""],
+                  ["미배정", d.rollup.health.coverageGap, d.rollup.health.coverageGap ? "warn" : ""],
+                  ["drift", d.rollup.health.drift, d.rollup.health.drift ? "warn" : ""],
+                ] as const).map(([label, val, kind]) => (
+                  <span key={label} className={`rel-item ${kind}`}>
+                    <span className="rel-item-label">{label}</span>
+                    <span className="rel-item-val">{val}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
             <p className="muted" style={{ marginTop: 10 }}>
               등급: {(["A", "B", "C", "D"] as const).map((g) => <Badge key={g} kind={evalGradeKind(g)}>{g} {d.rollup.gradeDist[g] ?? 0}</Badge>)}
-            </p>
-            {/* 관계 건강 — 4축이 못 잡는 그래프 신호(구성 자기평가 흡수). 색+텍스트 병기. */}
-            <p style={{ marginTop: 6 }}>
-              구성 관계: <Badge kind={d.rollup.health.orphan ? "err" : "ok"}>고아 {d.rollup.health.orphan}</Badge>
-              <Badge kind={d.rollup.health.deadLink ? "err" : "ok"}>끊긴 링크 {d.rollup.health.deadLink}</Badge>
-              <Badge kind={d.rollup.health.coverageGap ? "warn" : "ok"}>미배정 {d.rollup.health.coverageGap}</Badge>
-              <Badge kind={d.rollup.health.drift ? "warn" : "ok"}>drift {d.rollup.health.drift}</Badge>
             </p>
             <p className="muted" style={{ marginTop: 8 }}>정적 측정(계층A)·제안은 자동 적용 안 함(편집기 수동).</p>
           </Card>

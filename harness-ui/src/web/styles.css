@@ -89,6 +89,15 @@ body { margin:0; font:14px/1.55 var(--sans); background:var(--bg); color:var(--f
 .axis-fill { display:block; height:100%; border-radius:999px; background:var(--muted); }
 .axis-fill.ok { background:var(--ok, #3aa76d); } .axis-fill.warn { background:var(--warn, #d19a00); } .axis-fill.err { background:var(--err, #c9503f); }
 .axis-val { flex:0 0 40px; text-align:right; font-family:var(--mono); font-size:12px; font-variant-numeric:tabular-nums; }
+/* 구성 관계 — 바차트와 구분되는 별도 항목 블록(상단 구분선 + 라벨 + 개별 칩). */
+.rel-health { margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+.rel-health-label { display:block; font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+.rel-health-items { display:flex; flex-wrap:wrap; gap:8px; }
+.rel-item { display:inline-flex; align-items:center; gap:8px; padding:4px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel-2); font-size:12px; }
+.rel-item-label { color:var(--muted); }
+.rel-item-val { font-family:var(--mono); font-variant-numeric:tabular-nums; font-weight:600; }
+.rel-item.warn { border-color:var(--warn, #d19a00); } .rel-item.warn .rel-item-val { color:var(--warn, #d19a00); }
+.rel-item.err { border-color:var(--err, #c9503f); } .rel-item.err .rel-item-val { color:var(--err, #c9503f); }
 .finding-details > summary { cursor:pointer; font-size:12px; }
 .finding-list { margin:6px 0 0; padding-left:16px; font-size:12px; }
 .ok { color:var(--ok, #3aa76d); } .warn { color:var(--warn, #d19a00); } .err { color:var(--err, #c9503f); }
