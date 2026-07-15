@@ -29,7 +29,8 @@ describe("actionSurface / surfacesOf", () => {
 describe("extractEdited — 태그 내부만·1개", () => {
   it("정상 1블록·preamble 무시", () => { const r = extractEdited(wrap(SKILL.trim())); expect(r.ok).toBe(true); if (r.ok) expect(r.content).toContain("name: pdftool"); });
   it("0블록 → no-edited-block", () => expect(extractEdited("no tags here").ok).toBe(false));
-  it("2블록 → multi-edited-block", () => { const r = extractEdited(`${EDIT_OPEN}a${EDIT_CLOSE}\n${EDIT_OPEN}b${EDIT_CLOSE}`); expect(r).toEqual({ ok: false, error: "multi-edited-block" }); });
+  it("2블록 → 마지막(최종본) 채택", () => { const r = extractEdited(`${EDIT_OPEN}a${EDIT_CLOSE}\n${EDIT_OPEN}b${EDIT_CLOSE}`); expect(r).toEqual({ ok: true, content: "b" }); });
+  it("preamble 에 여는 태그 언급 + 실제 블록 → 실제 블록 채택", () => { const r = extractEdited(`설명 ${EDIT_OPEN} 예시\n최종:\n${EDIT_OPEN}\nreal\n${EDIT_CLOSE}`); expect(r.ok && r.content).toBe("real"); });
   it("미종결 → unterminated", () => expect(extractEdited(`${EDIT_OPEN}\nabc`)).toEqual({ ok: false, error: "unterminated-edited-block" }));
   it("빈 블록 → empty", () => expect(extractEdited(`${EDIT_OPEN}\n \n${EDIT_CLOSE}`)).toEqual({ ok: false, error: "empty-edited-block" }));
 });

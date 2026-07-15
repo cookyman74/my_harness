@@ -56,7 +56,7 @@ export function buildRemediationPrompt(content: string, findings: RemediationFin
     `- 지적의 타겟 영역(${surfaceKo})에 한해서만 개선하라. 타겟이 아닌 영역(frontmatter name·kind·기타 키·본문 또는 description 중 타겟 아닌 쪽)은 **원본 그대로** 둔다.`,
     "- frontmatter의 name 은 절대 바꾸지 마라. 기존 frontmatter 키를 삭제·추가하지 마라(description 값만 description-타겟 지적이 있을 때 변경).",
     "- 삭제·구조 파괴·허용 지적 범위 밖 변경 금지.",
-    "- 파일을 직접 수정하지 마라. 결과는 오직 아래 태그로 **정의 전문 전체**를 정확히 1개만 출력하라(태그 앞뒤 설명은 무시된다):",
+    "- 파일을 직접 수정하지 마라. 결과는 오직 아래 태그로 **개선된 정의 전문 전체**를 출력하라. 초안을 여러 번 내지 말고 **최종본 1개만** 태그로 감싸라(태그 앞뒤 설명은 무시된다):",
     `  ${EDIT_OPEN}`,
     "  (개선된 정의 전문)",
     `  ${EDIT_CLOSE}`,
@@ -74,16 +74,14 @@ export function buildRemediationPrompt(content: string, findings: RemediationFin
 // last-message.md 등 러너 출력에서 EDITED_CONTENT 블록 추출. 태그 내부만·정확히 1개.
 export type ExtractResult = { ok: true; content: string } | { ok: false; error: string };
 export function extractEdited(raw: string): ExtractResult {
-  const openIdx: number[] = [];
-  let i = 0;
-  while ((i = raw.indexOf(EDIT_OPEN, i)) !== -1) { openIdx.push(i); i += EDIT_OPEN.length; }
-  if (openIdx.length === 0) return { ok: false, error: "no-edited-block" };
-  if (openIdx.length > 1) return { ok: false, error: "multi-edited-block" };
-  const start = openIdx[0]! + EDIT_OPEN.length;
-  const end = raw.indexOf(EDIT_CLOSE, start);
-  if (end === -1) return { ok: false, error: "unterminated-edited-block" };
-  // 두 번째 닫는 태그가 있으면 모호
-  if (raw.indexOf(EDIT_CLOSE, end + EDIT_CLOSE.length) !== -1) return { ok: false, error: "multi-edited-block" };
+  // LLM 이 가끔 초안→개선으로 블록을 2개 출력하거나 preamble 에 태그를 언급 → "정확히 1개 아니면 실패"는 과취약.
+  //   **마지막 완결 블록(최종본) 채택** — 마지막 닫는 태그 + 그 앞의 마지막 여는 태그. 안전망 = validateProposal
+  //   (name/kind 불변·타겟 외 deep-equal)+사람 diff 승인(주입된 2번째 블록도 보호필드 못 바꾸고 사람이 검토).
+  const end = raw.lastIndexOf(EDIT_CLOSE);
+  if (end === -1) return { ok: false, error: raw.includes(EDIT_OPEN) ? "unterminated-edited-block" : "no-edited-block" };
+  const openStart = raw.lastIndexOf(EDIT_OPEN, end - 1);
+  if (openStart === -1) return { ok: false, error: "no-edited-block" };
+  const start = openStart + EDIT_OPEN.length;
   // 태그 내부만. 선두/말미 개행 정리(태그를 자체 줄에 둔 관성 흡수). 원본 정의는 내부 개행 보존.
   const inner = raw.slice(start, end).replace(/^\r?\n/, "").replace(/\r?\n[ \t]*$/, "");
   if (inner.trim().length === 0) return { ok: false, error: "empty-edited-block" };
