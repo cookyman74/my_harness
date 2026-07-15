@@ -144,10 +144,10 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, i: number
 
 // references/ 에 .md 참조가 하나라도 있나(opendir 순회·첫 매치 early-return·최대 상한·codex MED: readdir 전량 materialize 방지).
 async function hasReferences(root: string, skillDir: string): Promise<boolean> {
-  if (!skillDir) return false; // 빈 runtimePath → 참조 판정 스킵(codex LOW·root/references 오인 방지)
-  const segs = skillDir.split("/").filter(Boolean); // 빈 세그먼트 제거(agy MED)
-  if (segs.length === 0) return false;
-  for (const s of segs) if (!isSafeSegment(s)) return false;
+  // readRaw 와 동일 엄격 패턴(codex R4 LOW 통일): 빈/선두 슬래시/빈 세그먼트/불안전 세그먼트 거부(filter 정규화 아님).
+  if (!skillDir || skillDir.startsWith("/")) return false;
+  const segs = skillDir.split("/");
+  if (segs.length === 0 || segs.some((s) => !isSafeSegment(s))) return false;
   let dir;
   try { dir = await opendir(join(root, ...segs, "references")); } catch { return false; }
   try {
