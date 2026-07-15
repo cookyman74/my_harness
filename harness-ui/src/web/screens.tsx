@@ -26,6 +26,7 @@ import {
   type EvalsIndex, type LoopIndexEntry, type LoopTrend, type TrendPoint,
   type ScorecardDetail, type EvalProposal, type EvalsConfigResolved,
   type MetricSetting,
+  type EvalAxis, type ArtifactScore, type ArtifactEvalResult,
 } from "./api.js";
 import {
   type ThresholdKey, FLOORS, THRESHOLD_KEYS, THRESHOLD_LABEL,
@@ -306,10 +307,25 @@ export function Build() {
 }
 
 // ── 3. Agents (A3 · F2 M10 프리필 New Run) ──
+// ?sel=<name> 딥링크(#/eval 편집 링크 등) → 선택 대상 name. 없으면 null.
+function selFromHash(): string | null {
+  const m = /[?&]sel=([^&]+)/.exec(location.hash);
+  return m ? decodeURIComponent(m[1]!) : null;
+}
+function useSelDeepLink(setSel: (n: string) => void): void {
+  useEffect(() => {
+    const read = () => { const n = selFromHash(); if (n) setSel(n); };
+    read();
+    window.addEventListener("hashchange", read);
+    return () => window.removeEventListener("hashchange", read);
+  }, [setSel]);
+}
+
 export function Agents() {
   const st = useApi<{ agents: Array<{ name: string; runtime: string; sourcePath: string; role: string; skills: string[] }> }>("/api/agents");
   const [sel, setSel] = useState<string | null>(null);
   const [runFor, setRunFor] = useState<string | null>(null); // F2: New Run 프리필 폼 대상 에이전트
+  useSelDeepLink(setSel); // #/agents?sel=<name> 자동 선택
   return (
     <div className="screen">
       <h2>Agents</h2>
@@ -456,6 +472,7 @@ function AgentRunFormBody({ template }: { template: RunTemplate }) {
 export function Skills() {
   const st = useApi<{ skills: Array<{ name: string; description: string; triggers: string; references: string[]; runtimePaths: string[] }> }>("/api/skills");
   const [sel, setSel] = useState<string | null>(null);
+  useSelDeepLink(setSel); // #/skills?sel=<name> 자동 선택
   return (
     <div className="screen">
       <h2>Skills</h2>
@@ -2168,13 +2185,15 @@ export function Eval() {
 
 // Eval v1 E2: 아티팩트 4축 단일 카드(1급). 롤업(축 평균·등급·최악) + 아티팩트 리스트(등급·findings·편집 딥링크).
 function ArtifactEvalCard() {
-  const st = useApi<import("./api.js").ArtifactEvalResult>("/api/eval/artifacts");
-  const AXES: Array<{ k: import("./api.js").EvalAxis; label: string }> = [
+  const st = useApi<ArtifactEvalResult>("/api/eval/artifacts");
+  const AXES: Array<{ k: EvalAxis; label: string }> = [
     { k: "trigger", label: "트리거" }, { k: "structure", label: "구조" }, { k: "induction", label: "유도" }, { k: "pruning", label: "가지치기" },
   ];
   const gradeKind = (g: string): "ok" | "warn" | "err" => (g === "A" || g === "B" ? "ok" : g === "C" ? "warn" : "err");
   const barKind = (v: number): "ok" | "warn" | "err" => (v >= 0.75 ? "ok" : v >= 0.6 ? "warn" : "err");
-  const editLink = (a: import("./api.js").ArtifactScore) => (a.kind === "agent" ? `#/agents` : `#/skills`);
+  const pct = (v: number): number => Math.max(0, Math.min(1, v)) * 100; // 0..1 밖 값 clamp(codex LOW)
+  // 편집 딥링크: ?sel=<name> → Agents/Skills 가 자동 선택(편집기 바로 열림·agy MED).
+  const editLink = (a: ArtifactScore) => `#/${a.kind === "agent" ? "agents" : "skills"}?sel=${encodeURIComponent(a.name)}`;
   return (
     <Async state={st}>{(d) => d.rollup.count === 0 ? <div className="muted">평가할 에이전트/스킬이 없습니다.</div> : (
       <>
@@ -2186,7 +2205,7 @@ function ArtifactEvalCard() {
               return (
                 <div key={k} className="axis-row">
                   <span className="axis-label">{label}</span>
-                  <span className="axis-bar"><span className={`axis-fill ${v == null ? "" : barKind(v)}`} style={{ width: `${(v ?? 0) * 100}%` }} /></span>
+                  <span className="axis-bar"><span className={`axis-fill ${v == null ? "" : barKind(v)}`} style={{ width: `${v == null ? 0 : pct(v)}%` }} /></span>
                   <span className="axis-val">{v == null ? "—" : v.toFixed(2)}</span>
                 </div>
               );
