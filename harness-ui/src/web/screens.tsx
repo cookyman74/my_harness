@@ -352,19 +352,21 @@ export function Agents() {
           <div className="detail-sticky">
             {/* 선택 시 정의 편집기를 **바로** 표시(별도 상세 카드·편집 버튼 없이). New Run 버튼은 유지(요청 진입점).
                 요약(role/연결 스킬)은 편집기 렌더 모드가 frontmatter 메타 + 본문으로 보여준다. */}
-            {sel ? (() => { const a = d.agents.find((x) => x.name === sel); return a ? (
-              <>
-                <div className="detail-actions">
-                  {/* F2 W1/A67: 프리필 New Run 진입점(라벨 RF2 정합) — 유지 */}
-                  <button className="primary" aria-pressed={runFor === a.name}
-                    onClick={() => setRunFor((v) => (v === a.name ? null : a.name))}>이 에이전트에게 요청 (New Run)</button>
-                </div>
-                {/* F2 W1/A83: New Run 폼을 버튼 **바로 아래**(편집기 위)에 렌더 — 편집기가 full-height 로 커져도
+            {sel ? (() => {
+              const a = d.agents.find((x) => x.name === sel); return a ? (
+                <>
+                  <div className="detail-actions">
+                    {/* F2 W1/A67: 프리필 New Run 진입점(라벨 RF2 정합) — 유지 */}
+                    <button className="primary" aria-pressed={runFor === a.name}
+                      onClick={() => setRunFor((v) => (v === a.name ? null : a.name))}>이 에이전트에게 요청 (New Run)</button>
+                  </div>
+                  {/* F2 W1/A83: New Run 폼을 버튼 **바로 아래**(편집기 위)에 렌더 — 편집기가 full-height 로 커져도
                     폼이 화면 밖으로 밀리지 않게(구: md-layout 바깥 맨 아래 렌더 → 무반응처럼 보임). 자체 Async 3-state 로 실패 격리. */}
-                {runFor === a.name && <AgentRunForm key={a.name} name={a.name} onClose={() => setRunFor(null)} />}
-                <DefinitionEditor key={"agent:" + a.name} kind="agent" name={a.name} onClose={() => setSel(null)} />
-              </>
-            ) : null; })() : (
+                  {runFor === a.name && <AgentRunForm key={a.name} name={a.name} onClose={() => setRunFor(null)} />}
+                  <DefinitionEditor key={"agent:" + a.name} kind="agent" name={a.name} onClose={() => setSel(null)} />
+                </>
+              ) : null;
+            })() : (
               <div className="detail-empty" role="note">← 왼쪽에서 에이전트를 선택하면 요청·정의가 바로 열립니다.</div>
             )}
           </div>
@@ -689,23 +691,23 @@ function DefinitionEditor({ kind, name, onClose }: { kind: DefKind; name: string
             //   오해석돼 요약정보가 타이틀 폰트로 보이는 문제 → 분리로 해소. toml 등은 raw <pre>.
             doc.sourcePath.endsWith(".md")
               ? (() => {
-                  const { frontmatter, body } = splitFrontmatter(edited);
-                  return (
-                    <div className="def-render">
-                      {frontmatter && (
-                        <dl className="def-fm-meta" aria-label="정의 요약(frontmatter)">
-                          {frontmatter.split(/\r?\n/).filter((l) => l.trim()).map((line, i) => {
-                            const idx = line.indexOf(":");
-                            const key = idx > 0 ? line.slice(0, idx).trim() : line;
-                            const val = idx > 0 ? line.slice(idx + 1).trim() : "";
-                            return <div className="def-fm-row" key={i}><dt>{key}</dt><dd>{val}</dd></div>;
-                          })}
-                        </dl>
-                      )}
-                      <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }} />
-                    </div>
-                  );
-                })()
+                const { frontmatter, body } = splitFrontmatter(edited);
+                return (
+                  <div className="def-render">
+                    {frontmatter && (
+                      <dl className="def-fm-meta" aria-label="정의 요약(frontmatter)">
+                        {frontmatter.split(/\r?\n/).filter((l) => l.trim()).map((line, i) => {
+                          const idx = line.indexOf(":");
+                          const key = idx > 0 ? line.slice(0, idx).trim() : line;
+                          const val = idx > 0 ? line.slice(idx + 1).trim() : "";
+                          return <div className="def-fm-row" key={i}><dt>{key}</dt><dd>{val}</dd></div>;
+                        })}
+                      </dl>
+                    )}
+                    <div className="md-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }} />
+                  </div>
+                );
+              })()
               : <pre className="out def-render">{edited}</pre>
           ) : (
             <label className="def-textarea-label">
@@ -1006,11 +1008,13 @@ function RunDetail({ runId }: { runId: string }) {
         </div>
         {ev.loading && ev.items.length === 0 ? <p className="muted">불러오는 중…</p>
           : ev.err ? <p className="error" role="alert">⚠ {ev.err}</p>
-          : (() => { const rows = runEventRows({ items: ev.items }); return (
-              <div className="events">{rows.length === 0 ? <p className="muted">이벤트 없음</p> : rows.map((x) => (
-                <div key={x.seq} className="evline"><span className="seq">#{x.seq}</span> <b>{x.event}</b> {x.message}</div>
-              ))}</div>
-            ); })()}
+            : (() => {
+              const rows = runEventRows({ items: ev.items }); return (
+                <div className="events">{rows.length === 0 ? <p className="muted">이벤트 없음</p> : rows.map((x) => (
+                  <div key={x.seq} className="evline"><span className="seq">#{x.seq}</span> <b>{x.event}</b> {x.message}</div>
+                ))}</div>
+              );
+            })()}
       </div>
       {/* A83: 산출물 패널은 트리·이벤트와 독립 로딩. 한 산출물 실패(413/오류)가 다른 패널 미붕괴 */}
       <Async state={arts}>{(f) => f.files.length > 0 ? (
@@ -1226,7 +1230,7 @@ function DocsBrowser({ payload }: { payload: DocsSourcesList }) {
         </Card>
         {sel
           ? <DocPanel key={`${source}:${sel}`} rel={sel} source={source} sourcePath={sourcePath}
-              rootLabel={rootLabel} projectRoot={set.data?.projectRoot ?? ""} />
+            rootLabel={rootLabel} projectRoot={set.data?.projectRoot ?? ""} />
           : <Card title="미리보기"><p className="muted">좌측에서 파일을 선택하세요.</p></Card>}
       </div>
     </>
@@ -1287,7 +1291,7 @@ function SkillSyncGroups() {
               c.runtime, <span className="mono">{c.path}</span>, <Badge kind={clsBadge(c.cls)}>{clsLabel[c.cls] ?? c.cls}</Badge>,
               c.cls === "copy-drift" ? <button disabled={busy} onClick={() => doSync(g.skill, c)}>정본 전파</button>
                 : c.cls === "hardlink-same-inode" ? <span className="muted" title="정본과 같은 inode — 정본 편집 시 함께 바뀜(동기 불필요)">물리동일</span>
-                : <span className="muted">—</span>,
+                  : <span className="muted">—</span>,
             ])} />
           </Card>
         ))}</div>
@@ -1309,10 +1313,10 @@ export function Ops() {
             k, <Badge kind={v.health === "ok" ? "ok" : "muted"}>{v.health}</Badge>, v.version ?? "—",
             v.authenticated === "configured" ? <span title="agy: 자격 파일(~/.gemini/oauth_creds.json) 감지 · CLI 인증 조회 미지원이라 '인증됨' 단정 아님"><Badge kind="ok">설정 감지</Badge></span>
               : v.authenticated === "unauthenticated" ? <Badge kind="warn">미인증</Badge>
-              : v.authenticated === "unknown"
-                // agy는 CLI 인증 조회를 설계상 지원 안 함(=미지원) / claude·codex의 unknown은 조회·파싱 실패(=원인 구분·codex LOW).
-                ? <span className="muted">{k === "agy" || k === "gemini" ? "조회 미지원" : "조회 실패"}</span>
-              : v.authenticated,
+                : v.authenticated === "unknown"
+                  // agy는 CLI 인증 조회를 설계상 지원 안 함(=미지원) / claude·codex의 unknown은 조회·파싱 실패(=원인 구분·codex LOW).
+                  ? <span className="muted">{k === "agy" || k === "gemini" ? "조회 미지원" : "조회 실패"}</span>
+                  : v.authenticated,
           ])} />
         </Card>
       )}</Async>
@@ -1748,7 +1752,7 @@ function DefinitionEditToggle({ enabled, onSaved }: { enabled: boolean; onSaved:
     <Card title="정의 편집 허용 (고위험)">
       <p className="muted">
         {enabled ? <><Badge kind="warn">활성</Badge> 에이전트/스킬 정의 파일(.claude) 편집이 허용됩니다.</>
-                 : <><Badge kind="ok">비활성</Badge> 편집기는 뷰어 전용입니다(파일 쓰기 불가).</>}
+          : <><Badge kind="ok">비활성</Badge> 편집기는 뷰어 전용입니다(파일 쓰기 불가).</>}
       </p>
       <div className="detail-actions">
         {enabled
@@ -2216,7 +2220,7 @@ export function Eval() {
               <div className="rel-health-items">
                 {(["A", "B", "C", "D"] as const).map((g) => (
                   <span key={g} className={`rel-item ${evalGradeKind(g) === "err" ? "err" : evalGradeKind(g) === "warn" ? "warn" : ""}`}>
-                    <span className="rel-item-label">{g}</span>
+                    <span className="rel-item-label">{g}등급</span>
                     <span className="rel-item-val">{d.rollup.gradeDist[g] ?? 0}</span>
                   </span>
                 ))}
@@ -2232,8 +2236,8 @@ export function Eval() {
             ...EVAL_AXES.map(({ k }) => a.scores[k] == null ? <span className="muted">—</span> : <span className={evalBarKind(a.scores[k]!)}>{a.scores[k]!.toFixed(2)}</span>),
             a.findings.length > 0
               ? <details className="finding-details"><summary>{a.findings.length}건</summary>
-                  <ul className="finding-list">{a.findings.map((f, i) => <li key={i}><b>{f.axis}</b>: {f.why} <span className="muted">({f.action})</span></li>)}</ul>
-                </details>
+                <ul className="finding-list">{a.findings.map((f, i) => <li key={i}><b>{f.axis}</b>: {f.why} <span className="muted">({f.action})</span></li>)}</ul>
+              </details>
               : <span className="muted">없음</span>,
             <a className="link" href={editLink(a)}>편집 →</a>,
           ])} />
@@ -2562,17 +2566,17 @@ function EvalsConfigForm({ cfg, onSaved }: { cfg: EvalsConfigResolved; onSaved: 
         {metricKeys.length === 0
           ? <p className="muted">등록된 지표가 없습니다(기본값).</p>
           : metricKeys.map((k) => (
-              <div key={k} className="metric-row">
-                <label className="check">
-                  <input type="checkbox" checked={metrics[k]!.enabled} onChange={(e) => setMetric(k, { enabled: e.target.checked })} />
-                  {k}
-                </label>
-                <label>가중치
-                  <input type="number" min={0} max={1} step={0.05} value={metrics[k]!.weight}
-                    onChange={(e) => setMetric(k, { weight: Math.max(0, Math.min(1, Number(e.target.value) || 0)) })} />
-                </label>
-              </div>
-            ))}
+            <div key={k} className="metric-row">
+              <label className="check">
+                <input type="checkbox" checked={metrics[k]!.enabled} onChange={(e) => setMetric(k, { enabled: e.target.checked })} />
+                {k}
+              </label>
+              <label>가중치
+                <input type="number" min={0} max={1} step={0.05} value={metrics[k]!.weight}
+                  onChange={(e) => setMetric(k, { weight: Math.max(0, Math.min(1, Number(e.target.value) || 0)) })} />
+              </label>
+            </div>
+          ))}
       </fieldset>
 
       {/* 임계값 — floor 상시 표시 · 미만 인라인 거부(silent clamp 금지) · old→effective diff */}
@@ -2684,7 +2688,7 @@ function ContextBrowser({ tree, gateOn, onChanged }: { tree: ContextTreeShape; g
         </Card>
         {sel && selNode
           ? <ContextFilePanel key={sel} rel={sel} node={selNode} gateOn={gateOn}
-              projectRoot={tree.projectRoot} onEdit={(kind, name) => setEditFor({ kind, name })} />
+            projectRoot={tree.projectRoot} onEdit={(kind, name) => setEditFor({ kind, name })} />
           : <Card title="미리보기"><p className="muted">좌측에서 파일을 선택하세요.</p></Card>}
       </div>
       {/* F7 정의 편집기 재사용(claude 정의만·독립 3-state) — 저장 시 구조 변경 없음이나 안전상 재조회는 편집기 내부. */}
@@ -2708,9 +2712,9 @@ function ContextTreeView({ tree, selected, onSelect }: { tree: ContextTreeShape;
                 <li key={f.path} role="none">
                   {f.present
                     ? <button role="treeitem" className={"tree-file link" + (f.path === selected ? " on" : "")}
-                        aria-current={f.path === selected ? "true" : undefined} onClick={() => onSelect(f.path)}>
-                        📄 {f.name} <Badge kind={runtimeBadgeKind(f.runtime)}>{f.runtime}</Badge>
-                      </button>
+                      aria-current={f.path === selected ? "true" : undefined} onClick={() => onSelect(f.path)}>
+                      📄 {f.name} <Badge kind={runtimeBadgeKind(f.runtime)}>{f.runtime}</Badge>
+                    </button>
                     : <span className="muted tree-absent">📄 {f.name} <Badge kind="muted">없음</Badge></span>}
                 </li>
               ))}
@@ -2763,8 +2767,8 @@ function ContextFilePanel({ rel, node, gateOn, projectRoot, onEdit }: {
         {decision.editable
           ? <button className="primary edit-btn" onClick={() => onEdit(decision.kind, decision.name)}>✎ 정의 편집</button>
           : <span className="muted edit-reason" role="note" title={decision.reason}>🔒 {decision.reason}
-              {!gateOn && <> · <a className="link" href="#/settings">Settings에서 켜기 →</a></>}
-            </span>}
+            {!gateOn && <> · <a className="link" href="#/settings">Settings에서 켜기 →</a></>}
+          </span>}
       </div>
       {/* A83: 미리보기는 트리와 독립 3-state. md/TOML 렌더·바이너리 안내·절단 배지는 FileViewer(DV8) 내부. */}
       <Async state={prev}>{(p) => (

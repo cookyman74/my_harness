@@ -91,6 +91,7 @@ body { margin:0; font:14px/1.55 var(--sans); background:var(--bg); color:var(--f
 .axis-val { flex:0 0 40px; text-align:right; font-family:var(--mono); font-size:12px; font-variant-numeric:tabular-nums; }
 /* 구성 관계 — 바차트와 구분되는 별도 항목 블록(상단 구분선 + 라벨 + 개별 칩). */
 .rel-health { margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+.rel-health + .rel-health { margin-top:14px; padding-top:0; border-top:none; } /* 연속 블록 간 구분선 제거 */
 .rel-health-label { display:block; font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
 .rel-health-items { display:flex; flex-wrap:wrap; gap:8px; }
 .rel-item { display:inline-flex; align-items:center; gap:8px; padding:4px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel-2); font-size:12px; }
