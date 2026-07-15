@@ -89,13 +89,15 @@ describe("evaluateArtifacts — 계층A 4축", () => {
     expect(r2.grade).toBe(r1.grade);
   });
 
-  it("롤업 — axisAvg·gradeDist·worst·count", async () => {
+  it("롤업 — axisAvg·gradeDist·worst·count·health(관계 흡수)", async () => {
     await skill("s1", "name: s1\ndescription: A 작업 할 때 사용, B 아님", "# s1\n## 절차\n한다.\n## 트리거\n x.\n");
     await agent("a1", "name: a1\ndescription: 에이전트 역할 때 사용", "# a1\n## 역할\n역할.\n## 협업 프로토콜\n메시지.\n## 에러 핸들링\n재시도.\n");
     const ev = await evaluateArtifacts(root);
     expect(ev.rollup.count).toBe(2);
     expect(ev.rollup.gradeDist.A + ev.rollup.gradeDist.B + ev.rollup.gradeDist.C + ev.rollup.gradeDist.D).toBe(2);
     expect(typeof ev.rollup.axisAvg.trigger).toBe("number");
+    // 관계 건강(구성 자기평가 흡수) — 4 키 숫자(차트 하나로 전체 현황).
+    expect(ev.rollup.health).toMatchObject({ orphan: expect.any(Number), deadLink: expect.any(Number), coverageGap: expect.any(Number), drift: expect.any(Number) });
   });
 });
 

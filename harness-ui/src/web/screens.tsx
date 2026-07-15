@@ -2161,63 +2161,82 @@ function AdoptionStageHeader() {
   );
 }
 
+// 뷰 파라미터(#/eval?view=detail) — 요약(차트 하나) vs 상세(테이블·별도 페이지).
+function evalIsDetail(): boolean { return /[?&]view=detail/.test(location.hash); }
+function useEvalDetailView(): boolean {
+  const [v, setV] = useState(evalIsDetail);
+  useEffect(() => { const on = () => setV(evalIsDetail()); window.addEventListener("hashchange", on); return () => window.removeEventListener("hashchange", on); }, []);
+  return v;
+}
+const EVAL_AXES: Array<{ k: EvalAxis; label: string }> = [
+  { k: "trigger", label: "트리거" }, { k: "structure", label: "구조" }, { k: "induction", label: "유도" }, { k: "pruning", label: "가지치기" },
+];
+const evalGradeKind = (g: string): "ok" | "warn" | "err" => (g === "A" || g === "B" ? "ok" : g === "C" ? "warn" : "err");
+const evalBarKind = (v: number): "ok" | "warn" | "err" => (v >= 0.75 ? "ok" : v >= 0.6 ? "warn" : "err");
+const evalPct = (v: number): number => Math.max(0, Math.min(1, v)) * 100;
+
 export function Eval() {
+  const detail = useEvalDetailView();
   return (
     <div className="screen">
       <h2>Eval <span className="ver">자기평가</span></h2>
-      <p className="muted">
-        각 <b>에이전트·스킬</b>을 <b>4축</b>(트리거·구조·유도·가지치기)으로 평가한다. 점수는 신호일 뿐 — <b>제안은 자동 적용되지 않는다</b>(정의 편집기에서 검토·수정).
-      </p>
-      {/* Eval v1 E2+: 아티팩트 4축 카드 = 1급 뷰. 루프 지표(과정 효율)는 산출물 평가와 무관 → UI 제거(백엔드 측정 유지).
-          구성 건강(고아·끊긴 링크·drift 등 4축이 못 잡는 관계 진단)만 진단(접힘)으로 유지 — E3+에 4축 findings 로 흡수 예정. */}
-      <ArtifactEvalCard />
-      <details className="eval-diagnostics">
-        <summary>진단 (고급) — 구성 건강(고아·끊긴 링크·미배정·drift)</summary>
-        <HarnessScorecardCard />
-      </details>
+      {detail ? <ArtifactEvalDetail /> : <ArtifactEvalSummary />}
     </div>
   );
 }
 
-// Eval v1 E2: 아티팩트 4축 단일 카드(1급). 롤업(축 평균·등급·최악) + 아티팩트 리스트(등급·findings·편집 딥링크).
-function ArtifactEvalCard() {
+// 요약 — 차트 하나로 전체 현황(4축 평균 바 + 등급 분포 + 관계 건강). 상세는 별도 페이지.
+function ArtifactEvalSummary() {
   const st = useApi<ArtifactEvalResult>("/api/eval/artifacts");
-  const AXES: Array<{ k: EvalAxis; label: string }> = [
-    { k: "trigger", label: "트리거" }, { k: "structure", label: "구조" }, { k: "induction", label: "유도" }, { k: "pruning", label: "가지치기" },
-  ];
-  const gradeKind = (g: string): "ok" | "warn" | "err" => (g === "A" || g === "B" ? "ok" : g === "C" ? "warn" : "err");
-  const barKind = (v: number): "ok" | "warn" | "err" => (v >= 0.75 ? "ok" : v >= 0.6 ? "warn" : "err");
-  const pct = (v: number): number => Math.max(0, Math.min(1, v)) * 100; // 0..1 밖 값 clamp(codex LOW)
-  // 편집 딥링크: ?sel=<name> → Agents/Skills 가 자동 선택(편집기 바로 열림·agy MED).
-  const editLink = (a: ArtifactScore) => `#/${a.kind === "agent" ? "agents" : "skills"}?sel=${encodeURIComponent(a.name)}`;
   return (
     <Async state={st}>{(d) => d.rollup.count === 0 ? <div className="muted">평가할 에이전트/스킬이 없습니다.</div> : (
       <>
-        {/* 롤업: 4축 평균 바 + 등급 분포 */}
+        <p className="muted">
+          각 <b>에이전트·스킬</b>을 <b>4축</b>(트리거·구조·유도·가지치기)으로 평가하고, <b>구성 관계</b>(고아·끊긴 링크·미배정)를 점수에 반영한다. 아래 <b>차트 하나로 전체 현황</b>을 본 뒤, <b>상세</b>에서 원인을 찾아 편집기로 수정한다.
+        </p>
         <Card title={`하네스 아티팩트 4축 (${d.rollup.count}개)`}>
           <div className="axis-rollup">
-            {AXES.map(({ k, label }) => {
+            {EVAL_AXES.map(({ k, label }) => {
               const v = d.rollup.axisAvg[k];
               return (
                 <div key={k} className="axis-row">
                   <span className="axis-label">{label}</span>
-                  <span className="axis-bar"><span className={`axis-fill ${v == null ? "" : barKind(v)}`} style={{ width: `${v == null ? 0 : pct(v)}%` }} /></span>
+                  <span className="axis-bar"><span className={`axis-fill ${v == null ? "" : evalBarKind(v)}`} style={{ width: `${v == null ? 0 : evalPct(v)}%` }} /></span>
                   <span className="axis-val">{v == null ? "—" : v.toFixed(2)}</span>
                 </div>
               );
             })}
           </div>
-          <p className="muted" style={{ marginTop: 8 }}>
-            등급: {(["A", "B", "C", "D"] as const).map((g) => <Badge key={g} kind={gradeKind(g)}>{g} {d.rollup.gradeDist[g] ?? 0}</Badge>)}
-            {" · "}정적 측정(계층A)·제안은 편집기에서 수동 반영.
+          <p className="muted" style={{ marginTop: 10 }}>
+            등급: {(["A", "B", "C", "D"] as const).map((g) => <Badge key={g} kind={evalGradeKind(g)}>{g} {d.rollup.gradeDist[g] ?? 0}</Badge>)}
           </p>
+          {/* 관계 건강 — 4축이 못 잡는 그래프 신호(구성 자기평가 흡수). 색+텍스트 병기. */}
+          <p style={{ marginTop: 6 }}>
+            구성 관계: <Badge kind={d.rollup.health.orphan ? "err" : "ok"}>고아 {d.rollup.health.orphan}</Badge>
+            <Badge kind={d.rollup.health.deadLink ? "err" : "ok"}>끊긴 링크 {d.rollup.health.deadLink}</Badge>
+            <Badge kind={d.rollup.health.coverageGap ? "warn" : "ok"}>미배정 {d.rollup.health.coverageGap}</Badge>
+            <Badge kind={d.rollup.health.drift ? "warn" : "ok"}>drift {d.rollup.health.drift}</Badge>
+          </p>
+          <p className="muted" style={{ marginTop: 8 }}>정적 측정(계층A)·제안은 자동 적용 안 함(편집기 수동). <a className="link" href="#/eval?view=detail">상세 보기 →</a></p>
         </Card>
-        {/* 아티팩트 리스트: 등급·최악축·findings·편집 딥링크 */}
+      </>
+    )}</Async>
+  );
+}
+
+// 상세(별도 페이지) — 아티팩트별 등급·4축·지적사항·편집 딥링크. 원인 찾아 수정.
+function ArtifactEvalDetail() {
+  const st = useApi<ArtifactEvalResult>("/api/eval/artifacts");
+  const editLink = (a: ArtifactScore) => `#/${a.kind === "agent" ? "agents" : "skills"}?sel=${encodeURIComponent(a.name)}`;
+  return (
+    <>
+      <p className="muted"><a className="link" href="#/eval">← 요약</a> · 아티팩트별 4축·지적사항. <b>편집 →</b> 로 대상 열어 수정.</p>
+      <Async state={st}>{(d) => d.rollup.count === 0 ? <div className="muted">평가할 에이전트/스킬이 없습니다.</div> : (
         <Table cols={["종류", "이름", "등급", "트리거", "구조", "유도", "가지치기", "지적", ""]} rows={d.artifacts.map((a) => [
           a.kind === "agent" ? "에이전트" : "스킬",
           <span className="mono">{a.name}</span>,
-          <Badge kind={gradeKind(a.grade)}>{a.grade}</Badge>,
-          ...AXES.map(({ k }) => a.scores[k] == null ? <span className="muted">—</span> : <span className={barKind(a.scores[k]!)}>{a.scores[k]!.toFixed(2)}</span>),
+          <Badge kind={evalGradeKind(a.grade)}>{a.grade}</Badge>,
+          ...EVAL_AXES.map(({ k }) => a.scores[k] == null ? <span className="muted">—</span> : <span className={evalBarKind(a.scores[k]!)}>{a.scores[k]!.toFixed(2)}</span>),
           a.findings.length > 0
             ? <details className="finding-details"><summary>{a.findings.length}건</summary>
                 <ul className="finding-list">{a.findings.map((f, i) => <li key={i}><b>{f.axis}</b>: {f.why} <span className="muted">({f.action})</span></li>)}</ul>
@@ -2225,8 +2244,8 @@ function ArtifactEvalCard() {
             : <span className="muted">없음</span>,
           <a className="link" href={editLink(a)}>편집 →</a>,
         ])} />
-      </>
-    )}</Async>
+      )}</Async>
+    </>
   );
 }
 

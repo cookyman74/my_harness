@@ -264,7 +264,11 @@ export type ArtifactScore = {
 };
 export type ArtifactEvalResult = {
   artifacts: ArtifactScore[];
-  rollup: { axisAvg: Partial<Record<EvalAxis, number>>; gradeDist: Record<string, number>; worst: Array<{ name: string; axis: EvalAxis; score: number }>; count: number };
+  rollup: {
+    axisAvg: Partial<Record<EvalAxis, number>>; gradeDist: Record<string, number>;
+    worst: Array<{ name: string; axis: EvalAxis; score: number }>; count: number;
+    health: { orphan: number; deadLink: number; coverageGap: number; drift: number };
+  };
 };
 export const getArtifactEval = () => apiGet<ArtifactEvalResult>("/api/eval/artifacts");
 

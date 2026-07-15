@@ -7,6 +7,7 @@ import { opendir } from "node:fs/promises";
 import { join } from "node:path";
 import { readAgents, readSkills, readCappedDef } from "./harness.js";
 import { isSafeSegment } from "../lib/paths.js";
+import { computeHarnessScorecard, type Finding as HFinding } from "./scorecard.js";
 import TOML from "@iarna/toml";
 
 export type Axis = "trigger" | "structure" | "induction" | "pruning";
@@ -39,7 +40,22 @@ export interface ArtifactEval {
     gradeDist: Record<Grade, number>;
     worst: Array<{ name: string; axis: Axis; score: number }>;
     count: number;
+    // 관계 건강(구성 자기평가 흡수): 4축이 못 잡는 그래프 신호. 차트 하나로 전체 현황.
+    health: { orphan: number; deadLink: number; coverageGap: number; drift: number };
   };
+}
+
+// 관계 FindingType → 4축 매핑(design §8 흡수): orphan/coverage=가지치기·dead_link=구조·오탐 아닌 감점만.
+//   subject_kind agent/skill 인 것만 per-artifact 병합. pointer/runtime(dead_link 포인터·drift)은 rollup.health 로.
+type RelHit = { axis: Axis; mult: number; risk: "low" | "med"; action: Finding["action"]; why: string };
+function relOfFinding(f: HFinding): RelHit | null {
+  switch (f.type) {
+    case "orphan": return { axis: "pruning", mult: 0.55, risk: "med", action: "dedupe", why: "연결 증거 없음(orphan) — 삭제 후보(사람 판단)" };
+    case "coverage_gap": return { axis: "pruning", mult: 0.85, risk: "low", action: "dedupe", why: "오케스트레이터 미배정(coverage-gap)" };
+    case "dead_link": return { axis: "structure", mult: 0.7, risk: "med", action: "add-required-section", why: `끊긴 포인터(dead-link${f.target ? ": " + f.target : ""})` };
+    case "incomplete_def": return { axis: "structure", mult: 0.8, risk: "low", action: "add-required-section", why: "무효/불완전 선언(incomplete-def)" };
+    default: return null; // link_unknown/unknown_scope/oversize(4축 구조 중복) = 감점 아님
+  }
 }
 
 const sha = (s: string): string => createHash("sha256").update(s, "utf8").digest("hex").slice(0, 16);
@@ -128,6 +144,11 @@ function completenessMissing(body: string, kind: "agent" | "skill", findings: Fi
   return missing;
 }
 
+// present(number) 축만 평균 — 관계 감점 반영 후 재계산·TOML 부분축 안전.
+function avgOf(scores: Partial<Record<Axis, number>>): number {
+  const vs = Object.values(scores).filter((v): v is number => typeof v === "number");
+  return vs.length ? vs.reduce((a, b) => a + b, 0) / vs.length : 0;
+}
 function gradeOf(avg: number, gateFail: boolean): Grade {
   if (gateFail) return "D"; // min-gate: 구조 과락은 정성 점수로 세탁 불가
   return avg >= 0.9 ? "A" : avg >= 0.75 ? "B" : avg >= 0.6 ? "C" : "D";
@@ -173,8 +194,35 @@ function tomlField(text: string, key: string): string | null {
   catch { return null; }
 }
 
-export async function evaluateArtifacts(root: string): Promise<ArtifactEval> {
-  const [agents, skills] = await Promise.all([readAgents(root), readSkills(root)]);
+// 관계 신호를 적용해 축 점수 감점 + finding 추가(중복 방지: 같은 축·유형 1회).
+function applyRel(scores: Partial<Record<Axis, number>>, findings: Finding[], hits: RelHit[], anchor: string): void {
+  for (const h of hits) {
+    const cur = scores[h.axis];
+    if (typeof cur === "number") scores[h.axis] = clamp01(cur * h.mult);
+    findings.push({ axis: h.axis, target: { anchor }, action: h.action, why: h.why, risk: h.risk });
+  }
+}
+
+export async function evaluateArtifacts(root: string, opts?: { now?: string }): Promise<ArtifactEval> {
+  const now = opts?.now ?? "2026-01-01"; // findings 는 now 무관(결정성)·generated_at 만 영향
+  const [agents, skills, hsc] = await Promise.all([
+    readAgents(root), readSkills(root),
+    computeHarnessScorecard(root, { now }).catch(() => null), // 관계 진단 흡수(실패 시 4축만·fail-open)
+  ]);
+  // 관계 findings 색인: (kind|name) → RelHit[]. non-waived 만. pointer/runtime 은 health 집계로.
+  const relBy = new Map<string, RelHit[]>();
+  const health = { orphan: 0, deadLink: 0, coverageGap: 0, drift: 0 };
+  for (const f of hsc?.findings ?? []) {
+    if (f.waived) continue;
+    if (f.type === "orphan") health.orphan++;
+    else if (f.type === "dead_link") health.deadLink++;
+    else if (f.type === "coverage_gap") health.coverageGap++;
+    else if (f.type === "unknown_scope") health.drift++;
+    if (f.subject_kind !== "agent" && f.subject_kind !== "skill") continue; // pointer/runtime → health 만
+    const hit = relOfFinding(f); if (!hit) continue;
+    const key = f.subject_kind + "|" + f.subject;
+    (relBy.get(key) ?? relBy.set(key, []).get(key)!).push(hit);
+  }
   // 동시성 제한 read(agy HIGH: 무제한 병렬 EMFILE 방지·순서 보존). limit 8.
   const agentRaw = await mapLimit(agents, 8, (a) => readRaw(root, a.sourcePath));
   const skillPaths = skills.map((s) => (s.runtimePaths[0] ?? "") + "/SKILL.md");
@@ -195,8 +243,8 @@ export async function evaluateArtifacts(root: string): Promise<ArtifactEval> {
       scores.trigger = scoreTrigger(desc ?? "", findings, anchor);
       scores.structure = name && desc ? 1 : 0.5;
       if (!name || !desc) findings.push({ axis: "structure", target: { anchor }, action: "add-required-section", why: "필수 필드(name/description) 미검출·또는 TOML 파싱 실패", risk: "med" });
-      const avg = (scores.trigger! + scores.structure!) / 2;
-      artifacts.push({ kind: "agent", name: a.name, path: a.sourcePath, runtime: a.runtime, rubric: "toml-agent", scores, grade: gradeOf(avg, false), evaluation_mode: "static", confidence: 0.45, findings });
+      applyRel(scores, findings, relBy.get("agent|" + a.name) ?? [], anchor);
+      artifacts.push({ kind: "agent", name: a.name, path: a.sourcePath, runtime: a.runtime, rubric: "toml-agent", scores, grade: gradeOf(avgOf(scores), false), evaluation_mode: "static", confidence: 0.45, findings });
       return;
     }
     const { body } = splitBody(raw);
@@ -206,8 +254,8 @@ export async function evaluateArtifacts(root: string): Promise<ArtifactEval> {
     scores.structure = st.score;
     scores.induction = scoreInduction(body);
     scores.pruning = scorePruning(body, findings, anchor);
-    const avg = (scores.trigger + scores.structure + scores.induction + scores.pruning) / 4;
-    artifacts.push({ kind: "agent", name: a.name, path: a.sourcePath, runtime: a.runtime, rubric: "md-agent", scores, grade: gradeOf(avg, st.gateFail), evaluation_mode: "static", confidence: 0.5, findings });
+    applyRel(scores, findings, relBy.get("agent|" + a.name) ?? [], anchor); // 관계 신호(dead-link 등) 감점
+    artifacts.push({ kind: "agent", name: a.name, path: a.sourcePath, runtime: a.runtime, rubric: "md-agent", scores, grade: gradeOf(avgOf(scores), st.gateFail), evaluation_mode: "static", confidence: 0.5, findings });
   });
 
   // ── 스킬 ──
@@ -223,8 +271,8 @@ export async function evaluateArtifacts(root: string): Promise<ArtifactEval> {
     scores.structure = st.score;
     scores.induction = scoreInduction(body);
     scores.pruning = scorePruning(body, findings, anchor);
-    const avg = (scores.trigger + scores.structure + scores.induction + scores.pruning) / 4;
-    artifacts.push({ kind: "skill", name: s.name, path: skillPaths[i]!, runtime: s.runtimePaths.join(","), rubric: "md-skill", scores, grade: gradeOf(avg, st.gateFail), evaluation_mode: "static", confidence: 0.5, findings });
+    applyRel(scores, findings, relBy.get("skill|" + s.name) ?? [], anchor); // orphan/coverage 감점(가지치기)
+    artifacts.push({ kind: "skill", name: s.name, path: skillPaths[i]!, runtime: s.runtimePaths.join(","), rubric: "md-skill", scores, grade: gradeOf(avgOf(scores), st.gateFail), evaluation_mode: "static", confidence: 0.5, findings });
   });
 
   // 결정성(codex/agy MED): path 로 안정 정렬(스캔 순서 무관·동일 출력 보장).
@@ -246,5 +294,5 @@ export async function evaluateArtifacts(root: string): Promise<ArtifactEval> {
   for (const [ax, { sum, n }] of Object.entries(axisSum)) axisAvg[ax as Axis] = n ? Math.round((sum / n) * 100) / 100 : 0;
   // 동점 tie-break(name→axis) 로 slice cutoff 결정적(codex/agy MED).
   worst.sort((x, y) => x.score - y.score || x.name.localeCompare(y.name) || x.axis.localeCompare(y.axis));
-  return { artifacts, rollup: { axisAvg, gradeDist, worst: worst.slice(0, 10), count: artifacts.length } };
+  return { artifacts, rollup: { axisAvg, gradeDist, worst: worst.slice(0, 10), count: artifacts.length, health } };
 }
