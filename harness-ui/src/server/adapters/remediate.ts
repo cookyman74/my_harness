@@ -220,8 +220,12 @@ async function readCapped(path: string, maxBytes: number): Promise<CapRead> {
     if (!st.isFile()) return { ok: false, reason: "nonfile" };
     if (st.size > maxBytes) return { ok: false, reason: "oversize" };
     const buf = Buffer.alloc(st.size);
-    const { bytesRead } = await fh.read(buf, 0, st.size, 0);
-    if (bytesRead !== st.size) return { ok: false, reason: "nonfile" }; // fstat 후 truncate → 부족 read → fail-closed(NUL 유입 차단)
+    let off = 0; // read-loop(short read 관용·정상파일 오실패 방지). EOF 조기 도달만 truncate 로 fail-closed.
+    while (off < st.size) {
+      const { bytesRead } = await fh.read(buf, off, st.size - off, off);
+      if (bytesRead === 0) return { ok: false, reason: "nonfile" }; // fstat 후 truncate/EOF → 부족 read(NUL 유입 차단)
+      off += bytesRead;
+    }
     return { ok: true, content: buf.toString("utf8") };
   } catch (e) { return { ok: false, reason: errReason(e) }; } // 내부 stat/read 오류도 ENOENT 만 missing·그 외 fail-closed
   finally { await fh.close().catch(() => {}); }
