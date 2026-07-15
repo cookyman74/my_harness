@@ -74,6 +74,13 @@ describe("evaluateArtifacts — 계층A 4축", () => {
     const paths = (await evaluateArtifacts(root)).artifacts.map((a) => a.path);
     expect(paths).toEqual([...paths].sort((x, y) => x.localeCompare(y)));
   });
+  it("루트 SKILL.md 오인 방지 — 정상 스킬만 평가(codex LOW)", async () => {
+    await writeFile(join(root, "SKILL.md"), "---\nname: rootbad\ndescription: 루트 오인 유발\n---\n# x\n"); // 루트 잡 파일
+    await skill("real", "name: real\ndescription: 정상 스킬 할 때 사용, 아님", "# real\n## 절차\n한다.\n## 트리거\n x.\n");
+    const names = (await evaluateArtifacts(root)).artifacts.map((a) => a.name);
+    expect(names).toContain("real");
+    expect(names).not.toContain("rootbad"); // 루트 SKILL.md 는 정본 경로 아님 → 미평가
+  });
   it("결정성 — 같은 입력 2회 동일 점수(계층A)", async () => {
     await skill("det", "name: det\ndescription: 결정성 테스트 할 때 사용, 유사작업 아님", "# det\n## 절차\n한다.\n## 트리거\n조건.\n");
     const r1 = (await evaluateArtifacts(root)).artifacts.find((a) => a.name === "det")!;
