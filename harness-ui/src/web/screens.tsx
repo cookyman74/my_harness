@@ -2210,9 +2210,18 @@ export function Eval() {
                 ))}
               </div>
             </div>
-            <p className="muted" style={{ marginTop: 10 }}>
-              등급: {(["A", "B", "C", "D"] as const).map((g) => <Badge key={g} kind={evalGradeKind(g)}>{g} {d.rollup.gradeDist[g] ?? 0}</Badge>)}
-            </p>
+            {/* 등급 분포 — 구성 관계와 같은 항목 블록(구분선 + 라벨 + 개별 칩). */}
+            <div className="rel-health">
+              <span className="rel-health-label">등급 분포</span>
+              <div className="rel-health-items">
+                {(["A", "B", "C", "D"] as const).map((g) => (
+                  <span key={g} className={`rel-item ${evalGradeKind(g) === "err" ? "err" : evalGradeKind(g) === "warn" ? "warn" : ""}`}>
+                    <span className="rel-item-label">{g}</span>
+                    <span className="rel-item-val">{d.rollup.gradeDist[g] ?? 0}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
             <p className="muted" style={{ marginTop: 8 }}>정적 측정(계층A)·제안은 자동 적용 안 함(편집기 수동).</p>
           </Card>
           {/* 상세 — 같은 페이지 차트 하위(별도 페이지 아님). 아티팩트별 4축·지적사항·편집 딥링크. */}
