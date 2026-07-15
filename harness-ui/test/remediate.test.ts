@@ -100,6 +100,13 @@ describe("validateProposal — action-타겟 인지", () => {
     // add-required-section 은 body surface → body 무변경 + description 변경(desc 액션 없음) → description-not-targeted 먼저
     expect(validateProposal({ ...base, originalContent: SKILL, proposedContent: prop, findings: [F("add-required-section")] })).toEqual({ ok: false, error: "description-not-targeted" });
   });
+  it("미인용 콜론 description(LLM YAML 실수) → 자동 인용 복구·통과", () => {
+    // 에이전트가 'description: A 트리거: \"x\"' 처럼 콜론 미인용 → strict YAML BLOCK_AS_IMPLICIT_KEY. 복구로 통과.
+    const prop = "---\nname: pdftool\ndescription: PDF 처리 도구 트리거: \"열어줘\", \"추출\" 요청 시 사용, 이미지 아님\nmodel: opus\n---\n# pdftool\nPDF 읽고 쓴다.\n";
+    const r = validateProposal({ ...base, originalContent: SKILL, proposedContent: prop, findings: [F("rewrite-description")] });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.proposedCanonical).toContain("트리거:"); // 값 보존(인용됨)
+  });
   it("dedupe 유일 body 액션·무변경 허용(정당 no-op) — 단 완전동일은 noop", () => {
     const prop = SKILL.replace("PDF 읽고 쓴다.", "PDF 읽고 쓴다. 처리한다."); // 본문 살짝 변경(중복제거 여지 없어도 변경 있음)
     const r = validateProposal({ ...base, originalContent: SKILL, proposedContent: prop, findings: [F("dedupe")] });
