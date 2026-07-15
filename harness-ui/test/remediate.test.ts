@@ -1,7 +1,7 @@
 // E5-a 지적 AI 자동 반영 — 순수 검증·충돌·추출 불변식 + readRemediationResult fixture + 라우트 게이트.
 //   러너 spawn(happy-path)은 P0 dogfood(_workspace/p0-remediation)로 실측 커버 — 유닛은 spawn 안 함(pre-spawn 거부만).
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -170,6 +170,22 @@ describe("readRemediationResult — fixture", () => {
   });
   it("없는 runId → null", async () => {
     expect(await readRemediationResult(root, "nope-xyz", resolveCurrent)).toBeNull();
+  });
+  // R2 LOW-2: 캡드 리더 심링크/oversize 거부 회귀(R1 HIGH-2 재발 방지축).
+  it("status.json 이 심링크 → failed status-symlink(fail-closed)", async () => {
+    const dir = join(root, "_workspace", "runs", "remediate-sym");
+    await mkdir(join(dir, "agents"), { recursive: true }); await mkdir(join(dir, "remediation"), { recursive: true });
+    await writeFile(join(dir, "target-status.json"), JSON.stringify({ state: "completed" }), "utf8");
+    await symlink(join(dir, "target-status.json"), join(dir, "status.json"));
+    await writeFile(join(dir, "remediation", "request.json"), "{}", "utf8");
+    const r = await readRemediationResult(root, "remediate-sym", resolveCurrent);
+    expect(r).toEqual({ status: "failed", error: "status-symlink" });
+  });
+  it("last-message.md oversize → invalid output-oversize", async () => {
+    const big = "x".repeat(600 * 1024); // >512KB(2×256KB 캡)
+    await fixtureRun("remediate-big", { state: "completed", lastMessage: big });
+    const r = await readRemediationResult(root, "remediate-big", resolveCurrent);
+    expect(r).toEqual({ status: "invalid", error: "output-oversize" });
   });
 });
 

@@ -3,7 +3,7 @@
 // 핵심 안전: AI=초안만·사람 diff 승인=유일 적용(적용은 기존 defedit PUT·여기 없음). 삭제/자동커밋 없음.
 //   read-only(plan) 러너 강제(P0 실측)·action-타겟 영역 인지 검증(description 항상변경 구멍 차단)·injection=출력검증+사람승인.
 import { join } from "node:path";
-import { open, writeFile, mkdir } from "node:fs/promises";
+import { open, writeFile, mkdir, lstat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { z } from "zod";
 import { canonicalizeDefinition, sha256, MAX_DEF_BYTES, type DefKind } from "./defedit.js";
@@ -194,18 +194,27 @@ export async function startRemediationRun(projectRoot: string, kind: DefKind, na
   return { runId, runDir, pid };
 }
 
-// 캡드 nofollow 리더(O_NOFOLLOW·fstat.size 체크 후 read — leaf 심링크 거부·OOM 방어·runs.ts readCappedDef 정합).
-async function readCapped(path: string, maxBytes: number): Promise<string | null> {
+// 캡드 리더 — reason 판별(missing 만 재폴링·나머지는 fail-closed·R2 LOW-1). 심링크 거부는 **lstat 선차단**(이식성·
+//   O_NOFOLLOW 미지원 플랫폼 폴백 갭 보강·R2 MED-1) + O_NOFOLLOW(가능 플랫폼 원자 보강). fstat.size 후 read(OOM 방어).
+type CapRead = { ok: true; content: string } | { ok: false; reason: "missing" | "symlink" | "oversize" | "nonfile" };
+async function readCapped(path: string, maxBytes: number): Promise<CapRead> {
+  let ls;
+  try { ls = await lstat(path); } catch { return { ok: false, reason: "missing" }; }
+  if (ls.isSymbolicLink()) return { ok: false, reason: "symlink" }; // 이식성 심링크 거부(플랫폼 무관)
+  if (!ls.isFile()) return { ok: false, reason: "nonfile" };
+  if (ls.size > maxBytes) return { ok: false, reason: "oversize" };
   let fh;
   try { fh = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)); }
-  catch { return null; }
+  catch { return { ok: false, reason: "missing" }; }
   try {
     const st = await fh.stat();
-    if (!st.isFile() || st.size > maxBytes) return null; // 초과·비파일 → read 미수행
+    if (st.isSymbolicLink?.()) return { ok: false, reason: "symlink" };
+    if (!st.isFile()) return { ok: false, reason: "nonfile" };
+    if (st.size > maxBytes) return { ok: false, reason: "oversize" }; // TOCTOU 재확인
     const buf = Buffer.alloc(st.size);
     await fh.read(buf, 0, st.size, 0);
-    return buf.toString("utf8");
-  } catch { return null; }
+    return { ok: true, content: buf.toString("utf8") };
+  } catch { return { ok: false, reason: "missing" }; }
   finally { await fh.close().catch(() => {}); }
 }
 
@@ -222,26 +231,26 @@ export type RemediationResult =
 export async function readRemediationResult(projectRoot: string, runId: string, resolveCurrent: (kind: DefKind, name: string) => Promise<string | null>): Promise<RemediationResult | null> {
   const dir = await resolveRunDir(projectRoot, runId);
   if (!dir) return null;
-  // 상태(캡드 nofollow 리더 — size 체크 후 read·심링크 거부)
-  const statusRaw = await readCapped(join(dir, "status.json"), MAX_DEF_BYTES);
-  if (statusRaw == null) return { status: "running" }; // 미기록·초과·심링크 → 아직/거부
+  // 상태 — missing 만 재폴링(running)·oversize/symlink/nonfile 은 fail-closed(무한폴링 방지·R2 LOW-1).
+  const statusR = await readCapped(join(dir, "status.json"), MAX_DEF_BYTES);
+  if (!statusR.ok) return statusR.reason === "missing" ? { status: "running" } : { status: "failed", error: `status-${statusR.reason}` };
   let state: string | undefined;
-  try { state = JSON.parse(statusRaw)?.state; } catch { return { status: "failed", error: "status-parse" }; }
+  try { state = JSON.parse(statusR.content)?.state; } catch { return { status: "failed", error: "status-parse" }; }
   if (!state || !TERMINAL.has(state)) return { status: "running" };
   if (state !== "completed") return { status: "failed", error: `run-${state}` };
   // 요청 메타(originalContent 스냅샷 포함 → 2×캡)
-  const rr = await readCapped(join(dir, "remediation", "request.json"), MAX_DEF_BYTES * 2);
-  if (rr == null) return { status: "failed", error: "request-missing" };
+  const rrR = await readCapped(join(dir, "remediation", "request.json"), MAX_DEF_BYTES * 2);
+  if (!rrR.ok) return { status: "failed", error: `request-${rrR.reason}` };
   let req: z.infer<typeof ReqShape>;
   try {
-    const parsed = ReqShape.safeParse(JSON.parse(rr));
+    const parsed = ReqShape.safeParse(JSON.parse(rrR.content));
     if (!parsed.success) return { status: "failed", error: "request-invalid" };
     req = parsed.data;
   } catch { return { status: "failed", error: "request-parse" }; }
   // 러너 출력 추출(preamble+정의전문 → 2×캡)
-  const raw = await readCapped(join(dir, "agents", "last-message.md"), MAX_DEF_BYTES * 2);
-  if (raw == null) return { status: "invalid", error: "no-output" };
-  const ex = extractEdited(raw);
+  const rawR = await readCapped(join(dir, "agents", "last-message.md"), MAX_DEF_BYTES * 2);
+  if (!rawR.ok) return { status: "invalid", error: `output-${rawR.reason}` };
+  const ex = extractEdited(rawR.content);
   if (!ex.ok) return { status: "invalid", error: ex.error };
   // 검증(원본=요청시 스냅샷)
   const v = validateProposal({ originalContent: req.originalContent, proposedContent: ex.content, findings: req.findings, kind: req.kind, name: req.name });
