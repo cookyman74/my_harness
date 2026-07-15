@@ -47,8 +47,8 @@ export interface ArtifactEval {
 
 // 관계 FindingType → 4축 매핑(design §8 흡수): orphan/coverage=가지치기·dead_link=구조·오탐 아닌 감점만.
 //   subject_kind agent/skill 인 것만 per-artifact 병합. pointer/runtime(dead_link 포인터·drift)은 rollup.health 로.
-type RelHit = { axis: Axis; mult: number; risk: "low" | "med"; action: Finding["action"]; why: string };
-function relOfFinding(f: HFinding): RelHit | null {
+export type RelHit = { axis: Axis; mult: number; risk: "low" | "med"; action: Finding["action"]; why: string };
+export function relOfFinding(f: HFinding): RelHit | null {
   switch (f.type) {
     case "orphan": return { axis: "pruning", mult: 0.55, risk: "med", action: "dedupe", why: "연결 증거 없음(orphan) — 삭제 후보(사람 판단)" };
     case "coverage_gap": return { axis: "pruning", mult: 0.85, risk: "low", action: "dedupe", why: "오케스트레이터 미배정(coverage-gap)" };
@@ -196,7 +196,7 @@ function tomlField(text: string, key: string): string | null {
 
 // 관계 신호 → 축 감점 + finding. **축별 최강 감점 1회**(compound 과감점 방지·both HIGH/MED) +
 //   대상 축 부재(TOML: pruning/induction 없음) 시 structure 폴백(감점 누락 방지·agy HIGH). findings 는 전건(정보).
-function applyRel(scores: Partial<Record<Axis, number>>, findings: Finding[], hits: RelHit[], anchor: string): void {
+export function applyRel(scores: Partial<Record<Axis, number>>, findings: Finding[], hits: RelHit[], anchor: string): void {
   const byAxis = new Map<Axis, number>();
   for (const h of hits) {
     const ax: Axis = typeof scores[h.axis] === "number" ? h.axis : "structure"; // 부재 축 → structure(항상 존재)

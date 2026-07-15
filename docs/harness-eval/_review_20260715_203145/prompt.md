@@ -1,0 +1,220 @@
+너는 harness 팩토리(에이전트/스킬 생성기)의 **평가체계 개선 설계서**의 외부 독립 감사자다. 러너(Claude) 제외. 아래 PRD+설계서를 검토해 설계 결함을 HIGH/MED/LOW로 보고. 없으면 "no-high".
+
+## 맥락
+기존 하네스 자기평가가 다층·목적혼재(구성건강 harness_scorecard + 루프효율 loop_scorecard + verdicts + config-centric). 사용자는 "좋은 스킬 4축 체크리스트(트리거·구조·유도·가지치기)"로 **에이전트/스킬 정의 품질을 하나의 방식으로 평가**하고, 그 결과로 **하네스를 자동(승인 게이트 하) 개선**하길 원한다. 설계는 기존 harness_scorecard를 확장·재사용하는 방향.
+
+## 중점 감사 축
+1. **개념 정합:** "과정 측정 vs 산출물 측정" 분리가 타당한가? 4축 rubric이 실제로 좋은 스킬을 가르나, 아니면 프록시(Goodhart)에 불과한가? 삭제 테스트(④)가 핵심이라는 판단이 맞나?
+2. **측정 신뢰성:** 계층A(결정적)/계층B(LLM) 분리·fail-open·캐시가 재현성/노이즈를 제대로 다루나? 삭제 테스트 "행동 동일" 판정의 신뢰도·교차검증(external-review)이 충분한가? 자동 적용이 품질을 실제로 올린다는 보장은?
+3. **자동 개선 안전:** 측정=자동/행동=비자동·리스크 등급·rolling·holdout·승인 게이트가 Goodhart/플래핑/기능상실을 막나? "삭제 우선 저위험"이 정말 저위험인가(삭제가 기능 상실 유발 가능)?
+4. **기존 시스템과의 통합:** harness_scorecard 확장 vs 병행 결정·update(7-7) 전파·external-review 재사용이 현실적인가? 새 복잡도를 더하는가(비판)?
+5. **범위/수용기준:** AE1~AE8이 검증 가능·구현 가능한가? 놓친 실패모드(빈 하네스·비-md·toml·다국어·대형 정의)?
+6. **누락/과설계:** v1이 과한가? 더 단순한 대안은? 놓친 핵심은?
+
+--- PRD ---
+# PRD — 하네스 아티팩트 단일 평가 + 자동 개선 (Eval v1)
+
+> 상태: 초안(외부감사 전). 대상: `skills/myharness`(팩토리 정본) + `harness-ui`(#/eval) + 생성 하네스.
+> 근거 철학: "좋은 스킬 4축 체크리스트"(트리거·구조·유도·가지치기) · "매번 같은 답이 아니라 매번 같은 방식" · "필요한 건 새 스킬이 아니라 지워보는 눈".
+
+## 1. 문제
+
+현 자기평가는 **다층·목적 혼재**라 사용자가 "이 하네스가 좋은가"를 한눈에 못 본다.
+
+- `harness_scorecard`(구성 건강·주축) + `loop_scorecard`(리뷰 루프 효율·보조 `loop_ref`) + `verdicts.json`/`build-scorecard`/`summary.jsonl` + `loop-self-eval` 4단계 + config-centric 자기평가가 공존.
+- **두 목적이 섞임:** ① *과정* 측정(루프가 잘 도는가·alignment/regression/rounds) ② *산출물* 측정(에이전트/스킬 정의가 좋은가). 사용자는 ②를 원하는데 시스템 노출은 ① 중심.
+- 현 `harness_scorecard` 계층A는 **구조 건강**(orphan/dead/coverage/SKILL≤500)만 잰다. **품질 축**(description ROI·행동 유도력·삭제 테스트)은 없음.
+- 커버리지 갭: scorecard는 external-review 게이트가 도는 단계에서만 발행 → 슬림 하네스는 "평가 안 됨"(정상이나 사용자엔 공백).
+
+## 2. 사용자·상황
+
+- **팩토리 사용자**(이 레포 소유자): 여러 도메인 하네스를 찍어내고, 각 하네스의 에이전트/스킬이 "좋은 스킬 기준"에 맞는지 **하나의 방식**으로 평가·개선하고 싶다.
+- **오케스트레이터**(myharness): 평가 결과를 받아 하네스를 **자동으로(승인 게이트 하) 다시 손질**하고 싶다.
+
+## 3. 목표
+
+1. **단일 평가:** 각 에이전트/스킬을 **4축(트리거·구조·유도·가지치기) rubric 하나**로 평가 → 아티팩트당 스코어카드 1장 + 하네스 롤업. 도메인·슬림/코드 무관 **동일 방식**.
+2. **현 시스템 단순화:** 사용자 노출 = 아티팩트 카드 1개. 과정 지표(loop/verdicts)는 존치하되 **개발자용으로 접음**.
+3. **자동 개선 루프:** 평가 findings → 제안 diff → 게이트(외부리뷰·승인) → 적용(update 7-7 전파) → 재평가. **삭제/이동 저위험 우선**.
+4. **기존 기계 재사용:** external-review-loop·skill-authoring·skill-maintainer·harness update·#/eval(F8)에 얹는다(재발명 최소).
+
+## 4. 범위
+
+**포함(v1):**
+- 4축 rubric 정의 + 아티팩트 스코어카드 스키마(계층A 정적 + 계층B LLM 매핑).
+- `harness_scorecard` 확장(구조 건강 → 4축 품질 흡수) 또는 병행 축 신설.
+- `#/eval` 아티팩트 카드 뷰(4축·findings·롤업·before/after).
+- 자동 개선 **1~2단계(측정·제안)** + 3~4단계(반자동·자동) 설계(구현은 단계적).
+- 삭제 테스트 방법론(LLM 판정 + external-review 교차검증).
+
+**비포함(v1):**
+- 3·4단계(자동 적용) 전면 개방 — 실험·옵트인·holdout 후.
+- 새 런타임·MCP·plugins.
+- description 대폭 재작성 자동화(고위험 → 사람 승인).
+
+## 5. 수용 기준 (A-number)
+
+- **AE1** 4축 rubric: 각 축이 (a)기계 검사 최소 1개 + (b)LLM 판정 프롬프트 1개로 정의됨. 결정적 부분은 재현 가능(같은 입력=같은 점수).
+- **AE2** 아티팩트 스코어카드: 에이전트/스킬당 `{scores(4축), grade, findings[]}` 발행. findings = `{axis, target(file:line), action, why}`.
+- **AE3** 롤업: 하네스 단위 4축 평균·최악 항목·아티팩트 목록.
+- **AE4** 단순화: `#/eval`에 아티팩트 카드가 **1급 뷰**로 노출·과정 지표(loop/verdicts)는 접힘/보조.
+- **AE5** 삭제 테스트: 문장/섹션 단위 "지워도 행동 불변" 판정 → 삭제후보 findings. LLM 판정은 **external-review(러너 제외 codex/agy) 교차검증** 후에만 적용 대상.
+- **AE6** 자동 개선 안전: 측정=자동 / 행동=비자동(기본 OFF). 적용은 리스크 등급별(경량=외부리뷰+승인 / 중대=사람 승인). rolling 3연속 하락·holdout 전 자동 흐름 변경 금지(Goodhart·플래핑 방지).
+- **AE7** 전파: 승인된 정본 수정 → `update`(7-7)로 생성 하네스 재전파(사용자 수정 보존). pre-commit check-artifacts 게이트.
+- **AE8** 커버리지: 계층A(정적·4축 일부)는 **슬림 포함 전 하네스** 측정. 계층B(LLM)는 선택·offline fail-open.
+
+## 6. 리스크
+
+- **Goodhart:** 점수 최적화가 품질과 괴리 → 점수는 신호일 뿐, 자동 적용은 삭제/이동 저위험만·승인 게이트.
+- **삭제 오판:** "지워도 같다"가 틀리면 기능 상실 → external-review 교차검증 + 재평가 확인 + git revert 경로.
+- **LLM 노이즈:** 판정 비결정 → 계층A(결정적) 우선·계층B는 캐시·rolling·min 표본 전 발화 금지.
+- **복잡도 재증가:** 축 신설이 또 다른 층이 됨 → **기존 harness_scorecard 확장**으로 흡수(새 병렬 시스템 금지).
+
+## 7. 다음 단계
+설계서(`design/eval-v1-design.md`)에서 rubric 산식·스키마·remediation 루프·API/UI·마일스톤 확정 → 외부감사 → 단계적 구현(1단계 측정부터).
+
+--- 설계서 ---
+# 설계서 — 하네스 아티팩트 단일 평가 + 자동 개선 (Eval v1)
+
+> PRD: `../prd/eval-v1-prd.md`. 정합 대상: `skills/myharness/references/{harness-scorecard,loop-self-eval,external-review-loop}.md`, `harness-ui/src/server/adapters/{scorecard,evals}.ts`, myharness Phase 7-7(update).
+> 원칙: 기존 `harness_scorecard`를 **확장**(새 병렬 시스템 금지). 측정=자동 / 행동=비자동. 삭제 우선.
+
+## 0. 요약 아키텍처
+
+```
+아티팩트(.claude/agents/*.md · skills/*/SKILL.md · .codex/*.toml)
+        │
+        ▼ 평가(evaluate)  ── computeArtifactScore(root)  [계층A 정적·결정적]
+        │                └ deepAxisJudge(artifact)       [계층B LLM·선택·캐시]
+        ▼ 4축 스코어카드(artifact_scorecard.json) + 하네스 롤업
+        │
+        ▼ 제안(propose)  ── findings → diff 초안(삭제/이동/description)
+        │                └ skill-maintainer / skill-authoring
+        ▼ 게이트(gate)   ── external-review-loop(codex/agy·러너 제외) + 리스크 등급 승인
+        ▼ 적용(apply)    ── update(7-7) 재전파 + pre-commit check-artifacts
+        ▼ 재평가(re-eval) ── before/after 점수 → 개선 없음까지 loop
+```
+
+`#/eval`은 **아티팩트 카드**를 1급으로, `loop_scorecard`/verdicts는 "고급(과정 지표)"로 접는다.
+
+## 1. 4축 rubric — 측정 정의
+
+각 축 = **계층A(기계·결정적)** + **계층B(LLM 판정·교차검증 대상)**. 점수 0.0~1.0, 등급 A/B/C/D.
+
+### ① 트리거 (Trigger) — description ROI
+- **계층A:** description 존재 · 길이 밴드(너무 짧음<40자 / 과다>600자 감점) · 트리거 상황 키워드 유무(정규식: "때/시/요청/할 때/use when" 등) · near-miss 구분 문구 유무.
+- **계층B:** "이 description이 상시 컨텍스트 비용을 정당화하나? (a)하는 일 (b)구체 트리거 상황 (c)유사하나 트리거 금지 경우 구분 — 3요소 충족? 적극적(pushy)인가?" → 0~1.
+- **점수:** `0.4·계층A정규화 + 0.6·계층B`(계층B 없으면 계층A만·fail-open).
+
+### ② 구조 (Structure) — 2계층 아키텍처
+- **계층A(대부분 결정적·기존 harness_scorecard 재사용):** SKILL.md 본문 줄 수(≤500 목표·초과 감점 비례) · references/ 분리 유무 · 본문 내 대용량 블록(코드/표 >N줄) 인라인 여부 · 300줄+ reference의 ToC 유무.
+- **계층B:** "본문은 절차만 최소로 남고, 조건부/대용량 자료는 references/로 갔나?" → 0~1.
+- **점수:** 계층A 가중(구조는 기계 판정력 높음) `0.7·A + 0.3·B`.
+
+### ③ 유도 (Induction) — 다음 행동 유도
+- **계층A:** 명령형 어조 비율("~한다/~하라" vs 서술) · "why" 설명 문장 유무 · leading words(다음 단계 지시어) 밀도.
+- **계층B:** "에이전트의 다음 행동을 명확히 유도하나(leading words·plan/절차)? 모호 서술 vs 행동지향?" → 0~1.
+- **점수:** `0.3·A + 0.7·B`(유도는 의미 판정 비중 큼).
+
+### ④ 가지치기 (Pruning) — 삭제 테스트 [핵심]
+- **계층A:** 중복 문장(정규화 후 동일/유사) · boilerplate(상투구) · dead/orphan(기존 harness_scorecard 분류 재사용).
+- **계층B(삭제 테스트):** 문장/섹션 단위 — **"이 문장을 지워도 에이전트 행동이 같은가?"** Y=삭제후보. 프롬프트는 **보수적 기본**(불확실=보존). 
+- **점수:** `1 − 삭제후보_문장수 / 전체_문장수`(높을수록 ✓·군더더기 적음). 삭제후보는 findings로.
+
+> **결정적 재현(AE1):** 계층A는 같은 입력=같은 점수. 계층B는 캐시(내용 해시 키)·offline 시 생략(A만). 자동 적용 판단은 **계층B 단독 금지** — external-review 교차검증 후.
+
+## 2. 스코어카드 스키마
+
+```jsonc
+// artifact_scorecard.json (아티팩트당 1)
+{
+  "kind": "agent" | "skill",
+  "name": "doc-syncer",
+  "path": ".claude/agents/doc-syncer.md",
+  "runtime": "claude",
+  "scores": { "trigger": 0.8, "structure": 0.6, "induction": 0.9, "pruning": 0.7 },
+  "grade": "B",                         // 가중 평균 → A(≥0.9)/B(≥0.75)/C(≥0.6)/D(<0.6)
+  "layerB_used": true,                  // false = 정적만(offline/슬림)
+  "findings": [
+    { "axis": "pruning",   "target": "SKILL.md:42-48", "action": "delete-candidate", "why": "지워도 절차 불변", "risk": "low" },
+    { "axis": "structure", "target": "SKILL.md:120-260","action": "move-to-references","why": "조건부 자료", "risk": "low" },
+    { "axis": "trigger",   "target": "description",     "action": "rewrite-description","why": "near-miss 구분 없음", "risk": "high" }
+  ]
+}
+```
+```jsonc
+// harness_rollup.json (하네스당 1)
+{ "root": "...", "artifacts": [/* 위 카드들 */],
+  "axisAvg": { "trigger": 0.7, "structure": 0.65, "induction": 0.8, "pruning": 0.72 },
+  "worst": [ {"name":"x","axis":"structure","score":0.4} ],
+  "gradeDist": { "A":2, "B":5, "C":3, "D":1 } }
+```
+
+**구현 위치:** `harness-ui/src/server/adapters/scorecard.ts`의 `computeHarnessScorecard`를 확장 — 기존 계층A(orphan/dead/SKILL≤500)에 **4축 점수·findings**를 추가 산출. 계층B는 오케스트레이터 전용 `deepAxisJudge`(UI 자동호출 금지·fail-open).
+
+## 3. 자동 개선 루프 — 단계·게이트
+
+`loop-self-eval` 4단계 경계를 **그대로 계승**(측정=자동·행동=비자동 기본 OFF):
+
+| 단계 | 무엇 | 자동화 | 졸업 기준 |
+|------|------|--------|-----------|
+| **1** | 아티팩트 스코어카드 로깅·`#/eval` 노출 | 측정만 | 로깅 ≥10 하네스·스냅샷 |
+| **2** | findings → **제안 diff emit**(적용 안 함·사람 검토) | 제안만 | 제안 채택률 관찰·사람 sign-off |
+| **3** | **경량 findings**(가지치기 delete·move-to-references) 자동 diff + external-review 1회 → **승인 대기** | 반자동 | 승인 통과율≥θ·holdout |
+| **4** | 승인 통과분 자동 적용 + 재평가 loop | 자동(승인 게이트 필수) | — |
+
+**리스크 등급별 게이트(findings.risk):**
+- **low**(delete-candidate·move-to-references): external-review(codex/agy) 교차검증 → `_workspace/.autonomous` 있으면 자동 승인 / 없으면 사람 승인 → 적용.
+- **high**(rewrite-description·구조 재편): **사람 승인 필수**(자동 금지).
+
+**적용 경로(재발명 없음):**
+1. `skill-maintainer`/`skill-authoring`이 findings → diff 초안 생성.
+2. `external-review-loop`(러너 제외 codex/agy·loop-until-dry·no-high 2연속)로 교차검증.
+3. 승인 게이트 통과 → **정본 수정** → myharness **`update`(Phase 7-7)**로 생성 하네스 재전파(사용자 수정 보존·drift 무충돌).
+4. `check-artifacts.sh` + pre-commit hook 게이트 → 단일 커밋.
+5. **재평가**: 적용 후 재스코어 → before/after. 개선 없거나 하락이면 롤백 제안.
+
+## 4. 삭제 테스트 상세 (④ 핵심·안전)
+
+- **입력:** SKILL.md/agent.md 문장 배열(frontmatter 제외·본문만).
+- **판정 프롬프트(보수적):** "이 문장을 제거해도 이 스킬을 쓰는 에이전트의 **행동·판단이 동일**하게 유지되는가? 불확실하면 '보존'." → per-문장 keep/delete-candidate.
+- **교차검증:** delete-candidate 묶음을 external-review로 재판정(러너 제외). 양 엔진 delete 동의분만 low-risk findings.
+- **적용 후 검증:** 삭제 diff 적용 → 스킬 트리거/드라이런 스모크(있으면) → 재평가 점수 pruning 상승·타 축 불변 확인. 저하 시 롤백.
+
+## 5. API · UI 배선
+
+**서버(harness-ui):**
+- `GET /api/eval/artifacts?root=` → `{ rollup, artifacts[] }`(계층A·읽기·side-effect 0). 기존 `computeHarnessScorecard` 확장 재사용.
+- (오케스트레이터 전용·UI 미노출) 계층B/제안/적용은 CLI·오케스트레이터 경로(자동 호출 금지·AE6).
+
+**UI `#/eval`:**
+- **1급 탭 "아티팩트"**: 하네스 롤업(4축 레이더/바) + 아티팩트 리스트(등급·최악 축) + 카드 상세(4축·findings·target 딥링크→#/skills·#/agents 편집기).
+- **findings 액션(단계≥2):** "제안 보기"(diff) → (단계≥3·승인) "적용". 색 비의존·승인 명시.
+- **before/after:** 적용 이력 스냅샷 비교.
+- 기존 loop/verdicts 뷰 = "고급(과정 지표)"로 접힘(AE4).
+
+## 6. 측정법 (설계 §11 준용)
+
+- **AE1~AE3:** fixture 하네스(좋은 스킬 1·나쁜 스킬 1)로 4축 점수·findings·롤업 산출 e2e. 계층A 결정성(2회 동일).
+- **AE5:** 삭제후보 fixture(군더더기 문장 심음) → delete-candidate 검출·보수성(핵심 문장 보존).
+- **AE6:** 자동 흐름은 기본 OFF·승인 게이트 없이 적용 시도 거부 회귀.
+- **AE7:** update 재전파 후 생성 하네스 반영·사용자 수정 보존.
+
+## 7. 마일스톤 (단계적)
+
+| M | 내용 | 게이트 |
+|---|------|--------|
+| E1 | 계층A 4축 산식 + `/api/eval/artifacts` + 스코어카드 스키마 | 표준·외부감사≥2 |
+| E2 | `#/eval` 아티팩트 카드 뷰(롤업·findings·딥링크)·과정지표 접기 | 표준 |
+| E3 | 계층B(deepAxisJudge)·삭제 테스트 + external-review 교차검증(제안 emit·단계2) | 중대·외부감사 no-high 2연속 |
+| E4 | 자동 개선 단계3(반자동·low-risk·승인)·update 전파·재평가 | 중대·승인 사다리 |
+| E5 | 단계4(자동·holdout·rolling)·self-improvement-loop 통합 | 실험·옵트인 |
+
+## 8. 열린 질문
+- `harness_scorecard`와 **완전 통합**(4축이 계층A를 대체) vs **병행 축 추가**(구조 건강 + 4축 품질) — v1은 **병행 후 흡수** 권장(회귀 위험 최소).
+- 등급 임계(A/B/C/D)·축 가중치는 fixture로 캘리브레이션 후 확정.
+- 삭제 테스트의 "행동 동일" 판정 신뢰도 — 계층B 단독 금지·교차검증 필수(AE5).
+
+## 다음 단계 참조
+- **미해결·선결:** ① 이 설계 외부감사(codex+agy) → no-high. ② E1(계층A 4축·측정만) 먼저 — 저위험·재사용 큼. ③ harness_scorecard 통합 vs 병행 결정.
+- **핵심 결정:** 기존 `harness_scorecard` **확장**으로 4축 흡수(새 병렬 금지). 측정=자동·행동=비자동. **삭제(가지치기) 우선**·external-review 교차검증. 전파=update(7-7) 재사용.

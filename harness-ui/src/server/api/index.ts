@@ -639,7 +639,7 @@ export function registerApi(
   app.get("/api/drift/skill-groups", async () => ({ groups: await skillSyncGroups(projectRoot) }));
 
   // Eval v1 E1: 아티팩트 4축 단일 평가(계층A 정적·결정적·읽기전용·side-effect 0). LLM/삭제 테스트=E3(여기 없음).
-  app.get("/api/eval/artifacts", async () => evaluateArtifacts(projectRoot)); // now=고정 default(결정성·같은 repo=같은 점수·both MED)
+  app.get("/api/eval/artifacts", async () => evaluateArtifacts(projectRoot, { now: "2026-01-01" })); // now 명시 주입(결정성 방어·default 의존 제거·agy MED)
 
   // F16(M-f): 명시 다타깃 동기(정본 SKILL.md 를 선택 사본에 전파). 대상별 pathId/baseHash 낙관적 동시성·부분성공.
   //   자동 동기는 symlink-to-canonical(할 것 없음)만 — copy 만 명시 apply. hardlink/symlink-to-canonical 은 정본과 물리

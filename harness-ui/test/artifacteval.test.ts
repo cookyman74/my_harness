@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { evaluateArtifacts } from "../src/server/adapters/artifacteval.js";
+import { evaluateArtifacts, applyRel, relOfFinding, type Finding, type RelHit } from "../src/server/adapters/artifacteval.js";
 import { buildServer } from "../src/server/index.js";
 
 let root: string;
@@ -98,6 +98,32 @@ describe("evaluateArtifacts — 계층A 4축", () => {
     expect(typeof ev.rollup.axisAvg.trigger).toBe("number");
     // 관계 건강(구성 자기평가 흡수) — 4 키 숫자(차트 하나로 전체 현황).
     expect(ev.rollup.health).toMatchObject({ orphan: expect.any(Number), deadLink: expect.any(Number), coverageGap: expect.any(Number), drift: expect.any(Number) });
+  });
+});
+
+// 관계신호 흡수(applyRel) 불변식 — 외부감사 회귀 고정(agy HIGH 반박·codex LOW).
+describe("applyRel — 축별 min-mult 1회·구조 폴백·findings 전건", () => {
+  const dl = (): RelHit => ({ axis: "structure", mult: 0.7, risk: "med", action: "add-required-section", why: "끊긴 포인터" });
+  it("같은 축 다중 hit → compound 아님(min 1회)·findings 전건 유지", () => {
+    const scores: Partial<Record<"trigger" | "structure" | "induction" | "pruning", number>> = { structure: 1 };
+    const findings: Finding[] = [];
+    applyRel(scores, findings, [dl(), dl(), dl()], "a1"); // dead-link ×3
+    expect(scores.structure).toBeCloseTo(0.7); // 0.7 1회(compound 0.7^3=0.343 아님)
+    expect(findings).toHaveLength(3);          // 전건 유지(정보 손실 없음)
+  });
+  it("부재 축(pruning 없음) hit → structure 폴백 감점(TOML orphan/coverage)", () => {
+    const scores: Partial<Record<"trigger" | "structure" | "induction" | "pruning", number>> = { trigger: 1, structure: 1 }; // pruning 미적용(TOML)
+    const findings: Finding[] = [];
+    const orphan: RelHit = { axis: "pruning", mult: 0.55, risk: "med", action: "dedupe", why: "orphan" };
+    applyRel(scores, findings, [orphan], "t1");
+    expect(scores.pruning).toBeUndefined();    // 원래 축 신설 안 함
+    expect(scores.structure).toBeCloseTo(0.55); // structure 로 폴백 감점(누락 방지)
+  });
+  it("relOfFinding — 감점 대상만 매핑(link_unknown/unknown_scope/oversize 제외)", () => {
+    expect(relOfFinding({ type: "orphan" } as any)?.axis).toBe("pruning");
+    expect(relOfFinding({ type: "dead_link" } as any)?.axis).toBe("structure");
+    expect(relOfFinding({ type: "link_unknown" } as any)).toBeNull();
+    expect(relOfFinding({ type: "oversize" } as any)).toBeNull();
   });
 });
 
