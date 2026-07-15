@@ -12,6 +12,7 @@ import { listRuns, getRun, readEvents, readRunAgents, queryRuns } from "../adapt
 import { detectDrift, syncPlan } from "../adapters/drift.js";
 import { skillSyncGroups, isSyncableTarget } from "../adapters/driftsync.js";
 import { evaluateArtifacts } from "../adapters/artifacteval.js";
+import { startRemediationRun, readRemediationResult, conflictOf, RemediationFinding } from "../adapters/remediate.js";
 import { stateStats, settings } from "../adapters/statestats.js";
 import { computeHarnessScorecard } from "../adapters/scorecard.js";
 import { writeHarnessScorecardSnapshot, readHarnessTrend } from "../adapters/scorecard-snapshot.js";
@@ -640,6 +641,43 @@ export function registerApi(
 
   // Eval v1 E1: 아티팩트 4축 단일 평가(계층A 정적·결정적·읽기전용·side-effect 0). LLM/삭제 테스트=E3(여기 없음).
   app.get("/api/eval/artifacts", async () => evaluateArtifacts(projectRoot, { now: "2026-01-01" })); // now 명시 주입(결정성 방어·default 의존 제거·agy MED)
+
+  // E5-a 지적 AI 자동 반영(초안 생성·비동기 잡). 적용은 여기 없음 — 기존 defedit PUT(사람 diff 승인)만.
+  //   설계 docs/harness-eval/design/eval-remediation-design.md. read-only 러너·action-타겟 인지 검증·삭제/자동커밋 없음.
+  const currentDefContent = async (kind: DefKind, name: string): Promise<string | null> => {
+    if (!editName(name)) return null;
+    const r = await resolveDef(kind, name); if (!r.ok) return null;
+    const abs = await safeDefPath(projectRoot, r.sourcePath, kind); if (!abs) return null;
+    const f = await readDefSafe(abs); return f ? f.content : null;
+  };
+  app.post("/api/eval/remediate", async (req, reply) => {
+    if (!(await isEditEnabled())) return reply.code(403).send({ error: "edit-disabled" }); // API-레벨 fail-closed(R2 MED-1)
+    const Body = z.object({
+      kind: z.enum(["agent", "skill"]), name: z.string().min(1).max(200),
+      baseHash: z.string().min(1).max(128), findings: z.array(RemediationFinding).min(1).max(20),
+    });
+    const p = Body.safeParse(req.body);
+    if (!p.success) return reply.code(400).send({ error: "invalid-body" }); // 빈 findings 포함(min 1)
+    const { kind, name, baseHash, findings } = p.data;
+    if (!editName(name)) return reply.code(400).send({ error: "invalid-name" });
+    const r = await resolveDef(kind, name);
+    if (!r.ok) return reply.code(resErr(r.error)).send({ error: r.error });
+    const abs = await safeDefPath(projectRoot, r.sourcePath, kind);
+    if (!abs) return reply.code(400).send({ error: "path-unsafe" });
+    const f = await readDefSafe(abs);
+    if (!f) return reply.code(404).send({ error: "not-found" });
+    if (sha256(f.content) !== baseHash) return reply.code(409).send({ error: "stale-remediate", currentHash: sha256(f.content) });
+    const conflict = conflictOf(findings);
+    if (conflict) return reply.code(409).send({ error: "conflicting-findings", reason: conflict });
+    const { runId } = await startRemediationRun(projectRoot, kind, name, f.content, findings);
+    return reply.code(202).send({ runId, status: "running" });
+  });
+  app.get<{ Params: { runId: string } }>("/api/eval/remediate/:runId", async (req, reply) => {
+    if (!(await isEditEnabled())) return reply.code(403).send({ error: "edit-disabled" }); // GET 도 fail-closed(전문 반환 경로·R2 MED-1)
+    const res = await readRemediationResult(projectRoot, req.params.runId, currentDefContent);
+    if (!res) return reply.code(404).send({ error: "not-found" });
+    return res;
+  });
 
   // F16(M-f): 명시 다타깃 동기(정본 SKILL.md 를 선택 사본에 전파). 대상별 pathId/baseHash 낙관적 동시성·부분성공.
   //   자동 동기는 symlink-to-canonical(할 것 없음)만 — copy 만 명시 apply. hardlink/symlink-to-canonical 은 정본과 물리

@@ -181,6 +181,11 @@ export async function listRuns(root: string): Promise<{ runs: Array<{ runId: str
   return { runs };
 }
 
+// E5-a: 검증된 runDir 절대경로(심링크·containment 방어분). 고정 하위파일명만 join 하는 호출자용(사용자 세그먼트 금지).
+export async function resolveRunDir(root: string, runId: string): Promise<string | null> {
+  return safeRunDir(root, runId);
+}
+
 export async function getRun(root: string, runId: string) {
   const dir = await safeRunDir(root, runId);
   if (!dir) return null;
