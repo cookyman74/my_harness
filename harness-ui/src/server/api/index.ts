@@ -11,6 +11,7 @@ import {
 import { listRuns, getRun, readEvents, readRunAgents, queryRuns } from "../adapters/runs.js";
 import { detectDrift, syncPlan } from "../adapters/drift.js";
 import { skillSyncGroups, isSyncableTarget } from "../adapters/driftsync.js";
+import { evaluateArtifacts } from "../adapters/artifacteval.js";
 import { stateStats, settings } from "../adapters/statestats.js";
 import { computeHarnessScorecard } from "../adapters/scorecard.js";
 import { writeHarnessScorecardSnapshot, readHarnessTrend } from "../adapters/scorecard-snapshot.js";
@@ -636,6 +637,9 @@ export function registerApi(
 
   // F16(M-f): 스킬 사본 (dev,ino) 분류 그룹(읽기전용·side-effect 0). symlink-to-canonical/hardlink/copy-drift 등.
   app.get("/api/drift/skill-groups", async () => ({ groups: await skillSyncGroups(projectRoot) }));
+
+  // Eval v1 E1: 아티팩트 4축 단일 평가(계층A 정적·결정적·읽기전용·side-effect 0). LLM/삭제 테스트=E3(여기 없음).
+  app.get("/api/eval/artifacts", async () => evaluateArtifacts(projectRoot));
 
   // F16(M-f): 명시 다타깃 동기(정본 SKILL.md 를 선택 사본에 전파). 대상별 pathId/baseHash 낙관적 동시성·부분성공.
   //   자동 동기는 symlink-to-canonical(할 것 없음)만 — copy 만 명시 apply. hardlink/symlink-to-canonical 은 정본과 물리
