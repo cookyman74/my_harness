@@ -272,6 +272,17 @@ export type ArtifactEvalResult = {
 };
 export const getArtifactEval = () => apiGet<ArtifactEvalResult>("/api/eval/artifacts");
 
+// E5-a 지적 AI 자동 반영(초안·비동기). 적용은 putDefinition(사람 diff 승인)로.
+export type RemediationReq = { action: string; why: string; target?: { anchor?: string; range?: string; field?: string } };
+export type RemediationResult =
+  | { status: "running" }
+  | { status: "failed"; error: string }
+  | { status: "invalid"; error: string }
+  | { status: "ready"; kind: "agent" | "skill"; name: string; baseHash: string; stale: boolean; originalContent: string; proposedContent: string; findings: RemediationReq[] };
+export const startRemediate = (kind: "agent" | "skill", name: string, baseHash: string, findings: RemediationReq[]) =>
+  apiPost<{ runId: string; status: "running" }>("/api/eval/remediate", { kind, name, baseHash, findings });
+export const getRemediation = (runId: string) => apiGet<RemediationResult>(`/api/eval/remediate/${encodeURIComponent(runId)}`);
+
 // ── F16(M-f) 스킬 사본 drift 분류·다타깃 동기 ──
 export type SkillCopyClass =
   | "canonical" | "symlink-to-canonical" | "hardlink-same-inode"

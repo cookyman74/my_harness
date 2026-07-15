@@ -100,6 +100,7 @@ body { margin:0; font:14px/1.55 var(--sans); background:var(--bg); color:var(--f
 .rel-item.warn { border-color:var(--warn, #d19a00); } .rel-item.warn .rel-item-val { color:var(--warn, #d19a00); }
 .rel-item.err { border-color:var(--err, #c9503f); } .rel-item.err .rel-item-val { color:var(--err, #c9503f); }
 .finding-details > summary { cursor:pointer; font-size:12px; }
+.eval-actions { display:inline-flex; gap:10px; align-items:center; white-space:nowrap; }
 .finding-list { margin:6px 0 0; padding-left:16px; font-size:12px; }
 .ok { color:var(--ok, #3aa76d); } .warn { color:var(--warn, #d19a00); } .err { color:var(--err, #c9503f); }
 .lens-tag.muted { background:var(--panel-2); color:var(--faint); }

@@ -11,6 +11,7 @@ import {
   DownloadTooLargeError, submitRun, RunSubmitError,
   postProjectRoot, ProjectRootError, cancelActiveRuns,
   getDefinition, putDefinition, rollbackDefinition, setDefinitionEdit, DefEditError,
+  startRemediate, getRemediation, type RemediationReq, type RemediationResult,
   postEvalsConfig, EvalsConfigError,
   docsTreePath, docPreviewPath, postDocsSources, DocsSourcesError,
   CONTEXT_TREE_PATH, contextFilePath, downloadContextFile,
@@ -321,12 +322,23 @@ function useSelDeepLink(setSel: (n: string) => void): void {
     return () => window.removeEventListener("hashchange", read);
   }, [setSel]);
 }
+// E5-a: #/{seg}?sel=<name>&remediate=<runId> 의 runId(초안 잡). 편집기에 전달.
+function useRemedDeepLink(): string | null {
+  const [rid, setRid] = useState<string | null>(remedFromHash);
+  useEffect(() => {
+    const read = () => setRid(remedFromHash());
+    window.addEventListener("hashchange", read);
+    return () => window.removeEventListener("hashchange", read);
+  }, []);
+  return rid;
+}
 
 export function Agents() {
   const st = useApi<{ agents: Array<{ name: string; runtime: string; sourcePath: string; role: string; skills: string[] }> }>("/api/agents");
   const [sel, setSel] = useState<string | null>(null);
   const [runFor, setRunFor] = useState<string | null>(null); // F2: New Run 프리필 폼 대상 에이전트
   useSelDeepLink(setSel); // #/agents?sel=<name> 자동 선택
+  const remedRid = useRemedDeepLink(); // #/agents?...&remediate=<runId>
   return (
     <div className="screen">
       <h2>Agents</h2>
@@ -363,7 +375,7 @@ export function Agents() {
                   {/* F2 W1/A83: New Run 폼을 버튼 **바로 아래**(편집기 위)에 렌더 — 편집기가 full-height 로 커져도
                     폼이 화면 밖으로 밀리지 않게(구: md-layout 바깥 맨 아래 렌더 → 무반응처럼 보임). 자체 Async 3-state 로 실패 격리. */}
                   {runFor === a.name && <AgentRunForm key={a.name} name={a.name} onClose={() => setRunFor(null)} />}
-                  <DefinitionEditor key={"agent:" + a.name} kind="agent" name={a.name} onClose={() => setSel(null)} />
+                  <DefinitionEditor key={"agent:" + a.name} kind="agent" name={a.name} onClose={() => setSel(null)} remediateRunId={sel === a.name ? remedRid : null} />
                 </>
               ) : null;
             })() : (
@@ -476,6 +488,7 @@ export function Skills() {
   const st = useApi<{ skills: Array<{ name: string; description: string; triggers: string; references: string[]; runtimePaths: string[] }> }>("/api/skills");
   const [sel, setSel] = useState<string | null>(null);
   useSelDeepLink(setSel); // #/skills?sel=<name> 자동 선택
+  const remedRid = useRemedDeepLink(); // #/skills?...&remediate=<runId>
   return (
     <div className="screen">
       <h2>Skills</h2>
@@ -496,7 +509,7 @@ export function Skills() {
             {/* 선택 시 정의 편집기를 **바로** 표시(별도 상세 카드·편집 버튼 없이). 요약(name/트리거/참조)은
                 편집기 렌더 모드가 frontmatter 메타 + 본문으로 보여준다. 게이트/편집가능은 편집기가 내부 판정. */}
             {sel ? (
-              <DefinitionEditor key={"skill:" + sel} kind="skill" name={sel} onClose={() => setSel(null)} />
+              <DefinitionEditor key={"skill:" + sel} kind="skill" name={sel} onClose={() => setSel(null)} remediateRunId={remedRid} />
             ) : (
               <div className="detail-empty" role="note">← 왼쪽에서 스킬을 선택하면 정의가 바로 열립니다.</div>
             )}
@@ -551,8 +564,9 @@ function MergeView({ disk, edited }: { disk: string; edited: string }) {
 // A93 stale-write 충돌 상태(편집분 보존 병합). diskContent=null → 디스크 현재본 재조회 실패 폴백.
 type StaleConflict = { currentHash: string; diskContent: string | null };
 
-function DefinitionEditor({ kind, name, onClose }: { kind: DefKind; name: string; onClose: () => void }) {
+function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKind; name: string; onClose: () => void; remediateRunId?: string | null }) {
   const [doc, setDoc] = useState<DefinitionDoc | null>(null);
+  const [remed, setRemed] = useState<RemediationResult | { status: "loading" } | null>(null); // E5-a 초안 폴링 상태
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [edited, setEdited] = useState<string>("");
   const [baseHash, setBaseHash] = useState<string>(""); // 낙관적 동시성 기준(저장·adopt 시 갱신)
@@ -590,6 +604,24 @@ function DefinitionEditor({ kind, name, onClose }: { kind: DefKind; name: string
       .catch((e) => { if (live) setLoadErr(e instanceof DefEditError ? defEditErrorText(e.code, e.status, e.detail) : String(e)); });
     return () => { live = false; };
   }, [kind, name]);
+
+  // E5-a: 초안 잡 폴링(remediateRunId 있을 때). ready → edited 에 초안 주입 + diff 자동 표시(기존 저장 흐름이 적용=사람 승인).
+  useEffect(() => {
+    if (!remediateRunId || !doc) return;
+    let live = true, timer: ReturnType<typeof setTimeout> | undefined;
+    setRemed({ status: "loading" });
+    const poll = async () => {
+      try {
+        const r = await getRemediation(remediateRunId);
+        if (!live) return;
+        setRemed(r);
+        if (r.status === "running") { timer = setTimeout(poll, 2000); return; }
+        if (r.status === "ready") { setEdited(r.proposedContent); setShowDiff(true); setMode("edit"); }
+      } catch (e) { if (live) setRemed({ status: "invalid", error: e instanceof DefEditError ? e.code : String(e) }); }
+    };
+    poll();
+    return () => { live = false; if (timer) clearTimeout(timer); };
+  }, [remediateRunId, doc]);
 
   const dirty = doc != null && isDirty(doc.content, edited);
 
@@ -666,6 +698,17 @@ function DefinitionEditor({ kind, name, onClose }: { kind: DefKind; name: string
       {doc && (
         <>
           <p className="muted"><code className="path">{doc.sourcePath}</code>{dirty && <span className="warn-text"> · 미저장 변경 있음</span>}</p>
+
+          {/* E5-a AI 초안 반영 상태 배너. ready → edited 에 초안 주입됨(아래 diff·저장으로 사람 승인). */}
+          {remed && remed.status === "loading" && <p className="banner" role="status">🤖 AI가 초안 생성 중…</p>}
+          {remed && remed.status === "running" && <p className="banner" role="status">🤖 AI가 초안 생성 중… (실행 대기)</p>}
+          {remed && remed.status === "ready" && (
+            <p className="banner ok" role="status">🤖 AI 초안이 반영되었습니다 — 아래 diff를 검토한 뒤 <b>저장</b>하면 적용됩니다. 반려하려면 저장하지 말고 닫으세요.
+              {remed.stale && <span className="warn-text"> ⚠ 초안 생성 후 정의가 변경됨 — 저장 시 충돌하면 재검토하세요.</span>}</p>
+          )}
+          {remed && (remed.status === "invalid" || remed.status === "failed") && (
+            <p className="banner err" role="alert">⚠ AI 초안 생성 실패({remed.error}) — 수동으로 편집하세요.</p>
+          )}
 
           {!editable && (
             <p className="banner warn" role="note">🔒 정의 편집이 비활성입니다 — 뷰어 전용. <a className="link" href="#/settings">Settings에서 켜기 →</a></p>
@@ -2165,6 +2208,44 @@ function AdoptionStageHeader() {
   );
 }
 
+// E5-a: 서버가 반영 가능한 6종 action(그 외 finding 은 초안 대상 아님·필터).
+const REMEDIABLE_ACTIONS = new Set(["rewrite-description", "add-trigger-context", "shrink-skill", "move-to-references", "add-required-section", "dedupe"]);
+// #/{seg}?sel=<name>&remediate=<runId> 딥링크에서 runId 추출.
+function remedFromHash(): string | null {
+  const m = /[?&]remediate=([^&]+)/.exec(location.hash);
+  if (!m) return null;
+  try { return decodeURIComponent(m[1]!); } catch { return null; }
+}
+
+// 지적 행 "AI로 반영" 버튼 — 초안 잡 시작 후 편집기(diff 뷰)로 이동. 적용은 편집기 저장(사람 승인)에서.
+function RemediateButton({ a }: { a: ArtifactScore }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const findings: RemediationReq[] = a.findings
+    .filter((f) => REMEDIABLE_ACTIONS.has(f.action))
+    .map((f) => ({ action: f.action, why: f.why, target: f.target }));
+  if (findings.length === 0) return null;
+  const go = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const def = await getDefinition(a.kind, a.name); // baseHash 확보(낙관적 동시성)
+      const { runId } = await startRemediate(a.kind, a.name, def.baseHash, findings);
+      location.hash = `#/${a.kind === "agent" ? "agents" : "skills"}?sel=${encodeURIComponent(a.name)}&remediate=${encodeURIComponent(runId)}`;
+    } catch (e) {
+      const msg = e instanceof DefEditError ? (e.code === "conflicting-findings" ? "지적이 상충합니다(1개만 반영 가능)" : e.code === "edit-disabled" ? "정의 편집이 비활성입니다" : e.code) : String(e);
+      setErr(msg); setBusy(false);
+    }
+  };
+  return (
+    <>
+      <button className="link" disabled={busy} onClick={go} title="AI가 지적을 반영한 초안을 만들어 diff로 보여줍니다">
+        {busy ? "초안 생성…" : "AI로 반영"}
+      </button>
+      {err && <span className="warn-text" role="alert"> {err}</span>}
+    </>
+  );
+}
+
 const EVAL_AXES: Array<{ k: EvalAxis; label: string }> = [
   { k: "trigger", label: "트리거" }, { k: "structure", label: "구조" }, { k: "induction", label: "유도" }, { k: "pruning", label: "가지치기" },
 ];
@@ -2239,7 +2320,7 @@ export function Eval() {
                 <ul className="finding-list">{a.findings.map((f, i) => <li key={i}><b>{f.axis}</b>: {f.why} <span className="muted">({f.action})</span></li>)}</ul>
               </details>
               : <span className="muted">없음</span>,
-            <a className="link" href={editLink(a)}>편집 →</a>,
+            <span className="eval-actions"><RemediateButton a={a} /><a className="link" href={editLink(a)}>편집 →</a></span>,
           ])} />
         </>
       )}</Async>
