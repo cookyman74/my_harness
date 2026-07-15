@@ -2162,7 +2162,7 @@ function AdoptionStageHeader() {
 }
 
 // 뷰 파라미터(#/eval?view=detail) — 요약(차트 하나) vs 상세(테이블·별도 페이지).
-function evalIsDetail(): boolean { return /[?&]view=detail/.test(location.hash); }
+function evalIsDetail(): boolean { return /[?&]view=detail(?:&|$)/.test(location.hash); } // 경계 고정(view=detailx 오매칭 방지·codex LOW)
 function useEvalDetailView(): boolean {
   const [v, setV] = useState(evalIsDetail);
   useEffect(() => { const on = () => setV(evalIsDetail()); window.addEventListener("hashchange", on); return () => window.removeEventListener("hashchange", on); }, []);

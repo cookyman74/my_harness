@@ -194,13 +194,16 @@ function tomlField(text: string, key: string): string | null {
   catch { return null; }
 }
 
-// 관계 신호를 적용해 축 점수 감점 + finding 추가(중복 방지: 같은 축·유형 1회).
+// 관계 신호 → 축 감점 + finding. **축별 최강 감점 1회**(compound 과감점 방지·both HIGH/MED) +
+//   대상 축 부재(TOML: pruning/induction 없음) 시 structure 폴백(감점 누락 방지·agy HIGH). findings 는 전건(정보).
 function applyRel(scores: Partial<Record<Axis, number>>, findings: Finding[], hits: RelHit[], anchor: string): void {
+  const byAxis = new Map<Axis, number>();
   for (const h of hits) {
-    const cur = scores[h.axis];
-    if (typeof cur === "number") scores[h.axis] = clamp01(cur * h.mult);
+    const ax: Axis = typeof scores[h.axis] === "number" ? h.axis : "structure"; // 부재 축 → structure(항상 존재)
+    byAxis.set(ax, Math.min(byAxis.get(ax) ?? 1, h.mult));                       // 최강(min) 감점만·compound 금지
     findings.push({ axis: h.axis, target: { anchor }, action: h.action, why: h.why, risk: h.risk });
   }
+  for (const [ax, mult] of byAxis) { const cur = scores[ax]; if (typeof cur === "number") scores[ax] = clamp01(cur * mult); }
 }
 
 export async function evaluateArtifacts(root: string, opts?: { now?: string }): Promise<ArtifactEval> {
