@@ -310,7 +310,8 @@ export function Build() {
 // ?sel=<name> 딥링크(#/eval 편집 링크 등) → 선택 대상 name. 없으면 null.
 function selFromHash(): string | null {
   const m = /[?&]sel=([^&]+)/.exec(location.hash);
-  return m ? decodeURIComponent(m[1]!) : null;
+  if (!m) return null;
+  try { return decodeURIComponent(m[1]!); } catch { return null; } // malformed % 시퀀스 URIError 방어(codex/agy LOW)
 }
 function useSelDeepLink(setSel: (n: string) => void): void {
   useEffect(() => {
