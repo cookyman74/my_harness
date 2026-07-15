@@ -198,8 +198,9 @@ export async function startRemediationRun(projectRoot: string, kind: DefKind, na
 //   O_NOFOLLOW 미지원 플랫폼 폴백 갭 보강·R2 MED-1) + O_NOFOLLOW(가능 플랫폼 원자 보강). fstat.size 후 read(OOM 방어).
 type CapRead = { ok: true; content: string } | { ok: false; reason: "missing" | "symlink" | "oversize" | "nonfile" };
 async function readCapped(path: string, maxBytes: number): Promise<CapRead> {
+  const errReason = (e: unknown): "missing" | "nonfile" => ((e as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "nonfile"); // ENOENT 만 재폴링·그 외 fail-closed
   let ls;
-  try { ls = await lstat(path); } catch { return { ok: false, reason: "missing" }; }
+  try { ls = await lstat(path); } catch (e) { return { ok: false, reason: errReason(e) }; }
   if (ls.isSymbolicLink()) return { ok: false, reason: "symlink" }; // 이식성 심링크 거부(플랫폼 무관)
   if (!ls.isFile()) return { ok: false, reason: "nonfile" };
   if (ls.size > maxBytes) return { ok: false, reason: "oversize" };
@@ -219,9 +220,10 @@ async function readCapped(path: string, maxBytes: number): Promise<CapRead> {
     if (!st.isFile()) return { ok: false, reason: "nonfile" };
     if (st.size > maxBytes) return { ok: false, reason: "oversize" };
     const buf = Buffer.alloc(st.size);
-    await fh.read(buf, 0, st.size, 0);
+    const { bytesRead } = await fh.read(buf, 0, st.size, 0);
+    if (bytesRead !== st.size) return { ok: false, reason: "nonfile" }; // fstat 후 truncate → 부족 read → fail-closed(NUL 유입 차단)
     return { ok: true, content: buf.toString("utf8") };
-  } catch { return { ok: false, reason: "missing" }; }
+  } catch (e) { return { ok: false, reason: errReason(e) }; } // 내부 stat/read 오류도 ENOENT 만 missing·그 외 fail-closed
   finally { await fh.close().catch(() => {}); }
 }
 
