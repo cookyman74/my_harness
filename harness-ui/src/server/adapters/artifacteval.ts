@@ -3,7 +3,7 @@
 //   findings 는 전부 **구조적·저위험**(delete-candidate 같은 고위험 LLM 판정 없음). evaluation_mode="static".
 //   설계 안전 반영: kind별 rubric 분기(TOML 은 문장 삭제/유도 미적용)·min-gate(구조 과락→상한)·완전성 가드·content-hash anchor.
 import { createHash } from "node:crypto";
-import { readdir } from "node:fs/promises";
+import { opendir } from "node:fs/promises";
 import { join } from "node:path";
 import { readAgents, readSkills, readCappedDef } from "./harness.js";
 import { isSafeSegment } from "../lib/paths.js";
@@ -120,10 +120,11 @@ function scorePruning(body: string, findings: Finding[], anchor: string): number
 // 완전성 가드(design §1·§9): 필수 섹션(agent: 역할·프로토콜·에러 / skill: 절차·트리거) 존재. 누락 수 반환(구조 감점·가드).
 //   heading(## …) 라인 기준(codex LOW: 본문 언급 오탐 방지). 누락은 finding + scoreStructure 로 감점/과락.
 function completenessMissing(body: string, kind: "agent" | "skill", findings: Finding[], anchor: string): number {
-  const heads = lines(body).filter((l) => /^#{1,6}\s/.test(l)).join("\n");
+  // heading(## …) 라인만 검사(codex LOW: 본문/코드펜스 언급 오탐 제거·body fallback 삭제).
+  const heads = lines(body).filter((l) => /^#{1,6}\s/.test(l));
   const req = kind === "agent" ? ["역할", "프로토콜", "에러"] : ["절차", "트리거"];
   let missing = 0;
-  for (const sec of req) if (!heads.includes(sec) && !body.includes("## " + sec)) { missing++; findings.push({ axis: "completeness", target: { anchor }, action: "add-required-section", why: `필수 섹션 '${sec}' 미검출(heading 기준)`, risk: "low" }); }
+  for (const sec of req) if (!heads.some((h) => h.includes(sec))) { missing++; findings.push({ axis: "completeness", target: { anchor }, action: "add-required-section", why: `필수 섹션 heading '${sec}' 미검출`, risk: "low" }); }
   return missing;
 }
 
@@ -132,20 +133,35 @@ function gradeOf(avg: number, gateFail: boolean): Grade {
   return avg >= 0.9 ? "A" : avg >= 0.75 ? "B" : avg >= 0.6 ? "C" : "D";
 }
 
-// references/ 에 .md 참조가 하나라도 있나(바운드·codex MED: 무제한 readdir·비-md junk 방지).
-async function hasReferences(root: string, skillDir: string): Promise<boolean> {
-  const segs = skillDir.split("/");
-  for (const s of segs) if (!isSafeSegment(s)) return false;
-  try {
-    const e = await readdir(join(root, ...segs, "references"), { withFileTypes: true });
-    return e.some((x) => x.isFile() && x.name.endsWith(".md")); // 첫 매치서 판정(전량 로드 아님)
-  } catch { return false; }
+// 동시성 제한 map(agy HIGH: 무제한 Promise.all 은 대형 하네스서 EMFILE·1개 reject 로 전체 붕괴). 순서 보존(결정적).
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, i: number) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let idx = 0;
+  const worker = async (): Promise<void> => { while (idx < items.length) { const i = idx++; out[i] = await fn(items[i]!, i); } };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker));
+  return out;
 }
-// 안전 read: server-derived sourcePath 라도 per-seg isSafeSegment(traversal 차단) + readCappedDef(O_NOFOLLOW·크기캡·심링크 거부).
+
+// references/ 에 .md 참조가 하나라도 있나(opendir 순회·첫 매치 early-return·최대 상한·codex MED: readdir 전량 materialize 방지).
+async function hasReferences(root: string, skillDir: string): Promise<boolean> {
+  const segs = skillDir.split("/").filter(Boolean); // 빈 세그먼트 제거(agy MED)
+  for (const s of segs) if (!isSafeSegment(s)) return false;
+  let dir;
+  try { dir = await opendir(join(root, ...segs, "references")); } catch { return false; }
+  try {
+    let seen = 0;
+    for await (const e of dir) { if (++seen > 2000) break; if (e.isFile() && e.name.endsWith(".md")) return true; } // early-return·상한
+    return false;
+  } catch { return false; } finally { await dir.close().catch(() => {}); }
+}
+// 안전 read: per-seg isSafeSegment(traversal) + filter(Boolean)(빈 세그먼트·agy MED) + readCappedDef(O_NOFOLLOW·캡·심링크). 예외 흡수(agy HIGH).
 async function readRaw(root: string, sourcePath: string): Promise<string | null> {
-  const segs = sourcePath.split("/");
-  for (const s of segs) if (!isSafeSegment(s)) return null;
-  return readCappedDef(join(root, ...segs));
+  try {
+    const segs = sourcePath.split("/").filter(Boolean);
+    if (segs.length === 0) return null;
+    for (const s of segs) if (!isSafeSegment(s)) return null;
+    return await readCappedDef(join(root, ...segs));
+  } catch { return null; }
 }
 
 // TOML top-level 문자열 필드(name/description) — 정규식 대신 @iarna 파서(codex MED: 이스케이프/멀티라인/주석 오판).
@@ -156,13 +172,11 @@ function tomlField(text: string, key: string): string | null {
 
 export async function evaluateArtifacts(root: string): Promise<ArtifactEval> {
   const [agents, skills] = await Promise.all([readAgents(root), readSkills(root)]);
-  // 병렬 read(agy LOW·대형 하네스 I/O 누적 방지). 결정성은 아래 path 정렬로 보장(순서 무관).
-  const agentRaw = await Promise.all(agents.map((a) => readRaw(root, a.sourcePath)));
+  // 동시성 제한 read(agy HIGH: 무제한 병렬 EMFILE 방지·순서 보존). limit 8.
+  const agentRaw = await mapLimit(agents, 8, (a) => readRaw(root, a.sourcePath));
   const skillPaths = skills.map((s) => (s.runtimePaths[0] ?? "") + "/SKILL.md");
-  const [skillRaw, skillRefs] = await Promise.all([
-    Promise.all(skillPaths.map((p) => readRaw(root, p))),
-    Promise.all(skills.map((s) => hasReferences(root, s.runtimePaths[0] ?? ""))),
-  ]);
+  const skillRaw = await mapLimit(skills, 8, (_, i) => readRaw(root, skillPaths[i]!));
+  const skillRefs = await mapLimit(skills, 8, (s) => hasReferences(root, s.runtimePaths[0] ?? ""));
 
   const artifacts: ArtifactScore[] = [];
 
