@@ -205,12 +205,19 @@ async function readCapped(path: string, maxBytes: number): Promise<CapRead> {
   if (ls.size > maxBytes) return { ok: false, reason: "oversize" };
   let fh;
   try { fh = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)); }
-  catch { return { ok: false, reason: "missing" }; }
+  catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return { ok: false, reason: "missing" };
+    if (code === "ELOOP") return { ok: false, reason: "symlink" }; // O_NOFOLLOW 가 심링크 거부
+    return { ok: false, reason: "nonfile" }; // EACCES/EPERM 등 → fail-closed(missing 으로 뭉개지 않음·무한폴링 방지)
+  }
   try {
     const st = await fh.stat();
-    if (st.isSymbolicLink?.()) return { ok: false, reason: "symlink" };
+    // TOCTOU 확정 방어(R3 HIGH): lstat 직후 leaf 를 심링크로 스왑해도 열린 fd 의 dev/ino 가 lstat 과 다르면 fail-closed.
+    //   (O_NOFOLLOW 미지원 플랫폼 폴백 갭 봉쇄 — fh.stat().isSymbolicLink() 는 열린 타겟이라 항상 false·무의미.)
+    if (st.dev !== ls.dev || st.ino !== ls.ino) return { ok: false, reason: "symlink" };
     if (!st.isFile()) return { ok: false, reason: "nonfile" };
-    if (st.size > maxBytes) return { ok: false, reason: "oversize" }; // TOCTOU 재확인
+    if (st.size > maxBytes) return { ok: false, reason: "oversize" };
     const buf = Buffer.alloc(st.size);
     await fh.read(buf, 0, st.size, 0);
     return { ok: true, content: buf.toString("utf8") };
