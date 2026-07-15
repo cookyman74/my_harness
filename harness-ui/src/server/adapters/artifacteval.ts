@@ -3,9 +3,11 @@
 //   findings 는 전부 **구조적·저위험**(delete-candidate 같은 고위험 LLM 판정 없음). evaluation_mode="static".
 //   설계 안전 반영: kind별 rubric 분기(TOML 은 문장 삭제/유도 미적용)·min-gate(구조 과락→상한)·완전성 가드·content-hash anchor.
 import { createHash } from "node:crypto";
-import { readFile, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { readAgents, readSkills } from "./harness.js";
+import { readAgents, readSkills, readCappedDef } from "./harness.js";
+import { isSafeSegment } from "../lib/paths.js";
+import TOML from "@iarna/toml";
 
 export type Axis = "trigger" | "structure" | "induction" | "pruning";
 export type ArtifactRubric = "md-agent" | "md-skill" | "toml-agent";
@@ -45,8 +47,8 @@ const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
 
 // frontmatter/본문 분리(harness.parseFrontmatter 는 필드만·본문 필요) — 첫 --- 쌍.
 function splitBody(text: string): { fm: string; body: string } {
-  const m = /^﻿?---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
-  if (!m) return { fm: "", body: text.replace(/^﻿/, "") };
+  const m = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
+  if (!m) return { fm: "", body: text.replace(/^\uFEFF/, "") };
   return { fm: m[1]!, body: text.slice(m[0].length) };
 }
 function lines(s: string): string[] { return s.split(/\r?\n/); }
@@ -54,7 +56,8 @@ function bodyLineCount(body: string): number { return lines(body).filter((l) => 
 
 // ── 축별 계층A 채점(결정적) ─────────────────────────────────────────────
 // ① 트리거 — description ROI(존재·길이 밴드·트리거 상황 키워드·near-miss 구분). 언어 편향 있어 finding 위주.
-const TRIGGER_KW = /(때|시\b|요청|사용|할\s*때|use\s+when|when\b|trigger)/i;
+// \b 는 한글 경계에서 불안정(agy MED) → 한글은 명시 문맥, 영어만 \b 사용.
+const TRIGGER_KW = /(때|요청|사용|할\s*때|하려면|하는\s*경우|use\s+when|\bwhen\b|trigger)/i;
 const NEARMISS_KW = /(아니|않|말고|대신|달리|instead|unlike|not\s+for|near-miss|유사하나|구분|\bvs\b)/i;
 function scoreTrigger(desc: string, findings: Finding[], anchor: string): number {
   const d = (desc ?? "").trim();
@@ -69,9 +72,14 @@ function scoreTrigger(desc: string, findings: Finding[], anchor: string): number
 
 // ② 구조 — 2계층. skill: 본문 ≤500·references 분리·대용량 인라인 블록. agent: 본문·섹션.
 const FENCE = /^```/;
-function scoreStructure(body: string, hasRefs: boolean, kind: "agent" | "skill", findings: Finding[], anchor: string): { score: number; gateFail: boolean } {
+function scoreStructure(body: string, hasRefs: boolean, kind: "agent" | "skill", findings: Finding[], anchor: string, missingReq: number): { score: number; gateFail: boolean } {
   const n = bodyLineCount(body);
   let s = 1.0, gateFail = false;
+  // 본문 부실(shell) 은 kind 무관 구조 과락 — codex MED: 빈 본문이 1.0/고등급 되던 rubric drift 차단.
+  if (n < 5) { findings.push({ axis: "structure", target: { anchor }, action: "add-required-section", why: `본문 부실(${n}줄)·절차/역할 실체 없음`, risk: "med" }); return { score: n === 0 ? 0 : 0.3, gateFail: true }; }
+  // 필수 섹션 누락은 구조 감점 + 다수 누락 시 과락(완전성=별도 축 아닌 구조 가드·design §1).
+  if (missingReq > 0) s -= Math.min(0.45, missingReq * 0.18);
+  if (missingReq >= 2) gateFail = true;
   if (kind === "skill") {
     if (n > 500) { s -= Math.min(0.5, (n - 500) / 1000); findings.push({ axis: "structure", target: { anchor, range: `1-${n}` }, action: "shrink-skill", why: `SKILL 본문 ${n}줄(>500 목표) — 조건부 자료 references/로`, risk: "low" }); }
     if (!hasRefs && n > 300) { s -= 0.2; findings.push({ axis: "structure", target: { anchor }, action: "move-to-references", why: "본문 큰데 references/ 분리 없음(2계층 위반)", risk: "med" }); }
@@ -82,8 +90,7 @@ function scoreStructure(body: string, hasRefs: boolean, kind: "agent" | "skill",
       if (FENCE.test(ls[i]!)) { if (fenceStart < 0) fenceStart = i; else { if (i - fenceStart > 60) { s -= 0.1; findings.push({ axis: "structure", target: { anchor, range: `${fenceStart + 1}-${i + 1}` }, action: "move-to-references", why: `대용량 인라인 블록(${i - fenceStart}줄)·references/로`, risk: "low" }); } fenceStart = -1; } }
     }
   } else {
-    if (n === 0) { s = 0; findings.push({ axis: "structure", target: { anchor }, action: "add-required-section", why: "에이전트 본문 없음", risk: "med" }); }
-    else if (n > 400) { s -= Math.min(0.3, (n - 400) / 1000); }
+    if (n > 400) s -= Math.min(0.3, (n - 400) / 1000);
   }
   return { score: clamp01(s), gateFail };
 }
@@ -110,10 +117,14 @@ function scorePruning(body: string, findings: Finding[], anchor: string): number
   return clamp01(1 - ratio);
 }
 
-// 완전성 가드(design §1·§9): 필수 섹션 존재(agent: 역할·프로토콜·에러 / skill: 절차·트리거). 없으면 finding(삭제 마스크용).
-function completenessFindings(body: string, kind: "agent" | "skill", findings: Finding[], anchor: string): void {
+// 완전성 가드(design §1·§9): 필수 섹션(agent: 역할·프로토콜·에러 / skill: 절차·트리거) 존재. 누락 수 반환(구조 감점·가드).
+//   heading(## …) 라인 기준(codex LOW: 본문 언급 오탐 방지). 누락은 finding + scoreStructure 로 감점/과락.
+function completenessMissing(body: string, kind: "agent" | "skill", findings: Finding[], anchor: string): number {
+  const heads = lines(body).filter((l) => /^#{1,6}\s/.test(l)).join("\n");
   const req = kind === "agent" ? ["역할", "프로토콜", "에러"] : ["절차", "트리거"];
-  for (const sec of req) if (!body.includes(sec)) findings.push({ axis: "completeness", target: { anchor }, action: "add-required-section", why: `필수 섹션 '${sec}' 미검출(정적 추정)`, risk: "low" });
+  let missing = 0;
+  for (const sec of req) if (!heads.includes(sec) && !body.includes("## " + sec)) { missing++; findings.push({ axis: "completeness", target: { anchor }, action: "add-required-section", why: `필수 섹션 '${sec}' 미검출(heading 기준)`, risk: "low" }); }
+  return missing;
 }
 
 function gradeOf(avg: number, gateFail: boolean): Grade {
@@ -121,66 +132,86 @@ function gradeOf(avg: number, gateFail: boolean): Grade {
   return avg >= 0.9 ? "A" : avg >= 0.75 ? "B" : avg >= 0.6 ? "C" : "D";
 }
 
+// references/ 에 .md 참조가 하나라도 있나(바운드·codex MED: 무제한 readdir·비-md junk 방지).
 async function hasReferences(root: string, skillDir: string): Promise<boolean> {
-  try { const e = await readdir(join(root, skillDir, "references")); return e.length > 0; } catch { return false; }
+  const segs = skillDir.split("/");
+  for (const s of segs) if (!isSafeSegment(s)) return false;
+  try {
+    const e = await readdir(join(root, ...segs, "references"), { withFileTypes: true });
+    return e.some((x) => x.isFile() && x.name.endsWith(".md")); // 첫 매치서 판정(전량 로드 아님)
+  } catch { return false; }
 }
+// 안전 read: server-derived sourcePath 라도 per-seg isSafeSegment(traversal 차단) + readCappedDef(O_NOFOLLOW·크기캡·심링크 거부).
 async function readRaw(root: string, sourcePath: string): Promise<string | null> {
-  try { return await readFile(join(root, ...sourcePath.split("/")), "utf8"); } catch { return null; }
+  const segs = sourcePath.split("/");
+  for (const s of segs) if (!isSafeSegment(s)) return null;
+  return readCappedDef(join(root, ...segs));
+}
+
+// TOML top-level 문자열 필드(name/description) — 정규식 대신 @iarna 파서(codex MED: 이스케이프/멀티라인/주석 오판).
+function tomlField(text: string, key: string): string | null {
+  try { const d = TOML.parse(text) as Record<string, unknown>; const v = d[key]; return typeof v === "string" ? v : null; }
+  catch { return null; }
 }
 
 export async function evaluateArtifacts(root: string): Promise<ArtifactEval> {
-  const artifacts: ArtifactScore[] = [];
   const [agents, skills] = await Promise.all([readAgents(root), readSkills(root)]);
+  // 병렬 read(agy LOW·대형 하네스 I/O 누적 방지). 결정성은 아래 path 정렬로 보장(순서 무관).
+  const agentRaw = await Promise.all(agents.map((a) => readRaw(root, a.sourcePath)));
+  const skillPaths = skills.map((s) => (s.runtimePaths[0] ?? "") + "/SKILL.md");
+  const [skillRaw, skillRefs] = await Promise.all([
+    Promise.all(skillPaths.map((p) => readRaw(root, p))),
+    Promise.all(skills.map((s) => hasReferences(root, s.runtimePaths[0] ?? ""))),
+  ]);
+
+  const artifacts: ArtifactScore[] = [];
 
   // ── 에이전트 ──
-  for (const a of agents) {
-    const raw = await readRaw(root, a.sourcePath);
-    if (raw === null) continue;
+  agents.forEach((a, i) => {
+    const raw = agentRaw[i]; if (raw == null) return;
     const anchor = sha(raw);
-    const isToml = a.sourcePath.endsWith(".toml");
     const findings: Finding[] = [];
     const scores: Partial<Record<Axis, number>> = {};
-    if (isToml) {
-      // toml-agent: 문장 삭제/유도 미적용(구조화 파일) → 트리거(description)·구조(필드 완전성)만.
-      const nm = raw.match(/^[ \t]*name[ \t]*=/m), dm = raw.match(/^[ \t]*description[ \t]*=[ \t]*["'](.+?)["']/m);
-      scores.trigger = scoreTrigger(dm?.[1] ?? "", findings, anchor);
-      scores.structure = nm && dm ? 1 : 0.5;
-      if (!nm || !dm) findings.push({ axis: "structure", target: { anchor }, action: "add-required-section", why: "필수 필드(name/description) 미검출", risk: "med" });
+    if (a.sourcePath.endsWith(".toml")) {
+      // toml-agent: 문장 삭제/유도 미적용(구조화 파일) → 트리거(description)·구조(필드 완전성)만. @iarna 파싱.
+      const name = tomlField(raw, "name"), desc = tomlField(raw, "description");
+      scores.trigger = scoreTrigger(desc ?? "", findings, anchor);
+      scores.structure = name && desc ? 1 : 0.5;
+      if (!name || !desc) findings.push({ axis: "structure", target: { anchor }, action: "add-required-section", why: "필수 필드(name/description) 미검출·또는 TOML 파싱 실패", risk: "med" });
       const avg = (scores.trigger! + scores.structure!) / 2;
       artifacts.push({ kind: "agent", name: a.name, path: a.sourcePath, runtime: a.runtime, rubric: "toml-agent", scores, grade: gradeOf(avg, false), evaluation_mode: "static", confidence: 0.45, findings });
-      continue;
+      return;
     }
     const { body } = splitBody(raw);
+    const missing = completenessMissing(body, "agent", findings, anchor);
     scores.trigger = scoreTrigger(a.role, findings, anchor); // role=description 미러
-    const st = scoreStructure(body, false, "agent", findings, anchor);
+    const st = scoreStructure(body, false, "agent", findings, anchor, missing);
     scores.structure = st.score;
     scores.induction = scoreInduction(body);
     scores.pruning = scorePruning(body, findings, anchor);
-    completenessFindings(body, "agent", findings, anchor);
     const avg = (scores.trigger + scores.structure + scores.induction + scores.pruning) / 4;
     artifacts.push({ kind: "agent", name: a.name, path: a.sourcePath, runtime: a.runtime, rubric: "md-agent", scores, grade: gradeOf(avg, st.gateFail), evaluation_mode: "static", confidence: 0.5, findings });
-  }
+  });
 
   // ── 스킬 ──
-  for (const s of skills) {
-    const sourcePath = (s.runtimePaths[0] ?? "") + "/SKILL.md"; // 대표 런타임 경로
-    const raw = await readRaw(root, sourcePath);
-    if (raw === null) continue;
+  skills.forEach((s, i) => {
+    const raw = skillRaw[i]; if (raw == null) return;
     const anchor = sha(raw);
     const findings: Finding[] = [];
-    const skillDir = s.runtimePaths[0] ?? "";
-    const refs = await hasReferences(root, skillDir);
     const { body } = splitBody(raw);
+    const missing = completenessMissing(body, "skill", findings, anchor);
     const scores: Partial<Record<Axis, number>> = {};
     scores.trigger = scoreTrigger(s.description, findings, anchor);
-    const st = scoreStructure(body, refs, "skill", findings, anchor);
+    const st = scoreStructure(body, skillRefs[i]!, "skill", findings, anchor, missing);
     scores.structure = st.score;
     scores.induction = scoreInduction(body);
     scores.pruning = scorePruning(body, findings, anchor);
-    completenessFindings(body, "skill", findings, anchor);
     const avg = (scores.trigger + scores.structure + scores.induction + scores.pruning) / 4;
-    artifacts.push({ kind: "skill", name: s.name, path: sourcePath, runtime: s.runtimePaths.join(","), rubric: "md-skill", scores, grade: gradeOf(avg, st.gateFail), evaluation_mode: "static", confidence: 0.5, findings });
-  }
+    artifacts.push({ kind: "skill", name: s.name, path: skillPaths[i]!, runtime: s.runtimePaths.join(","), rubric: "md-skill", scores, grade: gradeOf(avg, st.gateFail), evaluation_mode: "static", confidence: 0.5, findings });
+  });
+
+  // 결정성(codex/agy MED): path 로 안정 정렬(스캔 순서 무관·동일 출력 보장).
+  artifacts.sort((x, y) => x.path.localeCompare(y.path));
 
   // ── 롤업 ──
   const axisSum: Record<string, { sum: number; n: number }> = {};
@@ -196,6 +227,7 @@ export async function evaluateArtifacts(root: string): Promise<ArtifactEval> {
   }
   const axisAvg: Partial<Record<Axis, number>> = {};
   for (const [ax, { sum, n }] of Object.entries(axisSum)) axisAvg[ax as Axis] = n ? Math.round((sum / n) * 100) / 100 : 0;
-  worst.sort((x, y) => x.score - y.score);
+  // 동점 tie-break(name→axis) 로 slice cutoff 결정적(codex/agy MED).
+  worst.sort((x, y) => x.score - y.score || x.name.localeCompare(y.name) || x.axis.localeCompare(y.axis));
   return { artifacts, rollup: { axisAvg, gradeDist, worst: worst.slice(0, 10), count: artifacts.length } };
 }

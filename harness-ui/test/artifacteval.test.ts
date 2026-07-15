@@ -62,6 +62,18 @@ describe("evaluateArtifacts — 계층A 4축", () => {
     expect(t.scores.trigger).toBeGreaterThan(0);
   });
 
+  it("shell 스킬(빈 본문·좋은 description·필수섹션 없음) → D(고등급 세탁 차단·codex MED)", async () => {
+    await skill("shell", "name: shell\ndescription: 좋아 보이는 설명이지만 할 때 사용, 유사작업 아님 실체 없음", "\n");
+    const sh = (await evaluateArtifacts(root)).artifacts.find((a) => a.name === "shell")!;
+    expect(sh.grade).toBe("D"); // 본문 부실 → 구조 과락(gateFail)
+    expect(sh.scores.structure).toBeLessThan(0.5);
+  });
+  it("결정성 — artifacts 는 path 정렬(스캔 순서 무관)", async () => {
+    await skill("zeta", "name: zeta\ndescription: z 할 때 사용, 아님", "# z\n## 절차\n한다.\n## 트리거\n x.\n");
+    await skill("alpha", "name: alpha\ndescription: a 할 때 사용, 아님", "# a\n## 절차\n한다.\n## 트리거\n x.\n");
+    const paths = (await evaluateArtifacts(root)).artifacts.map((a) => a.path);
+    expect(paths).toEqual([...paths].sort((x, y) => x.localeCompare(y)));
+  });
   it("결정성 — 같은 입력 2회 동일 점수(계층A)", async () => {
     await skill("det", "name: det\ndescription: 결정성 테스트 할 때 사용, 유사작업 아님", "# det\n## 절차\n한다.\n## 트리거\n조건.\n");
     const r1 = (await evaluateArtifacts(root)).artifacts.find((a) => a.name === "det")!;
