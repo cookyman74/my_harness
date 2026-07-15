@@ -245,7 +245,8 @@ export async function spawnRun(runDir: string, cmd: string, args: string[], env:
   try {
     // env 최소 allowlist(서버 전체 env 상속 금지 — secret leak 방지) + 호출자 env + 고정 주입.
     const ALLOW = ["PATH", "PATHEXT", "HOME", "USERPROFILE", "LANG", "LC_ALL", "TMPDIR", "TEMP", "TMP",
-      "SystemRoot", "ComSpec", "APPDATA", "LOCALAPPDATA", "NODE_ENV", "NODE_OPTIONS"]; // Windows npm.cmd/.bat = PATHEXT·ComSpec 필요
+      "SystemRoot", "ComSpec", "APPDATA", "LOCALAPPDATA", "NODE_ENV", "NODE_OPTIONS",
+      "USER", "LOGNAME"]; // Windows npm.cmd/.bat = PATHEXT·ComSpec. USER/LOGNAME = macOS Keychain OAuth 조회 필수(비밀 아님·사용자명)
     const childEnv: Record<string, string> = {};
     for (const k of ALLOW) { const v = process.env[k]; if (v !== undefined) childEnv[k] = v; }
     Object.assign(childEnv, env, { HARNESS_RUN_DIR: runDir });

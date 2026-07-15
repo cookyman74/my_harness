@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { buildServer } from "../src/server/index.js";
 import {
   actionSurface, surfacesOf, buildRemediationPrompt, extractEdited, validateProposal,
-  readRemediationResult, remediationArgv, EDIT_OPEN, EDIT_CLOSE, type RemediationFinding,
+  readRemediationResult, remediationArgv, runnerFinalText, EDIT_OPEN, EDIT_CLOSE, type RemediationFinding,
 } from "../src/server/adapters/remediate.js";
 
 const sha = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
@@ -124,12 +124,15 @@ afterEach(async () => {
 async function setGate(enabled: boolean) {
   await writeFile(join(stateDir, "config.json"), JSON.stringify({ schemaVersion: "1", definitionEditEnabled: enabled, projectRoot: root }), "utf8");
 }
-async function fixtureRun(runId: string, opts: { state: string; lastMessage?: string; request?: object }) {
+// claude stream-json 라인(result 이벤트)로 raw.jsonl 구성 — 실제 러너 출력 경로 모사.
+function resultLine(text: string, isError = false) { return JSON.stringify({ type: "result", subtype: "success", is_error: isError, result: text }); }
+async function fixtureRun(runId: string, opts: { state: string; lastMessage?: string; rawLines?: string; request?: object }) {
   const dir = join(root, "_workspace", "runs", runId);
   await mkdir(join(dir, "agents"), { recursive: true });
   await mkdir(join(dir, "remediation"), { recursive: true });
   await writeFile(join(dir, "status.json"), JSON.stringify({ schemaVersion: "1", runId, state: opts.state }), "utf8");
-  if (opts.lastMessage !== undefined) await writeFile(join(dir, "agents", "last-message.md"), opts.lastMessage, "utf8");
+  const raw = opts.rawLines ?? (opts.lastMessage !== undefined ? `{"type":"system","subtype":"init"}\n${resultLine(opts.lastMessage)}\n` : undefined);
+  if (raw !== undefined) await writeFile(join(dir, "raw.jsonl"), raw, "utf8");
   const req = opts.request ?? { kind: "skill", name: "pdftool", baseHash: sha(SKILL), originalContent: SKILL, findings: [F("rewrite-description")] };
   await writeFile(join(dir, "remediation", "request.json"), JSON.stringify(req), "utf8");
 }
@@ -174,12 +177,32 @@ describe("readRemediationResult — fixture", () => {
     const r = await readRemediationResult(root, "remediate-sym", resolveCurrent);
     expect(r).toEqual({ status: "failed", error: "status-symlink" });
   });
-  it("last-message.md oversize → invalid output-oversize", async () => {
-    const big = "x".repeat(600 * 1024); // >512KB(2×256KB 캡)
-    await fixtureRun("remediate-big", { state: "completed", lastMessage: big });
+  it("raw.jsonl oversize → invalid output-oversize", async () => {
+    const big = "x".repeat(1100 * 1024); // >1MB(4×256KB 캡)
+    await fixtureRun("remediate-big", { state: "completed", rawLines: resultLine(big) });
     const r = await readRemediationResult(root, "remediate-big", resolveCurrent);
     expect(r).toEqual({ status: "invalid", error: "output-oversize" });
   });
+  it("러너 is_error(Not logged in 등) → failed runner-error", async () => {
+    await fixtureRun("remediate-err", { state: "completed", rawLines: resultLine("Not logged in · Please run /login", true) });
+    const r = await readRemediationResult(root, "remediate-err", resolveCurrent);
+    expect(r).toEqual({ status: "failed", error: "runner-error" });
+  });
+});
+
+describe("runnerFinalText — claude stream-json 파싱", () => {
+  it("result 이벤트 텍스트 회수", () => {
+    const jsonl = `{"type":"system"}\n${JSON.stringify({ type: "result", result: "hello" })}`;
+    expect(runnerFinalText(jsonl)).toEqual({ ok: true, text: "hello" });
+  });
+  it("is_error → runner-error", () => {
+    expect(runnerFinalText(JSON.stringify({ type: "result", is_error: true, result: "auth fail" }))).toEqual({ ok: false, error: "runner-error" });
+  });
+  it("result 없고 assistant text → 연결", () => {
+    const jsonl = JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "a" }, { type: "text", text: "b" }] } });
+    expect(runnerFinalText(jsonl)).toEqual({ ok: true, text: "a\nb" });
+  });
+  it("빈/무효 → no-output", () => expect(runnerFinalText("garbage\n{}")).toEqual({ ok: false, error: "no-output" }));
 });
 
 describe("POST/GET /api/eval/remediate — 게이트·검증(pre-spawn)", () => {

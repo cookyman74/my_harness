@@ -90,6 +90,28 @@ export function extractEdited(raw: string): ExtractResult {
   return { ok: true, content: inner };
 }
 
+// claude stream-json(raw.jsonl)에서 최종 어시스턴트 텍스트 추출. codex 와 달리 claude 는 last-message.md 미기록
+//   (exec-run 의 -o 는 codex 전용) → raw.jsonl 의 result 이벤트(또는 assistant text)에서 회수. is_error=인증/API 오류.
+export type RunnerText = { ok: true; text: string } | { ok: false; error: string };
+export function runnerFinalText(jsonl: string): RunnerText {
+  let resultText: string | null = null;
+  let errored = false;
+  const asst: string[] = [];
+  for (const line of jsonl.split("\n")) {
+    const s = line.trim(); if (!s) continue;
+    let j: { type?: string; is_error?: boolean; result?: unknown; message?: { content?: Array<{ type?: string; text?: unknown }> } };
+    try { j = JSON.parse(s); } catch { continue; }
+    if (j.type === "result") { if (j.is_error) errored = true; if (typeof j.result === "string") resultText = j.result; }
+    else if (j.type === "assistant" && Array.isArray(j.message?.content)) {
+      for (const c of j.message!.content!) if (c?.type === "text" && typeof c.text === "string") asst.push(c.text);
+    }
+  }
+  if (errored) return { ok: false, error: "runner-error" }; // 인증/API 오류(Not logged in 등)
+  const text = resultText ?? (asst.length ? asst.join("\n") : null);
+  if (text == null) return { ok: false, error: "no-output" };
+  return { ok: true, text };
+}
+
 // frontmatter/body 분리(canonical 기준·defedit FM_RE 동일).
 const FM_RE = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 function bodyOf(canonical: string): string { const m = canonical.match(FM_RE); return m ? canonical.slice(m[0].length) : canonical; }
@@ -252,10 +274,12 @@ export async function readRemediationResult(projectRoot: string, runId: string, 
     if (!parsed.success) return { status: "failed", error: "request-invalid" };
     req = parsed.data;
   } catch { return { status: "failed", error: "request-parse" }; }
-  // 러너 출력 추출(preamble+정의전문 → 2×캡)
-  const rawR = await readCapped(join(dir, "agents", "last-message.md"), MAX_DEF_BYTES * 2);
+  // 러너 출력 추출 — claude stream-json raw.jsonl(supervisor RUN_LOG). verbose stream 이라 4×캡.
+  const rawR = await readCapped(join(dir, "raw.jsonl"), MAX_DEF_BYTES * 4);
   if (!rawR.ok) return { status: "invalid", error: `output-${rawR.reason}` };
-  const ex = extractEdited(rawR.content);
+  const ft = runnerFinalText(rawR.content);
+  if (!ft.ok) return ft.error === "runner-error" ? { status: "failed", error: "runner-error" } : { status: "invalid", error: ft.error };
+  const ex = extractEdited(ft.text);
   if (!ex.ok) return { status: "invalid", error: ex.error };
   // 검증(원본=요청시 스냅샷)
   const v = validateProposal({ originalContent: req.originalContent, proposedContent: ex.content, findings: req.findings, kind: req.kind, name: req.name });
