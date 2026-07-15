@@ -2162,23 +2162,18 @@ function AdoptionStageHeader() {
 }
 
 export function Eval() {
-  const idx = useApi<EvalsIndex>("/api/evals");
-  const [loop, setLoop] = useState<string | null>(null);
   return (
     <div className="screen">
       <h2>Eval <span className="ver">자기평가</span></h2>
       <p className="muted">
         각 <b>에이전트·스킬</b>을 <b>4축</b>(트리거·구조·유도·가지치기)으로 평가한다. 점수는 신호일 뿐 — <b>제안은 자동 적용되지 않는다</b>(정의 편집기에서 검토·수정).
       </p>
-      {/* Eval v1 E2: 아티팩트 4축 카드 = 1급 뷰. 기존 구성/루프 지표는 아래 진단(접힘). */}
+      {/* Eval v1 E2+: 아티팩트 4축 카드 = 1급 뷰. 루프 지표(과정 효율)는 산출물 평가와 무관 → UI 제거(백엔드 측정 유지).
+          구성 건강(고아·끊긴 링크·drift 등 4축이 못 잡는 관계 진단)만 진단(접힘)으로 유지 — E3+에 4축 findings 로 흡수 예정. */}
       <ArtifactEvalCard />
       <details className="eval-diagnostics">
-        <summary>진단 (고급) — 구성 건강·외부리뷰 루프 지표</summary>
-        <AdoptionStageHeader />
-        <h3 className="lens-h">🎯 구성 <span className="lens-tag">건강</span></h3>
+        <summary>진단 (고급) — 구성 건강(고아·끊긴 링크·미배정·drift)</summary>
         <HarnessScorecardCard />
-        <h3 className="lens-h">🔁 루프 <span className="lens-tag muted">보조</span></h3>
-        <Async state={idx}>{(d) => <EvalIndexBody idx={d} loop={loop} onLoop={setLoop} />}</Async>
       </details>
     </div>
   );
