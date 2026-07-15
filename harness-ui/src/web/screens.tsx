@@ -2236,7 +2236,7 @@ function RemediateButton({ a }: { a: ArtifactScore }) {
       const { runId } = await startRemediate(a.kind, a.name, def.baseHash, findings);
       location.hash = `#/${a.kind === "agent" ? "agents" : "skills"}?sel=${encodeURIComponent(a.name)}&remediate=${encodeURIComponent(runId)}`;
     } catch (e) {
-      const msg = e instanceof DefEditError ? (e.code === "conflicting-findings" ? "지적이 상충합니다(1개만 반영 가능)" : e.code === "edit-disabled" ? "정의 편집이 비활성입니다" : e.code) : String(e);
+      const msg = e instanceof DefEditError ? (e.code === "edit-disabled" ? "정의 편집이 비활성입니다" : e.code) : String(e);
       setErr(msg); setBusy(false);
     }
   };

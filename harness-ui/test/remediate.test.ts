@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { buildServer } from "../src/server/index.js";
 import {
-  actionSurface, surfacesOf, conflictOf, buildRemediationPrompt, extractEdited, validateProposal,
+  actionSurface, surfacesOf, buildRemediationPrompt, extractEdited, validateProposal,
   readRemediationResult, remediationArgv, EDIT_OPEN, EDIT_CLOSE, type RemediationFinding,
 } from "../src/server/adapters/remediate.js";
 
@@ -26,14 +26,6 @@ describe("actionSurface / surfacesOf", () => {
   });
 });
 
-describe("conflictOf — 규칙 기반 exhaustive", () => {
-  it("description 2개 → conflict", () => expect(conflictOf([F("rewrite-description"), F("add-trigger-context")])).toBe("description-multi"));
-  it("본문 증가×축소 → conflict", () => expect(conflictOf([F("add-required-section"), F("shrink-skill")])).toBe("body-grow-shrink"));
-  it("본문 같은 액션 중복 → conflict", () => expect(conflictOf([F("dedupe"), F("dedupe")])).toBe("body-dup-action"));
-  it("다른 영역(desc+body) → 비충돌", () => expect(conflictOf([F("add-trigger-context"), F("dedupe")])).toBeNull());
-  it("호환 3-action(shrink+move+dedupe) → 비충돌", () => expect(conflictOf([F("shrink-skill"), F("move-to-references"), F("dedupe")])).toBeNull());
-});
-
 describe("extractEdited — 태그 내부만·1개", () => {
   it("정상 1블록·preamble 무시", () => { const r = extractEdited(wrap(SKILL.trim())); expect(r.ok).toBe(true); if (r.ok) expect(r.content).toContain("name: pdftool"); });
   it("0블록 → no-edited-block", () => expect(extractEdited("no tags here").ok).toBe(false));
@@ -46,6 +38,7 @@ describe("remediationArgv — 도구 차단 하드닝", () => {
   it("plan·safe-mode·tools 비활성·disallow *·positional prompt", () => {
     const a = remediationArgv("hello");
     expect(a).toContain("--permission-mode"); expect(a[a.indexOf("--permission-mode") + 1]).toBe("plan");
+    expect(a).toContain("--verbose"); // stream-json 필수(없으면 CLI 즉시 실패)
     expect(a).toContain("--safe-mode");
     expect(a).toContain("--tools"); expect(a[a.indexOf("--tools") + 1]).toBe(""); // built-in 전체 비활성
     expect(a).toContain("--disallowedTools"); expect(a[a.indexOf("--disallowedTools") + 1]).toBe("*");
@@ -210,12 +203,6 @@ describe("POST/GET /api/eval/remediate — 게이트·검증(pre-spawn)", () => 
     const r = await buildServer({ projectRoot: root }).inject({ method: "POST", url: "/api/eval/remediate", payload: { kind: "skill", name: "pdftool", baseHash: "deadbeef", findings: [{ action: "rewrite-description", why: "x" }] } });
     expect(r.statusCode).toBe(409);
     expect(r.json().error).toBe("stale-remediate");
-  });
-  it("conflict findings → 409 conflicting-findings", async () => {
-    await setGate(true);
-    const r = await buildServer({ projectRoot: root }).inject({ method: "POST", url: "/api/eval/remediate", payload: { kind: "skill", name: "pdftool", baseHash: sha(SKILL), findings: [{ action: "rewrite-description", why: "x" }, { action: "add-trigger-context", why: "y" }] } });
-    expect(r.statusCode).toBe(409);
-    expect(r.json().error).toBe("conflicting-findings");
   });
   it("없는 정의 → 404", async () => {
     await setGate(true);

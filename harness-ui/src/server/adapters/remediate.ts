@@ -34,19 +34,10 @@ export function surfacesOf(findings: RemediationFinding[]): Set<Surface> {
   return new Set(findings.map((f) => actionSurface(f.action)));
 }
 
-// 충돌 판정(규칙 기반·exhaustive·쌍 단위). 위반 시 사유 문자열, 없으면 null.
-export function conflictOf(findings: RemediationFinding[]): string | null {
-  const desc = findings.filter((f) => actionSurface(f.action) === "description");
-  if (desc.length >= 2) return "description-multi"; // description 한 번에 1개 액션만(중복 포함)
-  const body = findings.filter((f) => actionSurface(f.action) === "body").map((f) => f.action);
-  const hasAdd = body.includes("add-required-section");
-  const hasReduce = body.includes("shrink-skill") || body.includes("move-to-references");
-  if (hasAdd && hasReduce) return "body-grow-shrink"; // 증가×축소 동시
-  // 같은 본문 액션 중복
-  const seen = new Set<string>();
-  for (const a of body) { if (seen.has(a)) return "body-dup-action"; seen.add(a); }
-  return null;
-}
+// 충돌 게이트 없음(의도적): 같은 영역 다중 지적(description 재작성+트리거 보강·본문 여러 지적·add+trim)은
+//   **모순이 아니라 에이전트가 한 편집으로 병합**한다. 실제 안전 경계 = surface-타겟 검증(타겟 아닌 영역 deep-equal)
+//   + 사람 diff 승인. 초기 conflict 게이트는 실사용에서 정상 다중지적을 409 로 막아(과의식) 제거.
+//   프롬프트가 여러 why 를 함께 제시해 에이전트가 통합 개선하도록 유도(buildRemediationPrompt).
 
 // --- 프롬프트 조립(데이터 경계·타겟 영역 한정·EDITED_CONTENT 고유태그) -----------------------------
 export const EDIT_OPEN = "<EDITED_CONTENT>";
@@ -174,7 +165,8 @@ function baseStatus(runId: string) {
 //   injection 이 파일 read/exfil 을 못 함(도구 없이 순수 텍스트 생성만). `--safe-mode`=MCP/hooks/plugins/CLAUDE.md 비활성.
 //   (HOME 격리는 미채택 — OAuth/keychain 인증 유지·P0 실측 정상. 도구 0 이라 파일접근 자체가 없어 exfil 벡터 닫힘.)
 export function remediationArgv(prompt: string): string[] {
-  return ["-p", "--output-format", "stream-json", "--permission-mode", "plan",
+  // stream-json 은 claude CLI 에서 --verbose 필수(supervisor ingest 가 stream-json 파싱). 없으면 즉시 실패·last-message 빔.
+  return ["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "plan",
     "--safe-mode", "--tools", "", "--disallowedTools", "*", "--", `Task:\n${prompt}`];
 }
 

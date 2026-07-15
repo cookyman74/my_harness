@@ -12,7 +12,7 @@ import { listRuns, getRun, readEvents, readRunAgents, queryRuns } from "../adapt
 import { detectDrift, syncPlan } from "../adapters/drift.js";
 import { skillSyncGroups, isSyncableTarget } from "../adapters/driftsync.js";
 import { evaluateArtifacts } from "../adapters/artifacteval.js";
-import { startRemediationRun, readRemediationResult, conflictOf, RemediationFinding } from "../adapters/remediate.js";
+import { startRemediationRun, readRemediationResult, RemediationFinding } from "../adapters/remediate.js";
 import { stateStats, settings } from "../adapters/statestats.js";
 import { computeHarnessScorecard } from "../adapters/scorecard.js";
 import { writeHarnessScorecardSnapshot, readHarnessTrend } from "../adapters/scorecard-snapshot.js";
@@ -667,8 +667,7 @@ export function registerApi(
     const f = await readDefSafe(abs);
     if (!f) return reply.code(404).send({ error: "not-found" });
     if (sha256(f.content) !== baseHash) return reply.code(409).send({ error: "stale-remediate", currentHash: sha256(f.content) });
-    const conflict = conflictOf(findings);
-    if (conflict) return reply.code(409).send({ error: "conflicting-findings", reason: conflict });
+    // 충돌 게이트 없음 — 같은 영역 다중 지적은 에이전트가 병합(안전=surface 검증+사람 승인). remediate.ts 참조.
     const { runId } = await startRemediationRun(projectRoot, kind, name, f.content, findings);
     return reply.code(202).send({ runId, status: "running" });
   });
