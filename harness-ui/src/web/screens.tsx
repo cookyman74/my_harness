@@ -2150,15 +2150,68 @@ export function Eval() {
     <div className="screen">
       <h2>Eval <span className="ver">자기평가</span></h2>
       <p className="muted">
-        하네스를 <b>두 렌즈</b>로 잰다 — <b>구성(주축)</b>: 에이전트·스킬·오케스트레이터 건강도 / <b>루프(보조)</b>: 외부리뷰 효율.
-        위 <b>채택 단계</b>가 자동화 수위를 정하고, <b>제안은 자동 적용되지 않는다</b>(정의 편집기에서 수동 검토·저장). 점수는 "정합도"이지 품질 점수가 아니다.
+        각 <b>에이전트·스킬</b>을 <b>4축</b>(트리거·구조·유도·가지치기)으로 평가한다. 점수는 신호일 뿐 — <b>제안은 자동 적용되지 않는다</b>(정의 편집기에서 검토·수정).
       </p>
-      <AdoptionStageHeader />
-      <h3 className="lens-h">🎯 구성 <span className="lens-tag">주축</span></h3>
-      <HarnessScorecardCard />
-      <h3 className="lens-h">🔁 루프 <span className="lens-tag muted">보조</span></h3>
-      <Async state={idx}>{(d) => <EvalIndexBody idx={d} loop={loop} onLoop={setLoop} />}</Async>
+      {/* Eval v1 E2: 아티팩트 4축 카드 = 1급 뷰. 기존 구성/루프 지표는 아래 진단(접힘). */}
+      <ArtifactEvalCard />
+      <details className="eval-diagnostics">
+        <summary>진단 (고급) — 구성 건강·외부리뷰 루프 지표</summary>
+        <AdoptionStageHeader />
+        <h3 className="lens-h">🎯 구성 <span className="lens-tag">건강</span></h3>
+        <HarnessScorecardCard />
+        <h3 className="lens-h">🔁 루프 <span className="lens-tag muted">보조</span></h3>
+        <Async state={idx}>{(d) => <EvalIndexBody idx={d} loop={loop} onLoop={setLoop} />}</Async>
+      </details>
     </div>
+  );
+}
+
+// Eval v1 E2: 아티팩트 4축 단일 카드(1급). 롤업(축 평균·등급·최악) + 아티팩트 리스트(등급·findings·편집 딥링크).
+function ArtifactEvalCard() {
+  const st = useApi<import("./api.js").ArtifactEvalResult>("/api/eval/artifacts");
+  const AXES: Array<{ k: import("./api.js").EvalAxis; label: string }> = [
+    { k: "trigger", label: "트리거" }, { k: "structure", label: "구조" }, { k: "induction", label: "유도" }, { k: "pruning", label: "가지치기" },
+  ];
+  const gradeKind = (g: string): "ok" | "warn" | "err" => (g === "A" || g === "B" ? "ok" : g === "C" ? "warn" : "err");
+  const barKind = (v: number): "ok" | "warn" | "err" => (v >= 0.75 ? "ok" : v >= 0.6 ? "warn" : "err");
+  const editLink = (a: import("./api.js").ArtifactScore) => (a.kind === "agent" ? `#/agents` : `#/skills`);
+  return (
+    <Async state={st}>{(d) => d.rollup.count === 0 ? <div className="muted">평가할 에이전트/스킬이 없습니다.</div> : (
+      <>
+        {/* 롤업: 4축 평균 바 + 등급 분포 */}
+        <Card title={`하네스 아티팩트 4축 (${d.rollup.count}개)`}>
+          <div className="axis-rollup">
+            {AXES.map(({ k, label }) => {
+              const v = d.rollup.axisAvg[k];
+              return (
+                <div key={k} className="axis-row">
+                  <span className="axis-label">{label}</span>
+                  <span className="axis-bar"><span className={`axis-fill ${v == null ? "" : barKind(v)}`} style={{ width: `${(v ?? 0) * 100}%` }} /></span>
+                  <span className="axis-val">{v == null ? "—" : v.toFixed(2)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="muted" style={{ marginTop: 8 }}>
+            등급: {(["A", "B", "C", "D"] as const).map((g) => <Badge key={g} kind={gradeKind(g)}>{g} {d.rollup.gradeDist[g] ?? 0}</Badge>)}
+            {" · "}정적 측정(계층A)·제안은 편집기에서 수동 반영.
+          </p>
+        </Card>
+        {/* 아티팩트 리스트: 등급·최악축·findings·편집 딥링크 */}
+        <Table cols={["종류", "이름", "등급", "트리거", "구조", "유도", "가지치기", "지적", ""]} rows={d.artifacts.map((a) => [
+          a.kind === "agent" ? "에이전트" : "스킬",
+          <span className="mono">{a.name}</span>,
+          <Badge kind={gradeKind(a.grade)}>{a.grade}</Badge>,
+          ...AXES.map(({ k }) => a.scores[k] == null ? <span className="muted">—</span> : <span className={barKind(a.scores[k]!)}>{a.scores[k]!.toFixed(2)}</span>),
+          a.findings.length > 0
+            ? <details className="finding-details"><summary>{a.findings.length}건</summary>
+                <ul className="finding-list">{a.findings.map((f, i) => <li key={i}><b>{f.axis}</b>: {f.why} <span className="muted">({f.action})</span></li>)}</ul>
+              </details>
+            : <span className="muted">없음</span>,
+          <a className="link" href={editLink(a)}>편집 →</a>,
+        ])} />
+      </>
+    )}</Async>
   );
 }
 

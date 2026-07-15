@@ -254,6 +254,20 @@ export async function cancelActiveRuns(): Promise<{ attempted: number; cancelled
   return { attempted: ids.length, cancelled };
 }
 
+// ── Eval v1(E1/E2) 아티팩트 4축 평가 ──
+export type EvalAxis = "trigger" | "structure" | "induction" | "pruning";
+export type ArtifactFinding = { axis: EvalAxis | "completeness"; target: { anchor: string; range?: string; field?: string }; action: string; why: string; risk: "low" | "med" };
+export type ArtifactScore = {
+  kind: "agent" | "skill"; name: string; path: string; runtime: string; rubric: string;
+  scores: Partial<Record<EvalAxis, number>>; grade: "A" | "B" | "C" | "D"; evaluation_mode: string; confidence: number;
+  findings: ArtifactFinding[];
+};
+export type ArtifactEvalResult = {
+  artifacts: ArtifactScore[];
+  rollup: { axisAvg: Partial<Record<EvalAxis, number>>; gradeDist: Record<string, number>; worst: Array<{ name: string; axis: EvalAxis; score: number }>; count: number };
+};
+export const getArtifactEval = () => apiGet<ArtifactEvalResult>("/api/eval/artifacts");
+
 // ── F16(M-f) 스킬 사본 drift 분류·다타깃 동기 ──
 export type SkillCopyClass =
   | "canonical" | "symlink-to-canonical" | "hardlink-same-inode"
