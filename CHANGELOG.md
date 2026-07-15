@@ -4,6 +4,26 @@
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-16
+
+My Harness Web **Eval v1(하네스 아티팩트 4축 단일 평가) + 지적 AI 자동 반영·git-diff 프리뷰(E5-a)**. 복잡했던 평가 체계를 에이전트·스킬의 **4축(트리거·구조·유도·가지치기)** 하나로 단순화하고 구성 관계신호를 흡수. 지적을 **AI 에이전트가 read-only 로 초안 반영 → diff 검토 → 사람 승인 적용**하는 흐름 추가. 각 단계 외부감사(codex+agy·러너 제외) no-high 수렴. 하네스웹 0.9.0.
+
+### Added
+
+- **Eval v1 아티팩트 4축 평가(E1)** — 각 에이전트·스킬을 트리거(description ROI)·구조(2계층·≤500줄·references)·유도(명령형)·가지치기(삭제 테스트)로 정적 측정. `/api/eval/artifacts` 읽기전용·결정적. `#/eval` 4축 카드 1급 뷰(E2).
+- **구성 관계신호 4축 흡수(E3-fold)** — 고아·끊긴 링크·미배정·drift 를 4축 점수에 반영 + `rollup.health`. 차트 하나로 전체 현황 → 상세에서 원인 확인 → 편집기 수정.
+- **지적 AI 자동 반영 + git-diff 프리뷰(E5-a)** — `#/eval` 지적 행 [AI로 반영] → read-only 러너가 초안 생성 → 편집기 diff 프리뷰 → 사람 승인 시 기존 defedit PUT 로 적용. `POST /api/eval/remediate`(비동기 잡)·`GET /:runId`. 삭제·자동커밋 없음. P0 선검증(러너·read-only·injection) 후 착수.
+
+### Security
+
+- 반영 러너 **도구 완전 차단**(`--safe-mode --tools "" --disallowedTools "*"`)으로 injection 파일 read/exfil 봉쇄. 초안 결과 **캡드 nofollow 리더 + dev/ino 대조**(TOCTOU 심링크 스왑 방어). action-타겟 인지 검증(name/kind 불변·타겟 외 deep-equal). 외부감사 R1~R5 HIGH×3 발견·수정 → no-high 2연속 수렴.
+
+### Fixed
+
+- Eval `#/eval` 루프 지표 제거(산출물 평가와 무관)·구성 관계/등급 분포 항목 블록화.
+- 반영 러너 인증: superviseRun env 화이트리스트에 `USER`/`LOGNAME` 추가(macOS Keychain OAuth 조회 — API 키 강제 아님). New Run 동일 버그 동시 수정.
+- claude stream-json `raw.jsonl` 파싱(`--verbose` 필수)·다중 EDITED_CONTENT 블록 관용(최종본 채택)·초안 frontmatter 미인용 콜론 값 자동 YAML 인용 복구·conflict 게이트 제거(같은 영역 다중 지적 병합).
+
 ## [1.5.7] - 2026-07-15
 
 My Harness Web **F7 정의 편집기·New Run 폼 UX 개선**(v0.8 후속). 편집기 렌더/원문 모드·이중 스크롤 제거·Agents/Skills 직접 편집·New Run 폼 단순화. 각 UI 변경 외부감사(codex+agy) 수렴. 하네스웹 0.8.1.

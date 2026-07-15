@@ -1,7 +1,7 @@
 {
   "name": "myharness",
   "description": "The team-architecture factory for Claude Code and Codex — a meta-skill that turns a domain description into an agent team and the skills they use, with six team patterns (Pipeline, Fan-out/Fan-in, Expert Pool, Producer-Reviewer, Supervisor, Hierarchical Delegation), a two-layer quality gate (internal QA + external codex/agy review), TDD/dev-rules doctrine injection, risk-tiered gates, and dual-runtime output (Claude Code + Codex). Claude Code·Codex용 팀 아키텍처 팩토리: 도메인 한 문장을 에이전트 팀+스킬로 변환하고, 내부 QA + 외부 리뷰 2층 게이트와 듀얼 런타임을 적용하는 메타 스킬.",
-  "version": "1.5.7",
+  "version": "1.6.0",
   "author": {
     "name": "cookyman",
     "url": "https://github.com/cookyman74"
