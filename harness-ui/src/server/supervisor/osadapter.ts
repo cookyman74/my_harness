@@ -74,10 +74,12 @@ async function verifyLeader(pid: number, groupId: number | string | null, expect
   return true;
 }
 
-// 그룹/프로세스 종료 확인.
-async function isTreeDead(groupId: number | string | null, pid: number, expected: { startTime: string }): Promise<boolean> {
-  if (typeof groupId === "number" && !isWin) return !(await groupAlive(groupId, pid));
-  try { const cur = await identity(pid); return cur === null; } catch { return false; } // lookup 실패→살아있다고 보수
+// 우리 트리 사멸 여부. 단순 pid 존재 대신 leader identity(startTime/exe/group) 대조 — PID/PGID 재사용 시
+//   엉뚱한 새 프로세스를 "생존"으로 오판해 orphan 슬롯을 영구 quarantine(capacity leak)하는 것을 막는다(R16 HIGH).
+//   verifyLeader===false(부재/불일치=우리 것 아님)→사멸. true(우리 것 생존)→생존. null(lookup 미확인)→생존 보수.
+//   leaf 러너 전제: leader 사멸=트리 사멸(자식 없음).
+async function isTreeDead(groupId: number | string | null, pid: number, expected: { startTime: string; exe?: string }): Promise<boolean> {
+  return (await verifyLeader(pid, groupId, expected)) === false;
 }
 
 // 트리 종료. **모든 시그널 직전 leader 재검증**(reuse 오kill 방지). 검증 불가/불일치 → 시그널 안 보냄.
