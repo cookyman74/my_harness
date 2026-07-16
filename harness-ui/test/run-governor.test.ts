@@ -85,14 +85,14 @@ describe("RunGovernor — 강제 상한·풀", () => {
     expect((await g.reap(Date.now() + 20_000, new Map([[a!.slotIdx, "other-lease"]]))).released).toBe(1);
   });
 
-  it("orphan 슬롯 — markOrphan 후 확정 사멸 전엔 release 안 함(K 초과 방지)", async () => {
+  it("orphan 슬롯 — 점유 유지(claim 차단)·pid 확정 사멸 시 reap release(capacity leak 방지)", async () => {
     const g = await gov(2);
     const a = await g.claim("interactive");
-    // attach 실패 모사 → orphan 표기(존재하지 않는 runDir·pid → reconcileRun 확정 사멸 불가)
     expect(await g.markOrphan(a!, { pid: 999999, startTime: "t", runId: "orphan-run", runDir: join(stateDir, "no-owner") })).toBe(true);
-    expect(await g.activeCount()).toBe(1);                 // 슬롯 점유 유지(claim 차단·카운트)
-    await g.reap(Date.now() + 20_000);                     // grace 무관 terminate 시도·미확정 → 보존
-    expect(await g.activeCount()).toBe(1);                 // 확정 사멸 전 release 안 함
+    expect(await g.activeCount()).toBe(1);                 // 점유 유지(claim 차단·활성 카운트)
+    // pid 999999 부재(dead) → reconcileRun none 이어도 pidState=dead → release(owner 소실/PID 재사용 영구잠식 방지·R6).
+    await g.reap(Date.now() + 20_000);
+    expect(await g.activeCount()).toBe(0);
   });
 
   it("재시작 복구 — 새 인스턴스가 기존 슬롯 파일 인식(활성 카운트 유지)", async () => {

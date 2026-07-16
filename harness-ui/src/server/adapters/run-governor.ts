@@ -9,7 +9,14 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { stateHome } from "../lib/paths.js";
 import { reconcileRun } from "../supervisor/reconcile.js";
-import { identity } from "../supervisor/osadapter.js";
+import { identity, IdentityLookupError } from "../supervisor/osadapter.js";
+
+// pid 가 확정적으로 우리 프로세스가 아님(사멸/재사용)인지 판정.
+//   dead: absent(null) 또는 startTime 불일치=재사용 → release 안전. alive: startTime 일치. unknown: lookup 실패(indeterminate)=보존.
+async function pidState(pid: number, startTime: string | null): Promise<"dead" | "alive" | "unknown"> {
+  try { const id = await identity(pid); if (!id) return "dead"; return id.startTime === startTime ? "alive" : "dead"; }
+  catch (e) { if (e instanceof IdentityLookupError) return "unknown"; return "unknown"; }
+}
 
 export type OwnerType = "interactive" | "batch";
 export const DEFAULT_K = 3;
@@ -140,20 +147,24 @@ export class RunGovernor {
         const m = await this.readSlot(i);
         if (!m) return "keep";
         if (skip && skip.get(i) === m.leaseId) return "keep"; // in-flight·lease 일치 → 보호
-        // orphan(attach 실패 child) = grace 무관 즉시 terminate 대상(원치 않는 child). 확정 사멸만 release.
-        if (m.orphan && m.runId && m.runDir) {
+        // orphan(attach 실패·원치 않는 child) = terminate 대상. killed/gone 또는 pid 확정 사멸/재사용 시 release(capacity leak 방지·R6).
+        if (m.orphan && m.runId && m.runDir && m.pid != null) {
           const r = await reconcileRun(m.runDir, m.runId, { terminate: true, finalState: "stale" }).catch(() => null);
           if (r && (r.action === "killed" || r.action === "gone")) { await unlink(slotPath(i)).catch(() => {}); return "released"; }
-          return "quarantined"; // kill-failed/indeterminate/none/lookup 불확실 → 슬롯 보존·다음 tick 재시도(살아있는 child+슬롯해제=K 초과 방지)
+          const ps = await pidState(m.pid, m.startTime); // none/kill-failed 여도 실제 사멸/재사용이면 release(owner 소실·PID 재사용 영구잠식 방지)
+          if (ps === "dead") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
+          return "quarantined"; // alive/unknown → 보존(다음 tick 재terminate)
         }
         if (now - m.claimedAt <= GRACE_MS) return "keep"; // 갓-claim 보호
         if (m.pid == null || m.runId == null || m.runDir == null) { // grace 초과 pid-null = 크래시-전-attach 고아(재시작 후)
           await unlink(slotPath(i)).catch(() => {}); return "released";
         }
-        // pid 있는 정상 run: 소유 검증(reconcileRun) 신뢰 — killed/gone(확정 사멸)만 release·그 외(alive/indeterminate/lookup 실패)=keep.
+        // pid 있는 정상 run: 확정 사멸(gone 또는 pid dead/재사용)만 release. alive/unknown(lookup 실패)=keep(정상 run 미종료·PID 재사용 잠식 방지).
         const r = await reconcileRun(m.runDir, m.runId, { terminate: false, finalState: "stale" }).catch(() => null);
         if (r && r.action === "gone") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
-        return "keep"; // 살아있음·불확실 → 보존(terminate 안 함·정상 run 은 죽이지 않음)
+        const ps = await pidState(m.pid, m.startTime);
+        if (ps === "dead") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
+        return "keep";
       });
       if (res === "released") released++; else if (res === "quarantined") quarantined++;
     }
