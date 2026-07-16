@@ -3,13 +3,13 @@
 // 동시성 모델: 로컬 단일 서버 프로세스(단일 Node 이벤트루프). 런타임 진실=인메모리·슬롯 파일=재시작 복구.
 //   슬롯 변경(claim/attach/release/reap)은 per-slot async mutex(promise-chain)로 무-interleave 원자.
 //   다중 프로세스=범위 밖(flock belt·비목표). recovery=owner registry+reconcileRun(raw process scan 금지).
-import { open, readFile, unlink, rename, mkdir, readdir, writeFile } from "node:fs/promises";
+import { open, readFile, unlink, rename, mkdir, writeFile, lstat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { stateHome } from "../lib/paths.js";
 import { reconcileRun } from "../supervisor/reconcile.js";
-import { identity, IdentityLookupError } from "../supervisor/osadapter.js";
+import { identity } from "../supervisor/osadapter.js";
 
 // pid 가 확정적으로 우리 프로세스가 아님(사멸/재사용)인지 판정.
 //   dead: absent(null) 또는 startTime 불일치=재사용 → release 안전. alive: startTime 일치. unknown: lookup 실패(indeterminate)=보존.
@@ -149,25 +149,25 @@ export class RunGovernor {
     for (let i = 0; i < this.k; i++) {
       const res = await this.withSlot(i, async (): Promise<"released" | "quarantined" | "keep"> => {
         const m = await this.readSlot(i);
-        if (!m) return "keep";
+        if (!m) {
+          // 파일이 존재하나 파싱 불가(claim O_EXCL 후 writeFile 전 크래시=partial/corrupt) → grace 후 회수(영구 capacity leak 방지·R10 HIGH-1).
+          try { const ls = await lstat(slotPath(i)); if (ls.isFile() && now - ls.mtimeMs > GRACE_MS) { await unlink(slotPath(i)).catch(() => {}); return "released"; } } catch { /* 부재 */ }
+          return "keep";
+        }
         if (skip && skip.get(i) === m.leaseId) return "keep"; // in-flight·lease 일치 → 보호
-        // orphan(attach 실패·원치 않는 child) = terminate 대상. killed/gone 또는 pid 확정 사멸/재사용 시 release(capacity leak 방지·R6).
+        // orphan(attach 실패·원치 않는 child) = terminate(kill) 부수효과. **release 게이트=pidState dead**(R10 HIGH-2: reconcileRun gone 이 registry 기반일 수 있어 pidState 로 실사멸 확인).
         if (m.orphan && m.runId && m.runDir && m.pid != null) {
-          const r = await reconcileRun(m.runDir, m.runId, { terminate: true, finalState: "stale" }).catch(() => null);
-          if (r && (r.action === "killed" || r.action === "gone")) { await unlink(slotPath(i)).catch(() => {}); return "released"; }
-          const ps = await pidState(m.pid, m.startTime); // none/kill-failed 여도 실제 사멸/재사용이면 release(owner 소실·PID 재사용 영구잠식 방지)
-          if (ps === "dead") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
+          await reconcileRun(m.runDir, m.runId, { terminate: true, finalState: "stale" }).catch(() => null); // kill 시도(부수효과)
+          if ((await pidState(m.pid, m.startTime)) === "dead") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
           return "quarantined"; // alive/unknown → 보존(다음 tick 재terminate)
         }
         if (now - m.claimedAt <= GRACE_MS) return "keep"; // 갓-claim 보호
         if (m.pid == null || m.runId == null || m.runDir == null) { // grace 초과 pid-null = 크래시-전-attach 고아(재시작 후)
           await unlink(slotPath(i)).catch(() => {}); return "released";
         }
-        // pid 있는 정상 run: 확정 사멸(gone 또는 pid dead/재사용)만 release. alive/unknown(lookup 실패)=keep(정상 run 미종료·PID 재사용 잠식 방지).
-        const r = await reconcileRun(m.runDir, m.runId, { terminate: false, finalState: "stale" }).catch(() => null);
-        if (r && r.action === "gone") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
-        const ps = await pidState(m.pid, m.startTime);
-        if (ps === "dead") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
+        // pid 있는 정상 run: reconcileRun(verify·finalize 부수효과) 후 **release 게이트=pidState dead**(alive/unknown=keep·PID 재사용 잠식·살아있는 run 오release 방지).
+        await reconcileRun(m.runDir, m.runId, { terminate: false, finalState: "stale" }).catch(() => null);
+        if ((await pidState(m.pid, m.startTime)) === "dead") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
         return "keep";
       });
       if (res === "released") released++; else if (res === "quarantined") quarantined++;

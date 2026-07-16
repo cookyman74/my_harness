@@ -1,6 +1,6 @@
 // M-y0 전역 거버너 — P0-1 강제 상한(≤K)·leaseId fencing·reap·클래스 풀(예약 슬롯)·재시작 복구.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RunGovernor, MIN_K, pidState } from "../src/server/adapters/run-governor.js";
@@ -100,6 +100,16 @@ describe("RunGovernor — 강제 상한·풀", () => {
     // pid 999999 부재(dead) → reconcileRun none 이어도 pidState=dead → release(owner 소실/PID 재사용 영구잠식 방지·R6).
     await g.reap(Date.now() + 20_000);
     expect(await g.activeCount()).toBe(0);
+  });
+
+  it("corrupt/partial slot — 파싱불가 슬롯 파일 grace 후 회수(capacity leak 방지·R10)", async () => {
+    const g = await gov(2);
+    const slotDir = join(stateDir, "governor", "slots");
+    await mkdir(slotDir, { recursive: true });
+    await writeFile(join(slotDir, "slot-0"), "{ partial garbage", "utf8"); // claim O_EXCL 후 writeFile 전 크래시 모사(partial)
+    expect(await g.activeCount()).toBe(0);                 // 파싱불가 → 카운트 0(파일은 slot-0 점유·claim 은 EEXIST)
+    expect((await g.reap(Date.now() + 20_000)).released).toBe(1); // grace 후 corrupt slot 회수(파싱불가+mtime grace·capacity leak 방지)
+    expect(await g.claim("interactive")).not.toBeNull();  // 회수되어 slot-0 재사용 가능
   });
 
   it("재시작 복구 — 새 인스턴스가 기존 슬롯 파일 인식(활성 카운트 유지)", async () => {
