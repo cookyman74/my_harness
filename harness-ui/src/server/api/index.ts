@@ -13,6 +13,7 @@ import { detectDrift, syncPlan } from "../adapters/drift.js";
 import { skillSyncGroups, isSyncableTarget } from "../adapters/driftsync.js";
 import { evaluateArtifacts } from "../adapters/artifacteval.js";
 import { startRemediationRun, readRemediationResult, RemediationFinding } from "../adapters/remediate.js";
+import { startBatch, readBatch } from "../adapters/remediate-batch.js";
 import { stateStats, settings } from "../adapters/statestats.js";
 import { computeHarnessScorecard } from "../adapters/scorecard.js";
 import { writeHarnessScorecardSnapshot, readHarnessTrend } from "../adapters/scorecard-snapshot.js";
@@ -676,6 +677,34 @@ export function registerApi(
     const res = await readRemediationResult(projectRoot, req.params.runId, currentDefContent);
     if (!res) return reply.code(404).send({ error: "not-found" });
     return res;
+  });
+
+  // M-y1: 배치 초안 — 여러 정의 지적을 서버 재도출→거버너 큐. 경로 `/batch`·`/batch/:batchId` 는 단건 `:runId` 와
+  //   명확 분리(Fastify static 세그먼트 "batch" 우선·R1 codex MED). edit-gate 403 양쪽. findings 는 서버 재도출(client 불신).
+  const BatchBody = z.object({
+    // 상한은 startBatch(too-many-targets)가 판정 — zod max 는 페이로드 DoS 가드(넉넉히)라 51~1000 은 startBatch 로 넘겨 명시 400.
+    targets: z.array(z.object({
+      kind: z.enum(["agent", "skill"]), name: z.string().min(1).max(200), baseHash: z.string().max(128).optional(),
+    })).min(1).max(1000),
+  }).strict();
+  app.post("/api/eval/remediate/batch", async (req, reply) => {
+    if (!(await isEditEnabled())) return reply.code(403).send({ error: "edit-disabled" });
+    const p = BatchBody.safeParse(req.body);
+    if (!p.success) return reply.code(400).send({ error: "invalid-body" }); // 대상>50=too-many-targets 도 여기서(max 50)
+    for (const t of p.data.targets) if (!editName(t.name)) return reply.code(400).send({ error: "invalid-name" });
+    const r = await startBatch(projectRoot, p.data.targets, { resolveContent: currentDefContent });
+    if (!r.ok) {
+      const code = r.error === "queue-full" ? 429 : 400; // too-many-targets/no-valid-targets=400·queue-full=429
+      return reply.code(code).send({ error: r.error });
+    }
+    return reply.code(202).send({ batchId: r.batchId, queued: r.queued, skipped: r.skipped });
+  });
+  app.get<{ Params: { batchId: string } }>("/api/eval/remediate/batch/:batchId", async (req, reply) => {
+    if (!(await isEditEnabled())) return reply.code(403).send({ error: "edit-disabled" });
+    if (!/^batch-[A-Za-z0-9._-]+$/.test(req.params.batchId)) return reply.code(400).send({ error: "invalid-batchId" }); // path traversal 차단
+    const v = await readBatch(projectRoot, req.params.batchId, currentDefContent);
+    if (!v) return reply.code(404).send({ error: "not-found" });
+    return v;
   });
 
   // F16(M-f): 명시 다타깃 동기(정본 SKILL.md 를 선택 사본에 전파). 대상별 pathId/baseHash 낙관적 동시성·부분성공.
