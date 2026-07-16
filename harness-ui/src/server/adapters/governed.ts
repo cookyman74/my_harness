@@ -120,13 +120,16 @@ async function failOrphanQueued(projectRoot: string): Promise<void> {
   const base = join(projectRoot, "_workspace", "runs");
   let dirs: string[];
   try { dirs = await readdir(base); } catch { return; }
+  // 인메모리 pending 에 살아있는 runId 는 제외 — 부팅 시엔 비어있지만, initGovernance 가 가동 중 재호출돼도
+  //   정상 대기 중인 런을 failed 로 오판(phantom run)하지 않도록 한다(R27·R26 재호출 방어와 정합).
+  const active = new Set(pending.map((e) => e.runId));
   for (const d of dirs) {
     const sp = join(base, d, "status.json");
     let raw: string;
     try { raw = await readFile(sp, "utf8"); } catch { continue; }
-    let st: { state?: string };
+    let st: { state?: string; runId?: string };
     try { st = JSON.parse(raw); } catch { continue; }
-    if (st.state === "queued") { // 재시작 전 대기 → spawn envelope 소실 → 명시 실패(사용자 재트리거)
+    if (st.state === "queued" && !active.has(st.runId ?? d)) { // 재시작 전 대기 → spawn envelope 소실 → 명시 실패(사용자 재트리거)
       st.state = "failed"; (st as { stateReason?: string }).stateReason = "server-restarted";
       (st as { updatedAt?: string }).updatedAt = new Date().toISOString();
       await writeFile(sp, JSON.stringify(st), "utf8").catch(() => {});
