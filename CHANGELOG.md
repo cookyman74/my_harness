@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-07-17
+
+My Harness Web **지적 배치 반영(M-y)** — `#/eval` 지적을 **여러 정의에 AI 초안 배치 생성 → 검토 큐 → 일괄 적용**. 단건 반영(E5-a)을 다건으로 확장하면서 동시 실행을 전역 거버너로 상한. 각 중대 마일스톤 외부감사(codex+agy·러너 제외) no-high 2연속 수렴. vitest 1172 pass. 하네스웹 0.9.0(변동 없음).
+
+### Added
+
+- **전역 run 거버너(M-y0)** — 배치가 러너를 무제한 spawn 하지 않도록 동시 실행을 **K 슬롯 상한**으로 통제. `O_EXCL` claim·leaseId fencing·reap·크래시 복구(잔존 슬롯 회수)로 프로세스 사멸 오판 없이 용량을 지킨다. 외부감사 **R1~R30**(동시성·수명주기 22건 확인) 수렴 — status RMW 락, 단말 상태 SSOT, `verifyLeader`/`isTreeDead` 정합(pid 존재가 아닌 leader identity 로 사멸 판정), finalize drain.
+- **배치 초안 API(M-y1)** — `#/eval` 지적을 서버가 재도출해 다건 초안을 생성. 큐 in-flight 를 `batch.json` status 파생 계수로 재설계(별도 카운터 표류 제거)·전역+배치 mutex·서버 sweeper(크래시 orphan 정리)·prune(무한 누적 차단)·`newRunId` 랜덤화. 외부감사 R1~R6 13건 확인.
+- **웹 검토 큐(M-y2)** — 생성된 초안을 한 화면에서 선택·검토. 실행 전 **비용 합의**(대상 수 명시)·diff 적용은 기존 F7 PUT 재사용·초안 `baseHash` 낙관적 동시성(검토 중 원본이 바뀌면 적용 거부). 외부감사 R1~R3 7건 확인.
+- **일괄 적용 + 결정적 E2E(M-y3)** — 검토 후 선택분만 무손실 일괄 적용(stale 409·백업/롤백). 외부감사 R1~R3 5건 확인.
+
+### Fixed
+
+- **"AI로 반영" 버튼 무응답** — 거버너 부팅 초기화(`initGovernance`)를 `index.ts` isMain 에만 배선했으나 **실 진입점은 `start.ts`** → reap 타이머 미가동 → 잔존(stale) 슬롯이 동시 실행 슬롯 K 개를 영구 점유 → 신규 run 이 큐에서 정체. `startServer` 에 배선(+배치 sweep 훅)하여 해소.
+- **Windows 런처 견고화** — `resolveBin` 타임아웃을 플랫폼별로 분리(Windows 15s·POSIX 5s). `where.exe` 가 AV 스캔·콜드 FS 캐시에서 5s 를 넘기면 throw→null 로 격하되어 npm 을 **"없음"으로 오판**(CI windows node20 실패 원인, 같은 run 의 node22 는 통과 = npm 실재). 해소 실패는 부재가 아니라 느림일 수 있으므로 여유를 둔다.
+- harness-ui v0.8 계획서 **§9 전체 완료 게이트 마감 표시** — M-a~M-f 구현·외부감사 수렴·릴리스(v1.5.5·v1.5.7) 반영. 5개 중 4개 실증 체크, A180~A189 는 부분(`~`)으로 잔여 후속 명시(거짓 체크 금지).
+
 ## [1.6.0] - 2026-07-16
 
 My Harness Web **Eval v1(하네스 아티팩트 4축 단일 평가) + 지적 AI 자동 반영·git-diff 프리뷰(E5-a)**. 복잡했던 평가 체계를 에이전트·스킬의 **4축(트리거·구조·유도·가지치기)** 하나로 단순화하고 구성 관계신호를 흡수. 지적을 **AI 에이전트가 read-only 로 초안 반영 → diff 검토 → 사람 승인 적용**하는 흐름 추가. 각 단계 외부감사(codex+agy·러너 제외) no-high 수렴. 하네스웹 0.9.0.

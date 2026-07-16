@@ -6,10 +6,14 @@ const pexec = promisify(execFile);
 const isWin = process.platform === "win32";
 
 // PATH 해소 — shell 없이(`command -v` 금지). Windows=where.exe, POSIX=which.
+//   타임아웃은 플랫폼별: Windows `where.exe` 는 AV 스캔·콜드 FS 캐시에서 5s 를 넘길 수 있고, 그때 throw→null 로
+//   격하되면 "도구 없음" 오판(런처가 npm 설치 불가로 오인)이 된다. 실측: CI windows node20 에서 5.4s 소요로 실패
+//   (같은 run 의 windows node22 는 통과 = npm 실재). 해소 실패는 **부재가 아니라 느림**일 수 있으므로 여유를 둔다.
+const RESOLVE_TIMEOUT_MS = isWin ? 15_000 : 5_000;
 export async function resolveBin(name: string): Promise<string | null> {
   const finder = isWin ? "where" : "which";
   try {
-    const { stdout } = await pexec(finder, [name], { timeout: 5000 });
+    const { stdout } = await pexec(finder, [name], { timeout: RESOLVE_TIMEOUT_MS });
     const first = stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0];
     return first ?? null;
   } catch {
