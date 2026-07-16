@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startBatch, readBatch, sweepBatches, QUEUE_CAPACITY, type BatchDeps, type BatchItem } from "../src/server/adapters/remediate-batch.js";
+import { startBatch, readBatch, sweepBatches, QUEUE_CAPACITY, MAX_RETAINED_BATCHES, type BatchDeps, type BatchItem } from "../src/server/adapters/remediate-batch.js";
 import type { ArtifactEval } from "../src/server/adapters/artifacteval.js";
 
 let root: string;
@@ -119,5 +119,17 @@ describe("readBatch·sweepBatches — 집계·폴링 독립 terminal 갱신", ()
     // sweep 후 신규 배치가 여전히 허용(카운터 잠기지 않음) 확인: 다른 대상으로 성공해야.
     const r2 = await startBatch(root, [{ kind: "skill", name: "beta" }], deps());
     expect(r2.ok).toBe(true);
+  });
+
+  it("sweeper prune — 완료 배치가 상한 초과 시 오래된 것부터 정리(in-flight 보존)", async () => {
+    // fully-terminal 배치 105개 + in-flight 1개 심기.
+    for (let i = 0; i < 105; i++) await seedBatch(`batch-2026-01-${String(i).padStart(3, "0")}-done`, "ready", 1);
+    await seedBatch("batch-2026-99-live", "running", 1); // in-flight — 절대 삭제 안 됨
+    const { readdir } = await import("node:fs/promises");
+    await sweepBatches(root, async () => null);
+    const remaining = await readdir(join(root, "_workspace", "batches"));
+    expect(remaining.length).toBeLessThanOrEqual(MAX_RETAINED_BATCHES + 1); // 최신 100 terminal + live 1
+    expect(remaining).toContain("batch-2026-99-live");                       // in-flight 보존
+    expect(remaining).not.toContain("batch-2026-01-000-done");               // 가장 오래된 terminal 정리됨
   });
 });

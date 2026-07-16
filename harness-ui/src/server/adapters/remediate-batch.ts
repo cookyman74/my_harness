@@ -8,7 +8,7 @@
 //   readBatch(사용자 폴링) + **서버 사이드 sweeper**(거버너 reap 타이머·start.ts 부팅 배선)가 갱신 → 폴링 없어도 반납.
 //   startBatch 전역 mutex 로 count-check→write 직렬화(멱등 TOCTOU·cap 우회 차단).
 import { join } from "node:path";
-import { mkdir, readFile, writeFile, rename, readdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rename, readdir, rm } from "node:fs/promises";
 import { canonicalizeDefinition, sha256, safeDefPath, readDefSafe, type DefKind } from "./defedit.js";
 import { resolveEditableAgent, resolveEditableSkill } from "./harness.js";
 import { evaluateArtifacts, type ArtifactEval, type Finding as EvalFinding } from "./artifacteval.js";
@@ -145,16 +145,19 @@ export async function startBatch(root: string, targets: BatchTarget[], deps: Bat
     if (inflight + runnable.length > QUEUE_CAPACITY) return { ok: false, error: "queue-full" as const }; // 파생 계수 기준 상한
 
     const batchId = newRunId("batch");
-    // **batch.json 먼저 영속**(runId 미할당·queued) — submit 도중 실패/크래시해도 아이템이 추적되어 sweeper 가 반납(누수·cap 우회 방지·R1 HIGH).
-    await writeBatchAtomic(root, batchId, { batchId, createdAt: new Date().toISOString(), items });
+    const createdAt = new Date().toISOString();
+    // **runId 를 submit 前 미리 할당**하고 batch.json 을 먼저 영속한다. write#1 이후 submit 도중 크래시해도 batch.json 이
+    //   runId 를 이미 가지므로 sweeper 가 그 run 을 reconcile(없으면 failed) → 고아 run·영구 queued(cap 누수) 방지(R2 HIGH).
+    for (const it of runnable) it.runId = newRunId("batch");
+    await writeBatchAtomic(root, batchId, { batchId, createdAt, items });
     for (const it of runnable) {
       const content = contents.get(`${it.kind}:${it.name}`)!;
       try {
-        const r = await startRun(root, it.kind, it.name, content, it.findings, { ownerType: "batch", runId: newRunId("batch") });
-        it.runId = r.runId; it.status = r.dispatched ? "running" : "queued";
+        const r = await startRun(root, it.kind, it.name, content, it.findings, { ownerType: "batch", runId: it.runId! });
+        it.status = r.dispatched ? "running" : "queued";
       } catch { it.status = "failed"; it.error = "submit-failed"; } // 실패 아이템은 terminal → 파생 계수에서 제외(cap 정확)
     }
-    await writeBatchAtomic(root, batchId, { batchId, createdAt: new Date().toISOString(), items });
+    await writeBatchAtomic(root, batchId, { batchId, createdAt, items });
     return { ok: true as const, batchId, queued: runnable.filter((i) => i.status !== "failed").length, skipped: items.length - runnable.length };
   });
 }
@@ -167,25 +170,29 @@ export async function readBatch(
   return withBatchLock(batchId, async () => {
     const b = await readBatchFile(root, batchId);
     if (!b) return null;
-    const views = await reconcileItems(root, b, resolveCurrent);
+    const views = await reconcileItems(root, b, resolveCurrent, true); // readBatch=ready stale 최신화
     const done = b.items.filter((i) => TERMINAL.has(i.status)).length;
     return { batchId, done, total: b.items.length, items: views };
   });
 }
 
-// item 상태 갱신(runId 있는 미완 item 을 readRemediationResult 로 전이) + 변경 시 batch.json 재기록. views 반환.
+// item 상태 갱신 + 변경 시 batch.json 재기록. views 반환.
+//   refreshReady: readBatch 는 ready item 의 stale 을 매 폴링 재계산(정의 drift 경고·R2 HIGH). sweeper 는 false
+//   (비-terminal→terminal 전이만·null resolver·ready 재읽기 낭비 회피). stale 은 영속 안 함(뷰 전용·항상 최신).
 async function reconcileItems(
   root: string, b: Batch,
   resolveCurrent: (kind: DefKind, name: string) => Promise<string | null>,
+  refreshReady: boolean,
 ): Promise<BatchItemView[]> {
   let mutated = false;
   const views: BatchItemView[] = [];
   for (const it of b.items) {
     let stale: boolean | undefined;
-    if (it.runId && !TERMINAL.has(it.status)) {
-      const res = await readRemediationResult(root, it.runId, resolveCurrent).catch(() => null);
+    const read = it.runId && (!TERMINAL.has(it.status) || (refreshReady && it.status === "ready"));
+    if (read) {
+      const res = await readRemediationResult(root, it.runId!, resolveCurrent).catch(() => null);
       const next = mapResult(res);
-      if (next.status !== it.status) { it.status = next.status; if (next.error) it.error = next.error; mutated = true; }
+      if (!TERMINAL.has(it.status) && next.status !== it.status) { it.status = next.status; if (next.error) it.error = next.error; mutated = true; } // 전이는 비-terminal 에서만(ready 재읽기는 status 불변)
       stale = next.stale;
     }
     views.push({ kind: it.kind, name: it.name, status: it.status, runId: it.runId, stale, error: it.error });
@@ -200,12 +207,32 @@ export async function sweepBatches(
   root: string,
   resolveCurrent: (kind: DefKind, name: string) => Promise<string | null>,
 ): Promise<void> {
-  for (const id of await listBatchIds(root)) {
+  const ids = await listBatchIds(root);
+  for (const id of ids) {
     await withBatchLock(id, async () => {
       const b = await readBatchFile(root, id);
       if (!b || !b.items.some((i) => i.runId && !TERMINAL.has(i.status))) return; // 갱신할 in-flight 없음
-      await reconcileItems(root, b, resolveCurrent);
+      await reconcileItems(root, b, resolveCurrent, false); // 전이만(ready stale 재계산은 readBatch 담당)
     }).catch(() => {});
+  }
+  await pruneTerminalBatches(root, ids).catch(() => {});
+}
+
+export const MAX_RETAINED_BATCHES = 100; // 완료 배치 보존 상한 — 초과분(오래된 fully-terminal)은 정리(O(n) 스캔·디스크 무한증식 방지·R2 HIGH).
+
+// 완전-terminal 배치만 대상으로, 배치 총수가 상한 초과 시 오래된 것부터(batchId=timestamp 접두 → 사전순) 삭제.
+//   in-flight 아이템이 하나라도 있는 배치는 절대 삭제 안 함(계수·추적 보존). 최신 배치는 M-y2 검토용 보존.
+async function pruneTerminalBatches(root: string, ids: string[]): Promise<void> {
+  if (ids.length <= MAX_RETAINED_BATCHES) return;
+  const terminalIds: string[] = [];
+  for (const id of ids) {
+    const b = await readBatchFile(root, id);
+    if (b && b.items.length > 0 && b.items.every((i) => TERMINAL.has(i.status))) terminalIds.push(id);
+  }
+  const excess = ids.length - MAX_RETAINED_BATCHES;
+  const toDelete = terminalIds.sort().slice(0, Math.min(excess, terminalIds.length)); // 사전순=오래된 것 먼저
+  for (const id of toDelete) {
+    await withBatchLock(id, async () => { await rm(batchDir(root, id), { recursive: true, force: true }); }).catch(() => {});
   }
 }
 
