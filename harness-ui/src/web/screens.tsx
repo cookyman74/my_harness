@@ -335,7 +335,7 @@ function useRemedDeepLink(): string | null {
 }
 
 // M-y2: #/eval?batch=<batchId> — 검토 큐 딥링크(새로고침·공유 보존).
-const batchFromHash = (): string | null => { const m = /[?&]batch=([^&]+)/.exec(location.hash); return m ? decodeURIComponent(m[1]!) : null; };
+const batchFromHash = (): string | null => { const m = /[?&]batch=([^&]+)/.exec(location.hash); if (!m) return null; try { return decodeURIComponent(m[1]!); } catch { return null; } }; // malformed % → null(URIError 로 Eval 깨짐 방지)
 function useBatchDeepLink(): string | null {
   const [bid, setBid] = useState<string | null>(batchFromHash);
   useEffect(() => {
@@ -2278,7 +2278,8 @@ function hasMedRisk(a: ArtifactScore): boolean { return a.findings.some((f) => R
 
 export function Eval() {
   const batchId = useBatchDeepLink(); // #/eval?batch=<id> → 검토 큐
-  return batchId ? <BatchReviewQueue batchId={batchId} /> : <EvalMain />;
+  // key={batchId} — batchId 변경(재시도/재생성/딥링크) 시 리마운트해 applied/skipped 등 로컬 상태가 새 배치로 새지 않게 격리(R1 HIGH).
+  return batchId ? <BatchReviewQueue key={batchId} batchId={batchId} /> : <EvalMain />;
 }
 
 function EvalMain() {
@@ -2297,7 +2298,11 @@ function EvalMain() {
       location.hash = `#/eval?batch=${encodeURIComponent(batchId)}`;
     } catch (e) {
       const msg = e instanceof BatchError
-        ? (e.code === "edit-disabled" ? "정의 편집이 비활성입니다" : e.code === "queue-full" ? "큐가 가득 찼습니다 — 잠시 후 재시도" : e.code === "too-many-targets" ? "대상이 너무 많습니다(최대 50개)" : e.code)
+        ? (e.code === "edit-disabled" ? "정의 편집이 비활성입니다"
+          : e.code === "queue-full" ? "큐가 가득 찼습니다 — 잠시 후 재시도"
+          : e.code === "too-many-targets" ? "대상이 너무 많습니다(최대 50개)"
+          : e.code === "no-valid-targets" ? "선택한 대상에 반영할 지적이 없거나 이미 진행 중입니다"
+          : `시작 실패: ${e.code}`)
         : String(e);
       setStartErr(msg); setStarting(false);
     }
@@ -2419,7 +2424,8 @@ function BatchReviewQueue({ batchId }: { batchId: string }) {
     let live = true; let timer: ReturnType<typeof setTimeout> | null = null;
     const poll = async () => {
       try { const v = await getBatch(batchId); if (!live) return; setView(v); setErr(null);
-        if (v.done < v.total) timer = setTimeout(poll, 2000); // 미완 있으면 계속 폴링
+        // 완료 후에도 느린 주기로 계속 폴링 — ready item 의 stale 배지를 정의 drift 반영(멈추면 badge 갱신 안 됨·R1 MED).
+        timer = setTimeout(poll, v.done < v.total ? 2000 : 10000);
       } catch (e) { if (!live) return; setErr(e instanceof BatchError ? e.code : String(e)); timer = setTimeout(poll, 4000); }
     };
     void poll();
@@ -2439,7 +2445,7 @@ function BatchReviewQueue({ batchId }: { batchId: string }) {
       {err && <p className="banner err" role="alert">배치 조회 오류: {err}</p>}
       {!view ? <div className="muted">불러오는 중…</div> : (() => {
         const failed = view.items.filter((it) => (it.status === "failed" || it.status === "invalid") && !skipped.has(keyOf(it)));
-        const staleReady = view.items.filter((it) => it.status === "ready" && it.stale && !applied.has(keyOf(it)));
+        const staleReady = view.items.filter((it) => it.status === "ready" && it.stale && !applied.has(keyOf(it)) && !skipped.has(keyOf(it)));
         return (<>
           <Card title={`진행 ${view.done}/${view.total}${view.done < view.total ? " (실행 중…)" : " · 완료"}`}>
             <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
@@ -2466,25 +2472,31 @@ function BatchItemCard({ item, applied, skipped, onApplied, onSkip }: {
   const [loadingDraft, setLoadingDraft] = useState(false);
   const [applying, setApplying] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []); // 언마운트 후 setState 경고/릭 방지(R1 MED)
   const loadDraft = async () => {
     if (draft || loadingDraft || !item.runId) return;
     setLoadingDraft(true);
-    try { setDraft(await getRemediation(item.runId)); } catch (e) { setMsg(e instanceof DefEditError ? e.code : String(e)); }
-    finally { setLoadingDraft(false); }
+    try { const d = await getRemediation(item.runId); if (mounted.current) setDraft(d); }
+    catch (e) { if (mounted.current) setMsg(e instanceof DefEditError ? e.code : String(e)); }
+    finally { if (mounted.current) setLoadingDraft(false); }
   };
   const apply = async () => {
     if (!item.runId) return;
     setApplying(true); setMsg(null);
     try {
-      const d = draft ?? await getRemediation(item.runId);
+      const d = await getRemediation(item.runId); // **항상 최신 재조회** — 캐시 draft 의 낡은 stale 판정 재사용 금지.
       setDraft(d);
       if (d.status !== "ready") { setMsg("초안이 준비되지 않았습니다"); setApplying(false); return; }
-      const def = await getDefinition(item.kind, item.name); // 현재 baseHash·pathId(낙관적 동시성)
-      await putDefinition(item.kind, item.name, { content: d.proposedContent, baseHash: def.baseHash, pathId: def.pathId });
+      // 초안이 만들어진 base 와 현재 정의가 다르면(stale) 적용 금지 — 현재본을 초안으로 덮어써 동시 수정분을 유실하는 것 차단.
+      if (d.stale) { setMsg("정의가 변경됨 — [stale 재생성] 필요(현재본 덮어쓰기 방지)"); setApplying(false); return; }
+      const def = await getDefinition(item.kind, item.name); // pathId(안정)
+      // 낙관적 동시성 = **초안 기준 baseHash**(현재 읽은 값 아님). 현재 정의가 초안 base 와 다르면 서버가 409 → stale 재생성(R1 HIGH).
+      await putDefinition(item.kind, item.name, { content: d.proposedContent, baseHash: d.baseHash, pathId: def.pathId });
       onApplied(); setMsg("적용됨(저장 완료)");
     } catch (e) {
       const code = e instanceof DefEditError ? e.code : String(e);
-      setMsg(code === "stale-definition" || code === "conflict" ? "정의가 변경됨 — [stale 재생성] 필요" : `적용 실패: ${code}`);
+      setMsg(code === "stale-write" || code === "path-id-mismatch" || code === "conflict" ? "정의가 변경됨 — [stale 재생성] 필요" : `적용 실패: ${code}`);
     } finally { setApplying(false); }
   };
   const done = applied || skipped;
