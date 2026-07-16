@@ -1,54 +1,106 @@
-// M-y0: 거버너 배선 — run-start(단건 E5-a·배치·일반)가 공유하는 submit/dispatch.
-//   claim 성공=즉시 spawn·null=queued(인메모리 pending+status.json queued)·슬롯 열릴 때 dispatch tick.
-//   설계 §4-0·계획 M-y0. onExit→release→tick(다음 queued spawn). 단일 서버 프로세스 전제.
+// M-y0: 거버너 배선 — run-start(단건 E5-a·배치·일반) 공유 submit/dispatch.
+//   claim 성공=즉시 spawn·null=queued(인메모리 pending)·슬롯 열릴 때 tick(단일-flight). 단일 서버 프로세스 전제.
+//   R1 반영: tick 재진입 single-flight·in-flight 슬롯 reap 보호·attach 실패 child terminate·부팅 재건(orphan queued→failed)·reap interval.
+import { join } from "node:path";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { RunGovernor, type OwnerType, type Claim } from "./run-governor.js";
 import { identity } from "../supervisor/osadapter.js";
+import { reconcileRun } from "../supervisor/reconcile.js";
 
 export type SpawnResult = { pid: number } | null;
-// spawn 클로저: superviseRun 을 호출해 {pid} 반환(onExit 로 release 통지받도록 caller 가 배선).
 export type PendingEntry = {
   runId: string; runDir: string; ownerType: OwnerType;
   spawn: (onExit: () => void) => Promise<SpawnResult>; // superviseRun(...onExit) 래핑
-  markQueued?: () => Promise<void>; // status.json=queued 기록(재시작 재건용)
 };
 
 let gov: RunGovernor | null = null;
 const pending: PendingEntry[] = [];
-export function governor(): RunGovernor { if (!gov) { gov = new RunGovernor(); void gov.init(); } return gov; }
-export function _resetGovernorForTest(k?: number): RunGovernor { gov = new RunGovernor(k); pending.length = 0; return gov; }
+const inFlight = new Set<number>();       // spawn/attach 진행 중 슬롯(reap 보호·R1 HIGH-3)
+let ticking = false, tickAgain = false;   // tick single-flight(R1 HIGH tick race)
+let reapTimer: ReturnType<typeof setInterval> | null = null;
 
-// submit: claim 시도 → 성공 spawn·null queued(pending 적재). 즉시 반환(runId 는 caller 가 이미 발급).
+export function governor(): RunGovernor { if (!gov) { gov = new RunGovernor(); void gov.init(); } return gov; }
+export function _resetGovernorForTest(k?: number): RunGovernor {
+  gov = new RunGovernor(k); pending.length = 0; inFlight.clear(); ticking = false; tickAgain = false;
+  if (reapTimer) { clearInterval(reapTimer); reapTimer = null; }
+  return gov;
+}
+
 export async function submitRun(e: PendingEntry): Promise<{ dispatched: boolean }> {
   const g = governor();
-  const claim = await g.claim(e.ownerType, e.runId.startsWith("batch-") ? e.runId : null);
+  const claim = await g.claim(e.ownerType, batchIdOf(e.runId));
   if (claim) { await dispatch(g, claim, e); return { dispatched: true }; }
-  await e.markQueued?.();
   pending.push(e);
   return { dispatched: false };
 }
+function batchIdOf(runId: string): string | null { return runId.startsWith("batch-") ? runId : null; }
 
-// dispatch: spawn → attach(pid/startTime)·onExit 시 release+tick(다음 queued).
+// dispatch: spawn→attach·onExit→release→tick. attach 실패 시 살아있는 child terminate 후 release(uncounted 방지).
 async function dispatch(g: RunGovernor, claim: Claim, e: PendingEntry): Promise<void> {
+  inFlight.add(claim.slotIdx);
   let released = false;
-  const release = () => { if (released) return; released = true; void g.release(claim).then(() => tick()); };
+  const release = () => { if (released) return; released = true; inFlight.delete(claim.slotIdx); void g.release(claim).then(() => scheduleTick()); };
   let res: SpawnResult = null;
   try { res = await e.spawn(release); }
-  catch { release(); return; } // spawn 동기 예외 → 즉시 release
-  if (!res || res.pid <= 0) { release(); return; } // spawn 실패 → release(onExit 도 통지하나 idempotent)
+  catch { release(); return; }
+  if (!res || res.pid <= 0) { release(); return; }
   const id = await identity(res.pid).catch(() => null);
   const ok = await g.attach(claim, { pid: res.pid, startTime: id?.startTime ?? "", runId: e.runId, runDir: e.runDir });
-  if (!ok) release(); // attach 실패(lease 불일치) → release (실제 child 종료는 reap/onExit 가 처리)
+  inFlight.delete(claim.slotIdx);
+  if (!ok) {
+    // attach 실패(lease 경합·reap) → 살아있는 child 는 owner registry+reconcileRun 로 종료(거버넌스 밖 방치 금지·R1 HIGH-4).
+    const alive = await identity(res.pid).catch(() => null);
+    if (alive) await reconcileRun(e.runDir, e.runId, { terminate: true, finalState: "stale" }).catch(() => {});
+    release();
+  }
 }
 
-// tick: 슬롯 열릴 때 pending 을 순서대로 dispatch(claim 되는 만큼).
+// tick single-flight — 동시 호출은 1회 실행·중첩 요청은 tickAgain 으로 재실행(pending splice race 방지·R1 HIGH).
+export function scheduleTick(): void { void tick(); }
 export async function tick(): Promise<void> {
+  if (ticking) { tickAgain = true; return; }
+  ticking = true;
+  try {
+    do {
+      tickAgain = false;
+      const g = governor();
+      for (let i = 0; i < pending.length; ) {
+        const e = pending[i]!;
+        const claim = await g.claim(e.ownerType, batchIdOf(e.runId));
+        if (!claim) { i++; continue; }
+        pending.splice(i, 1);
+        await dispatch(g, claim, e);
+      }
+    } while (tickAgain);
+  } finally { ticking = false; }
+}
+
+// 부팅 재건(R1 HIGH-2): stale 슬롯 reap + orphan queued run 을 failed 로 명시 종료(spawn envelope 소실·영구정체 방지).
+//   배치 resume(M-y1)은 별도 envelope 영속 후. reap interval 시작.
+export async function initGovernance(projectRoot: string): Promise<void> {
   const g = governor();
-  for (let i = 0; i < pending.length; ) {
-    const e = pending[i]!;
-    const claim = await g.claim(e.ownerType, e.runId.startsWith("batch-") ? e.runId : null);
-    if (!claim) { i++; continue; } // 이 클래스 슬롯 없음 → 다음
-    pending.splice(i, 1);
-    await dispatch(g, claim, e);
+  await g.init();
+  await g.reap().catch(() => {}); // 크래시 잔존 슬롯 회수(fresh process·in-flight 없음)
+  await failOrphanQueued(projectRoot).catch(() => {});
+  if (!reapTimer) reapTimer = setInterval(() => { void g.reap(Date.now(), inFlight).then(() => scheduleTick()).catch(() => {}); }, 5000);
+}
+export function stopGovernance(): void { if (reapTimer) { clearInterval(reapTimer); reapTimer = null; } }
+
+async function failOrphanQueued(projectRoot: string): Promise<void> {
+  const base = join(projectRoot, "_workspace", "runs");
+  let dirs: string[];
+  try { dirs = await readdir(base); } catch { return; }
+  for (const d of dirs) {
+    const sp = join(base, d, "status.json");
+    let raw: string;
+    try { raw = await readFile(sp, "utf8"); } catch { continue; }
+    let st: { state?: string };
+    try { st = JSON.parse(raw); } catch { continue; }
+    if (st.state === "queued") { // 재시작 전 대기 → spawn envelope 소실 → 명시 실패(사용자 재트리거)
+      st.state = "failed"; (st as { stateReason?: string }).stateReason = "server-restarted";
+      (st as { updatedAt?: string }).updatedAt = new Date().toISOString();
+      await writeFile(sp, JSON.stringify(st), "utf8").catch(() => {});
+    }
   }
 }
 

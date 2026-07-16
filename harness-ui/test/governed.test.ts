@@ -3,7 +3,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { submitRun, tick, pendingCount, _resetGovernorForTest } from "../src/server/adapters/governed.js";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { submitRun, tick, pendingCount, _resetGovernorForTest, initGovernance, stopGovernance } from "../src/server/adapters/governed.js";
 
 let stateDir: string;
 const orig = process.env.HARNESS_STATE_HOME;
@@ -51,5 +52,17 @@ describe("governed.submitRun — claim/queued/dispatch", () => {
     expect(pendingCount()).toBe(1);           // batch 는 K-1=2 만·1개 queued
     const r = await submitRun(fakeEntry("run-i", "interactive", exits));
     expect(r.dispatched).toBe(true);          // interactive 는 예약 슬롯 사용
+  });
+
+  it("부팅 재건 — orphan queued run 을 failed(server-restarted)로 명시 종료", async () => {
+    const g = _resetGovernorForTest(3); await g.init();
+    const runDir = join(stateDir, "_workspace", "runs", "old-queued");
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, "status.json"), JSON.stringify({ schemaVersion: "1", runId: "old-queued", state: "queued" }), "utf8");
+    await initGovernance(stateDir);           // projectRoot=stateDir(runs 하위 스캔)
+    stopGovernance();                         // reap interval 정리(테스트 leak 방지)
+    const st = JSON.parse(await readFile(join(runDir, "status.json"), "utf8"));
+    expect(st.state).toBe("failed");
+    expect(st.stateReason).toBe("server-restarted");
   });
 });

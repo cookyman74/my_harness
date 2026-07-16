@@ -30,6 +30,7 @@ function slotPath(i: number): string { return join(govDir(), `slot-${i}`); }
 export class RunGovernor {
   readonly k: number;
   private readonly locks: Array<Promise<unknown>> = []; // per-slot 직렬화(promise-chain)
+  private ready: Promise<void> | null = null;           // mkdir 완료 게이트(R1 HIGH-1·init race)
   constructor(k: number = DEFAULT_K) {
     this.k = Math.max(MIN_K, k | 0);
     for (let i = 0; i < this.k; i++) this.locks[i] = Promise.resolve();
@@ -43,10 +44,13 @@ export class RunGovernor {
   // 클래스별 슬롯 풀: interactive=전체(예약 K-1 포함)·batch=0..K-2(예약 미claim·단건 기아 방지).
   private poolRange(t: OwnerType): number { return t === "batch" ? Math.max(0, this.k - 1) : this.k; }
 
-  async init(): Promise<void> { await mkdir(govDir(), { recursive: true, mode: 0o700 }); }
+  async init(): Promise<void> { await this.ensureReady(); }
+  private ensureReady(): Promise<void> { if (!this.ready) this.ready = mkdir(govDir(), { recursive: true, mode: 0o700 }).then(() => undefined); return this.ready; }
 
   // claim: 빈 슬롯을 O_EXCL 로 원자 선점(leaseId 기록). 없으면 null(=queued·실패 아님).
+  //   R1 HIGH-1: mkdir 완료(await ready) 후 실행·EEXIST 만 점유(그 외 ENOENT/EACCES 는 throw — 조용한 queued 정체 방지).
   async claim(ownerType: OwnerType, batchId: string | null = null): Promise<Claim | null> {
+    await this.ensureReady();
     const limit = this.poolRange(ownerType);
     for (let i = 0; i < limit; i++) {
       const got = await this.withSlot(i, async (): Promise<Claim | null> => {
@@ -54,7 +58,7 @@ export class RunGovernor {
         const meta: SlotMeta = { leaseId, ownerType, batchId, claimedAt: Date.now(), runId: null, pid: null, startTime: null, runDir: null };
         let fh;
         try { fh = await open(slotPath(i), constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600); }
-        catch { return null; } // EEXIST=점유 → 다음 슬롯
+        catch (e) { if ((e as NodeJS.ErrnoException).code === "EEXIST") return null; throw e; } // 점유만 null·그 외 throw
         try { await fh.writeFile(JSON.stringify(meta), "utf8"); } finally { await fh.close().catch(() => {}); }
         return { slotIdx: i, leaseId };
       });
@@ -65,6 +69,7 @@ export class RunGovernor {
 
   // attach: spawn 후 pid/runId 기록(leaseId 검증 → 임시파일 rename 원자 갱신).
   async attach(c: Claim, info: { pid: number; startTime: string; runId: string; runDir: string }): Promise<boolean> {
+    await this.ensureReady();
     return this.withSlot(c.slotIdx, async () => {
       const m = await this.readSlot(c.slotIdx);
       if (!m || m.leaseId !== c.leaseId) return false; // 내 lease 아님 → no-op
@@ -78,6 +83,7 @@ export class RunGovernor {
 
   // release: leaseId 검증 후 unlink(후속 claimer 슬롯 오삭제 방지).
   async release(c: Claim): Promise<void> {
+    await this.ensureReady();
     await this.withSlot(c.slotIdx, async () => {
       const m = await this.readSlot(c.slotIdx);
       if (!m || m.leaseId !== c.leaseId) return; // 후속 lease → no-op
@@ -86,9 +92,17 @@ export class RunGovernor {
   }
 
   async activeCount(): Promise<number> {
+    await this.ensureReady();
     let n = 0;
     for (let i = 0; i < this.k; i++) if (await this.readSlot(i)) n++;
     return n;
+  }
+  // 부팅 재건용 — 현재 슬롯 메타 스냅샷(runId/runDir 로 큐/실행 재구성).
+  async slotsSnapshot(): Promise<Array<{ slotIdx: number } & SlotMeta>> {
+    await this.ensureReady();
+    const out: Array<{ slotIdx: number } & SlotMeta> = [];
+    for (let i = 0; i < this.k; i++) { const m = await this.readSlot(i); if (m) out.push({ slotIdx: i, ...m }); }
+    return out;
   }
 
   private async readSlot(i: number): Promise<SlotMeta | null> {
@@ -100,22 +114,29 @@ export class RunGovernor {
 
   // reap: grace 경과 슬롯 회수. stuck(pid 없음)·dead pid → reconcileRun 검증 후 release/quarantine.
   //   release 는 reconcile 결과 killed/gone(+pid 소멸)일 때만. kill-failed/indeterminate → 슬롯 보존(quarantine·재시도).
-  async reap(now: number = Date.now()): Promise<{ released: number; quarantined: number }> {
+  //   skip: 현재 프로세스에서 spawn/attach 진행 중(in-flight)인 슬롯 — pid 아직 미기록이라 stuck 으로 오회수 방지(R1 HIGH-3).
+  async reap(now: number = Date.now(), skip?: ReadonlySet<number>): Promise<{ released: number; quarantined: number }> {
+    await this.ensureReady();
     let released = 0, quarantined = 0;
     for (let i = 0; i < this.k; i++) {
+      if (skip?.has(i)) continue; // in-flight 슬롯 보호
       const res = await this.withSlot(i, async (): Promise<"released" | "quarantined" | "keep"> => {
+        if (skip?.has(i)) return "keep";
         const m = await this.readSlot(i);
         if (!m) return "keep";
         if (now - m.claimedAt <= GRACE_MS) return "keep"; // 갓-claim 보호
-        if (m.pid == null || m.runId == null || m.runDir == null) { // stuck claim(spawn 전 크래시)
+        if (m.pid == null || m.runId == null || m.runDir == null) { // grace 초과 pid-null = 크래시-전-attach 고아(재시작 후)
           await unlink(slotPath(i)).catch(() => {}); return "released";
         }
         const alive = await identity(m.pid).catch(() => null);
         if (alive && alive.startTime === m.startTime) return "keep"; // 살아있음·같은 프로세스
-        // 죽었거나 PID 재사용 → owner registry+reconcileRun 로 소유 검증 종료 후 release.
+        // 죽었거나 PID 재사용 → owner registry+reconcileRun 로 소유 검증 종료. release 는 확정 사멸만.
         const r = await reconcileRun(m.runDir, m.runId, { terminate: true, finalState: "stale" }).catch(() => null);
-        if (r && (r.action === "killed" || r.action === "gone" || r.action === "none")) {
-          await unlink(slotPath(i)).catch(() => {}); return "released";
+        if (r && (r.action === "killed" || r.action === "gone")) { await unlink(slotPath(i)).catch(() => {}); return "released"; }
+        if (r && r.action === "none") { // owner 없음 — pid 실제 사멸 확인된 경우만 release(살아있으면 leak 방지 quarantine)
+          const still = await identity(m.pid).catch(() => null);
+          if (!still || still.startTime !== m.startTime) { await unlink(slotPath(i)).catch(() => {}); return "released"; }
+          return "quarantined";
         }
         return "quarantined"; // kill-failed/skipped-mismatch/indeterminate → 보존(다음 tick 재시도)
       });
