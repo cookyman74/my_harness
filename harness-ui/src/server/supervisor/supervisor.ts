@@ -285,12 +285,13 @@ export async function spawnRun(runDir: string, cmd: string, args: string[], env:
 
 // 실행 관리: spawn + 주기 ingest + child exit 시 최종 ingest·terminal status·owner 정리.
 // exit 는 spawnRun 이 동기 캡처한 exited 프로미스로 처리(유실 없음). 모든 콜백 try/catch(rejection→server crash 방지).
-export async function superviseRun(runDir: string, cmd: string, args: string[], env: Record<string, string> = {}): Promise<{ pid: number }> {
+export async function superviseRun(runDir: string, cmd: string, args: string[], env: Record<string, string> = {}, onExit?: (info: ExitInfo) => void): Promise<{ pid: number }> {
   const { pid, child, exited } = await spawnRun(runDir, cmd, args, env);
   if (pid <= 0 || !child) {
     const st = await loadStatus(runDir);
     st.state = "failed"; st.stateReason = "spawn-failed"; st.error = "spawn failed"; st.updatedAt = iso();
     await writeStatus(runDir, st);
+    onExit?.({ code: -1, signal: null }); // M-y0: spawn 실패도 거버너 release 통지(슬롯 leak 방지)
     return { pid: -1 };
   }
   // running status 를 **먼저** 쓰고(exit 전), 감독 부착은 finally 로 보장.
@@ -306,6 +307,8 @@ export async function superviseRun(runDir: string, cmd: string, args: string[], 
   finally {
     const timer = setInterval(() => { ingest(runDir).catch(() => {}); }, 500); // 주기 승격(rejection 무시)
     exited.then((info) => finalize(runDir, info)).catch(() => {}).finally(() => clearInterval(timer));
+    // M-y0: 거버너 release 통지 — exit 시 1회(정보 무관·슬롯 반환). finalize 와 독립 체인(release 지연 방지).
+    if (onExit) exited.then((info) => { try { onExit(info); } catch { /* */ } }, () => { try { onExit({ code: null, signal: null }); } catch { /* */ } });
   }
   return { pid };
 }

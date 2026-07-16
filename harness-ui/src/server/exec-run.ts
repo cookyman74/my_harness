@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { superviseRun, writeManifest, writeStatus, newRunId, SUPERVISOR_VERSION } from "./supervisor/supervisor.js";
 import type { Manifest } from "./schemas.js";
 import { ARGV_TOKEN as noFlag } from "./lib/paths.js";
+import { submitRun } from "./adapters/governed.js";
 
 // model·allowedTools·agent 는 argv/태그 요소 → leading-dash 금지(flag injection 방어). 영숫자로 시작.
 // noFlag = lib/paths.ARGV_TOKEN(단일 출처 — harness D 도출과 동일 규칙).
@@ -65,9 +66,9 @@ function baseStatus(runId: string, state: "queued" | "running") {
 
 export type LaunchResult =
   | { dryRun: true; runId: string; runDir: string; preview: { cmd: string; args: string[] } }
-  | { dryRun: false; runId: string; runDir: string; pid: number };
+  | { dryRun: false; runId: string; runDir: string; dispatched: boolean };
 
-// dry-run = 파일 수정 없이 계획만(manifest 만 기록·spawn 안 함). 실행 = manifest+spawn.
+// dry-run = 파일 수정 없이 계획만(manifest 만 기록·spawn 안 함). 실행 = manifest+거버너 submit(claim/queued·M-y0 공유 상한).
 export async function launchRun(projectRoot: string, req: RunRequest): Promise<LaunchResult> {
   const runId = newRunId(req.mode.replace(/[^A-Za-z0-9._-]/g, "-"));
   const runDir = join(projectRoot, "_workspace", "runs", runId);
@@ -77,6 +78,10 @@ export async function launchRun(projectRoot: string, req: RunRequest): Promise<L
   }
   await writeManifest(runDir, manifest(runId, projectRoot, req));
   await writeStatus(runDir, baseStatus(runId, "queued"));
-  const { pid } = await superviseRun(runDir, cmd, args); // spawn+주기 ingest+exit finalize(running/terminal status 관리)
-  return { dryRun: false, runId, runDir, pid };
+  // 일반 New Run = interactive(단건·거버너 공유 상한 K·배치와 2K fan-out 방지·감사 요구).
+  const { dispatched } = await submitRun({
+    runId, runDir, ownerType: "interactive",
+    spawn: (onExit: () => void) => superviseRun(runDir, cmd, args, {}, onExit).then((r) => (r.pid > 0 ? { pid: r.pid } : null)),
+  });
+  return { dryRun: false, runId, runDir, dispatched };
 }

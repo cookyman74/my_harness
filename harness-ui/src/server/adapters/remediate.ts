@@ -9,6 +9,8 @@ import { z } from "zod";
 import { canonicalizeDefinition, sha256, MAX_DEF_BYTES, type DefKind } from "./defedit.js";
 import { superviseRun, newRunId, writeManifest, writeStatus, SUPERVISOR_VERSION } from "../supervisor/supervisor.js";
 import { resolveRunDir } from "./runs.js";
+import { submitRun } from "./governed.js";
+import type { OwnerType } from "./run-governor.js";
 import type { Manifest } from "../schemas.js";
 
 // 6종 저/중위험 action(E1 finding·삭제 없음). 타겟 영역: description(frontmatter) | body(마크다운).
@@ -214,20 +216,27 @@ export function remediationArgv(prompt: string): string[] {
     "--safe-mode", "--tools", "", "--disallowedTools", "*", "--", `Task:\n${prompt}`];
 }
 
-// 초안 잡 시작. read-only(plan)+도구 차단. 큰 프롬프트라 RunRequest(4000 캡) 우회·서버 조립.
-export async function startRemediationRun(projectRoot: string, kind: DefKind, name: string, content: string, findings: RemediationFinding[]): Promise<{ runId: string; runDir: string; pid: number }> {
-  const runId = newRunId("remediate");
+// 초안 잡 시작. read-only(plan)+도구 차단. 거버너 submit 경유(claim/queued·M-y0).
+//   ownerType 기본 interactive(단건 E5-a). 배치(M-y1)는 ownerType="batch"·batchId 접두 runId.
+export async function startRemediationRun(
+  projectRoot: string, kind: DefKind, name: string, content: string, findings: RemediationFinding[],
+  opts: { ownerType?: OwnerType; runId?: string } = {},
+): Promise<{ runId: string; runDir: string; dispatched: boolean }> {
+  const runId = opts.runId ?? newRunId("remediate");
   const runDir = join(projectRoot, "_workspace", "runs", runId);
   const prompt = buildRemediationPrompt(content, findings);
   const args = remediationArgv(prompt);
   await writeManifest(runDir, remediationManifest(runId, projectRoot, kind, name));
   await writeStatus(runDir, baseStatus(runId));
-  // 초안 요청 메타(baseHash·findings) 영속 — GET 이 검증·stale 판정에 사용.
   await mkdir(join(runDir, "remediation"), { recursive: true });
   await writeFile(join(runDir, "remediation", "request.json"),
     JSON.stringify({ kind, name, baseHash: sha256(content), originalContent: content, findings, createdAt: new Date().toISOString() }, null, 2), "utf8");
-  const { pid } = await superviseRun(runDir, "claude", args);
-  return { runId, runDir, pid };
+  const { dispatched } = await submitRun({
+    runId, runDir, ownerType: opts.ownerType ?? "interactive",
+    spawn: (onExit) => superviseRun(runDir, "claude", args, {}, onExit).then((r) => (r.pid > 0 ? { pid: r.pid } : null)),
+    // queued 면 status 는 이미 baseStatus(queued)·재건 시 스캔.
+  });
+  return { runId, runDir, dispatched };
 }
 
 // 캡드 리더 — reason 판별(missing 만 재폴링·나머지는 fail-closed·R2 LOW-1). 심링크 거부는 **lstat 선차단**(이식성·
@@ -272,6 +281,7 @@ const ReqShape = z.object({ kind: z.enum(["agent", "skill"]), name: z.string(), 
 
 export type RemediationResult =
   | { status: "running" }
+  | { status: "queued" }
   | { status: "failed"; error: string }
   | { status: "invalid"; error: string }
   | { status: "ready"; kind: DefKind; name: string; baseHash: string; stale: boolean; originalContent: string; proposedContent: string; findings: RemediationFinding[] };
@@ -285,6 +295,7 @@ export async function readRemediationResult(projectRoot: string, runId: string, 
   if (!statusR.ok) return statusR.reason === "missing" ? { status: "running" } : { status: "failed", error: `status-${statusR.reason}` };
   let state: string | undefined;
   try { state = JSON.parse(statusR.content)?.state; } catch { return { status: "failed", error: "status-parse" }; }
+  if (state === "queued") return { status: "queued" };            // 거버너 대기(M-y0·running 과 구분)
   if (!state || !TERMINAL.has(state)) return { status: "running" };
   if (state !== "completed") return { status: "failed", error: `run-${state}` };
   // 요청 메타(originalContent 스냅샷 포함 → 2×캡)

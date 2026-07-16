@@ -668,8 +668,8 @@ export function registerApi(
     if (!f) return reply.code(404).send({ error: "not-found" });
     if (sha256(f.content) !== baseHash) return reply.code(409).send({ error: "stale-remediate", currentHash: sha256(f.content) });
     // 충돌 게이트 없음 — 같은 영역 다중 지적은 에이전트가 병합(안전=surface 검증+사람 승인). remediate.ts 참조.
-    const { runId } = await startRemediationRun(projectRoot, kind, name, f.content, findings);
-    return reply.code(202).send({ runId, status: "running" });
+    const { runId, dispatched } = await startRemediationRun(projectRoot, kind, name, f.content, findings);
+    return reply.code(202).send({ runId, status: dispatched ? "running" : "queued" }); // 거버너 대기 시 queued(M-y0)
   });
   app.get<{ Params: { runId: string } }>("/api/eval/remediate/:runId", async (req, reply) => {
     if (!(await isEditEnabled())) return reply.code(403).send({ error: "edit-disabled" }); // GET 도 fail-closed(전문 반환 경로·R2 MED-1)
