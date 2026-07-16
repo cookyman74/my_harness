@@ -51,7 +51,7 @@ async function dispatch(g: RunGovernor, claim: Claim, e: PendingEntry): Promise<
     catch { release(); return; }
     if (!res || res.pid <= 0) { release(); return; }
     const id = await identity(res.pid).catch(() => null);
-    const info = { pid: res.pid, startTime: id?.startTime ?? "", exe: id?.exe ?? "", runId: e.runId, runDir: e.runDir };
+    const info = { pid: res.pid, startTime: id?.startTime ?? "", exe: id?.exe ?? "", groupId: id?.groupId ?? null, runId: e.runId, runDir: e.runDir };
     let ok = false;
     try { ok = await g.attach(claim, info); }
     catch (e2) { ok = false; try { console.error("[governor] attach error", e2); } catch { /* */ } } // fs 예외 로그
@@ -63,7 +63,7 @@ async function dispatch(g: RunGovernor, claim: Claim, e: PendingEntry): Promise<
     for (let attempt = 0; attempt < 3; attempt++) {
       const r = await reconcileRun(e.runDir, e.runId, { terminate: true, finalState: "stale" }).catch(() => null);
       if (r && (r.action === "killed" || r.action === "gone")) break;
-      if ((await pidState(res.pid, info.startTime)) === "dead") break;
+      if ((await pidState(res.pid, info.startTime, info.exe)) === "dead") break;
       await new Promise((r2) => setTimeout(r2, 200));
     }
   } finally { clearInFlight(); }

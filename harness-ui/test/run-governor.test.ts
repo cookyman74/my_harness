@@ -68,8 +68,8 @@ describe("RunGovernor — 강제 상한·풀", () => {
   it("attach — 내 lease 만 갱신·위조 lease no-op", async () => {
     const g = await gov(2);
     const a = await g.claim("interactive");
-    expect(await g.attach({ slotIdx: a!.slotIdx, leaseId: "wrong" }, { pid: 111, startTime: "t", exe: "e", runId: "r", runDir: "/x" })).toBe(false);
-    expect(await g.attach(a!, { pid: 111, startTime: "t", exe: "e", runId: "r", runDir: "/x" })).toBe(true);
+    expect(await g.attach({ slotIdx: a!.slotIdx, leaseId: "wrong" }, { pid: 111, startTime: "t", exe: "e", groupId: null, runId: "r", runDir: "/x" })).toBe(false);
+    expect(await g.attach(a!, { pid: 111, startTime: "t", exe: "e", groupId: null, runId: "r", runDir: "/x" })).toBe(true);
   });
 
   it("reap — grace 내 갓-claim 보호·grace 후 stuck(pid 없음) release", async () => {
@@ -95,7 +95,7 @@ describe("RunGovernor — 강제 상한·풀", () => {
   it("orphan 슬롯 — 점유 유지(claim 차단)·pid 확정 사멸 시 reap release(capacity leak 방지)", async () => {
     const g = await gov(2);
     const a = await g.claim("interactive");
-    expect(await g.markOrphan(a!, { pid: 999999, startTime: "t", exe: "e", runId: "orphan-run", runDir: join(stateDir, "no-owner") })).toBe(true);
+    expect(await g.markOrphan(a!, { pid: 999999, startTime: "t", exe: "e", groupId: null, runId: "orphan-run", runDir: join(stateDir, "no-owner") })).toBe(true);
     expect(await g.activeCount()).toBe(1);                 // 점유 유지(claim 차단·활성 카운트)
     // pid 999999 부재(dead) → reconcileRun none 이어도 pidState=dead → release(owner 소실/PID 재사용 영구잠식 방지·R6).
     await g.reap(Date.now() + 20_000);
