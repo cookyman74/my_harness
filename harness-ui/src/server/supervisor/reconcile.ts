@@ -50,8 +50,12 @@ export async function reconcileRun(
     return { action: "gone", reason: "process-gone" };
   }
 
-  // 검증: startTime(불투명 정확일치)+exe+groupId 일치 — PID/PGID reuse 방어. 하나라도 불일치→kill 안 함.
-  if (id.startTime !== owner.startTime || id.exe !== owner.exe || String(id.groupId) !== String(owner.groupId)) {
+  // 검증: startTime(불투명 정확일치) 필수 + exe/groupId best-effort(양쪽 값 있을 때만·verifyLeader R15 와 정합).
+  //   exe/groupId 를 strict 로 요구하면 transient comm/pgid lookup 실패로 빈 owner 메타가 기록된 경우
+  //   유효 run 을 reuse 로 오판해 cancel 이 영구 무효화된다(R17). startTime 이 재사용 방어의 주 게이트.
+  const exeMismatch = !!id.exe && !!owner.exe && id.exe !== owner.exe;
+  const groupMismatch = owner.groupId !== null && String(id.groupId) !== String(owner.groupId);
+  if (id.startTime !== owner.startTime || exeMismatch || groupMismatch) {
     await setState(runDir, opts.finalState, "identity-mismatch(reuse)");
     return { action: "skipped-mismatch", reason: "identity-mismatch" };
   }

@@ -4,8 +4,7 @@
 import { join } from "node:path";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { RunGovernor, pidState, type OwnerType, type Claim } from "./run-governor.js";
-import { identity } from "../supervisor/osadapter.js";
-import { reconcileRun } from "../supervisor/reconcile.js";
+import { identity, terminateTree } from "../supervisor/osadapter.js";
 
 export type SpawnResult = { pid: number } | null;
 export type PendingEntry = {
@@ -50,7 +49,14 @@ async function dispatch(g: RunGovernor, claim: Claim, e: PendingEntry): Promise<
     try { res = await e.spawn(release); }
     catch { release(); return; }
     if (!res || res.pid <= 0) { release(); return; }
-    const id = await identity(res.pid).catch(() => null);
+    // identity bounded retry — transient ps 실패로 startTime 빈값 기록 시 pidState 가 영구 "unknown"→capacity leak(R17 MED).
+    //   실 startTime 확보까지 3회(100ms)·확보 실패(프로세스 이미 종료 등)면 빈값 유지(pidState 부재→dead 로 회수).
+    let id: Awaited<ReturnType<typeof identity>> = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      id = await identity(res.pid).catch(() => null);
+      if (id && id.startTime) break;
+      await new Promise((r2) => setTimeout(r2, 100));
+    }
     const info = { pid: res.pid, startTime: id?.startTime ?? "", exe: id?.exe ?? "", groupId: id?.groupId ?? null, runId: e.runId, runDir: e.runDir };
     let ok = false;
     try { ok = await g.attach(claim, info); }
@@ -59,10 +65,12 @@ async function dispatch(g: RunGovernor, claim: Claim, e: PendingEntry): Promise<
     // attach 실패 → orphan 슬롯 표기(release 아님·슬롯 점유로 claim 차단·reap 이 terminate 후 확정 사멸 시 release·R5).
     const marked = await g.markOrphan(claim, info).catch(() => false);
     if (marked) return;                                     // reap 이 orphan 슬롯 책임
-    // markOrphan 실패(lease 경합) → 우리 child 확정 종료 bounded retry. pidState 로 dead 만 break(lookup 실패=계속·R7 codex MED).
+    // markOrphan 실패(lease 경합) → 우리 child 확정 종료 bounded retry. reconcileRun 은 owner.json 의존인데
+    //   spawn 직후라 아직 미기록일 수 있어 no-signed-owner 로 kill 스킵→child leak(R17 HIGH). 이미 확보한
+    //   info(pid/groupId/startTime/exe)로 terminateTree 직접 호출(자기완결·leaf 러너 leader-dead=tree-dead).
     for (let attempt = 0; attempt < 3; attempt++) {
-      const r = await reconcileRun(e.runDir, e.runId, { terminate: true, finalState: "stale" }).catch(() => null);
-      if (r && (r.action === "killed" || r.action === "gone")) break;
+      const dead = await terminateTree(info.groupId, res.pid, { startTime: info.startTime, exe: info.exe }).catch(() => false);
+      if (dead) break;
       if ((await pidState(res.pid, info.startTime)) === "dead") break;
       await new Promise((r2) => setTimeout(r2, 200));
     }
