@@ -13,6 +13,14 @@ import { identity } from "../supervisor/osadapter.js";
 
 // pid 가 확정적으로 우리 프로세스가 아님(사멸/재사용)인지 판정.
 //   dead: absent(null) 또는 startTime 불일치=재사용 → release 안전. alive: startTime 일치. unknown: lookup 실패(indeterminate)=보존.
+// 최후 안전망 kill — startTime 정확 일치 확인 후에만 SIGKILL(오kill 방지). orphan 이 reconcileRun 로 안 죽을 때.
+async function killIfOurs(pid: number, startTime: string | null): Promise<void> {
+  if (!startTime) return; // 대조 불가 → kill 안 함(오kill 방지)
+  const id = await identity(pid).catch(() => null);
+  if (!id || id.startTime !== startTime) return; // 부재/재사용 → 우리 것 아님
+  try { process.kill(pid, "SIGKILL"); } catch { /* 이미 사멸/권한 */ }
+}
+
 export async function pidState(pid: number, startTime: string | null): Promise<"dead" | "alive" | "unknown"> {
   try {
     const id = await identity(pid);
@@ -140,7 +148,7 @@ export class RunGovernor {
   }
 
   // reap: grace 경과 슬롯 회수. stuck(pid 없음)·dead pid → reconcileRun 검증 후 release/quarantine.
-  //   release 는 reconcile 결과 killed/gone(+pid 소멸)일 때만. kill-failed/indeterminate → 슬롯 보존(quarantine·재시도).
+  //   **release 게이트 = pidState==="dead"**(reconcileRun 은 terminate/verify 부수효과·release 결정 아님). corrupt slot=grace 후 회수.
   //   skip: slotIdx→leaseId 맵. 그 슬롯이 현재 in-flight(spawn/attach 중)이고 **lease 가 일치**할 때만 보호(R2 HIGH·
   //   지연 release 가 후속 lease 슬롯을 오삭제/오노출하는 것 방지 — lease 대조).
   async reap(now: number = Date.now(), skip?: ReadonlyMap<number, string>): Promise<{ released: number; quarantined: number }> {
@@ -158,8 +166,9 @@ export class RunGovernor {
         // orphan(attach 실패·원치 않는 child) = terminate(kill) 부수효과. **release 게이트=pidState dead**(R10 HIGH-2: reconcileRun gone 이 registry 기반일 수 있어 pidState 로 실사멸 확인).
         if (m.orphan && m.runId && m.runDir && m.pid != null) {
           await reconcileRun(m.runDir, m.runId, { terminate: true, finalState: "stale" }).catch(() => null); // kill 시도(부수효과)
+          if ((await pidState(m.pid, m.startTime)) === "alive") await killIfOurs(m.pid, m.startTime); // R11 HIGH: runDir/owner 유실로 reconcile 이 못 죽이면 거버너 직접 SIGKILL(무한 quarantine·거버넌스 밖 child 방지)
           if ((await pidState(m.pid, m.startTime)) === "dead") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
-          return "quarantined"; // alive/unknown → 보존(다음 tick 재terminate)
+          return "quarantined"; // alive/unknown(권한 등) → 보존(다음 tick 재시도)
         }
         if (now - m.claimedAt <= GRACE_MS) return "keep"; // 갓-claim 보호
         if (m.pid == null || m.runId == null || m.runDir == null) { // grace 초과 pid-null = 크래시-전-attach 고아(재시작 후)
