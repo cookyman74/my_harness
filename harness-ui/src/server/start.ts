@@ -62,6 +62,10 @@ export async function startServer(opts: { port?: number } = {}): Promise<StartRe
   const security = makeSecurity(port);
   const boot = await resolveBootProjectRoot();
   const app = buildServer({ security, projectRoot: boot.root });
+  // M-y0 거버너 부팅 재건·reap 타이머 — **실 진입점은 start.ts** 다(index.ts isMain 은 이 경로에서 안 뜸).
+  //   listen 전에 boot reap 으로 크래시 잔존/누수 슬롯을 회수하지 않으면 K 슬롯이 영구 잠겨 신규 run 이 queued 로 멈춘다
+  //   ("AI로 반영" 무응답의 근본원인). 실패는 로깅만(거버너 없이도 서버는 뜸·다음 tick 복구).
+  await (await import("./adapters/governed.js")).initGovernance(boot.root).catch((e) => { process.stderr.write(`[governor] init failed: ${e}\n`); });
   await app.listen({ host: "127.0.0.1", port });
   await writeBootstrap(security.bootstrap).catch(() => {}); // 0600 파일(토큰 stdout 미출력)
   return { server: app, port, openUrl: bootstrapUrl(port, security.bootstrap), base: baseUrl(port) };
