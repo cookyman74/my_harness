@@ -42,13 +42,16 @@ async function dispatch(g: RunGovernor, claim: Claim, e: PendingEntry): Promise<
   let released = false;
   // inFlight delete/skip 은 lease 대조 — 내 lease 일 때만(지연 호출이 후속 lease 보호막 오삭제 방지·R2 HIGH).
   const clearInFlight = () => { if (inFlight.get(claim.slotIdx) === claim.leaseId) inFlight.delete(claim.slotIdx); };
-  const release = () => { if (released) return; released = true; clearInFlight(); void g.release(claim).then(() => scheduleTick()); };
+  // release rejection 도 후속 tick 보장(catch+finally)·unhandled 방지(R3 LOW).
+  const release = () => { if (released) return; released = true; clearInFlight(); void g.release(claim).catch((e2) => { try { console.error("[governor] release error", e2); } catch { /* */ } }).finally(() => scheduleTick()); };
   let res: SpawnResult = null;
   try { res = await e.spawn(release); }
   catch { release(); return; }
   if (!res || res.pid <= 0) { release(); return; }
   const id = await identity(res.pid).catch(() => null);
-  const ok = await g.attach(claim, { pid: res.pid, startTime: id?.startTime ?? "", runId: e.runId, runDir: e.runDir });
+  // attach 는 fs(rename) 예외 가능 → try/catch(예외 시 ok=false·정리·terminate 실행·inFlight leak/좀비 방지·R3 agy HIGH).
+  let ok = false;
+  try { ok = await g.attach(claim, { pid: res.pid, startTime: id?.startTime ?? "", runId: e.runId, runDir: e.runDir }); } catch { ok = false; }
   clearInFlight();
   if (!ok) {
     // attach 실패(lease 경합·reap) → 살아있는 child 는 owner registry+reconcileRun 로 종료(거버넌스 밖 방치 금지·R1 HIGH-4).
