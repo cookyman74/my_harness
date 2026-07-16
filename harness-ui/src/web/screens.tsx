@@ -12,6 +12,7 @@ import {
   postProjectRoot, ProjectRootError, cancelActiveRuns,
   getDefinition, putDefinition, rollbackDefinition, setDefinitionEdit, DefEditError,
   startRemediate, getRemediation, type RemediationReq, type RemediationResult,
+  startBatchRemediate, getBatch, BatchError, type BatchView, type BatchItemView,
   postEvalsConfig, EvalsConfigError,
   docsTreePath, docPreviewPath, postDocsSources, DocsSourcesError,
   CONTEXT_TREE_PATH, contextFilePath, downloadContextFile,
@@ -331,6 +332,18 @@ function useRemedDeepLink(): string | null {
     return () => window.removeEventListener("hashchange", read);
   }, []);
   return rid;
+}
+
+// M-y2: #/eval?batch=<batchId> — 검토 큐 딥링크(새로고침·공유 보존).
+const batchFromHash = (): string | null => { const m = /[?&]batch=([^&]+)/.exec(location.hash); return m ? decodeURIComponent(m[1]!) : null; };
+function useBatchDeepLink(): string | null {
+  const [bid, setBid] = useState<string | null>(batchFromHash);
+  useEffect(() => {
+    const read = () => setBid(batchFromHash());
+    window.addEventListener("hashchange", read);
+    return () => window.removeEventListener("hashchange", read);
+  }, []);
+  return bid;
 }
 
 export function Agents() {
@@ -2257,13 +2270,45 @@ const evalGradeKind = (g: string): "ok" | "warn" | "err" => (g === "A" || g === 
 const evalBarKind = (v: number): "ok" | "warn" | "err" => (v >= 0.75 ? "ok" : v >= 0.6 ? "warn" : "err");
 const evalPct = (v: number): number => Math.max(0, Math.min(1, v)) * 100;
 
+// M-y2: 배치 대상 후보 = 반영 가능한 findings 를 가진 아티팩트. selectable 판정 재사용.
+function remediableFindings(a: ArtifactScore): RemediationReq[] {
+  return a.findings.filter((f) => REMEDIABLE_ACTIONS.has(f.action)).map((f) => ({ action: f.action, why: f.why, target: f.target }));
+}
+function hasMedRisk(a: ArtifactScore): boolean { return a.findings.some((f) => REMEDIABLE_ACTIONS.has(f.action) && f.risk === "med"); }
+
 export function Eval() {
+  const batchId = useBatchDeepLink(); // #/eval?batch=<id> → 검토 큐
+  return batchId ? <BatchReviewQueue batchId={batchId} /> : <EvalMain />;
+}
+
+function EvalMain() {
   const st = useApi<ArtifactEvalResult>("/api/eval/artifacts");
   const editLink = (a: ArtifactScore) => `#/${a.kind === "agent" ? "agents" : "skills"}?sel=${encodeURIComponent(a.name)}`;
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [agreed, setAgreed] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [startErr, setStartErr] = useState<string | null>(null);
+  const keyOf = (a: ArtifactScore) => `${a.kind}:${a.name}`;
+  const toggle = (k: string) => setSel((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const startBatch = async (targets: Array<{ kind: "agent" | "skill"; name: string }>) => {
+    setStarting(true); setStartErr(null);
+    try {
+      const { batchId } = await startBatchRemediate(targets);
+      location.hash = `#/eval?batch=${encodeURIComponent(batchId)}`;
+    } catch (e) {
+      const msg = e instanceof BatchError
+        ? (e.code === "edit-disabled" ? "정의 편집이 비활성입니다" : e.code === "queue-full" ? "큐가 가득 찼습니다 — 잠시 후 재시도" : e.code === "too-many-targets" ? "대상이 너무 많습니다(최대 50개)" : e.code)
+        : String(e);
+      setStartErr(msg); setStarting(false);
+    }
+  };
   return (
     <div className="screen">
       <h2>Eval <span className="ver">자기평가</span></h2>
-      <Async state={st}>{(d) => d.rollup.count === 0 ? <div className="muted">평가할 에이전트/스킬이 없습니다.</div> : (
+      <Async state={st}>{(d) => d.rollup.count === 0 ? <div className="muted">평가할 에이전트/스킬이 없습니다.</div> : (() => {
+        const selectable = d.artifacts.filter((a) => remediableFindings(a).length > 0);
+        const selArr = selectable.filter((a) => sel.has(keyOf(a)));
+        return (
         <>
           <p className="muted">
             각 <b>에이전트·스킬</b>을 <b>4축</b>(트리거·구조·유도·가지치기)으로 평가하고, <b>구성 관계</b>(고아·끊긴 링크·미배정)를 점수에 반영한다. <b>차트로 전체 현황</b>을 본 뒤, 아래 <b>상세</b>에서 원인을 찾아 편집기로 수정한다.
@@ -2313,8 +2358,34 @@ export function Eval() {
             </div>
             <p className="muted" style={{ marginTop: 8 }}>정적 측정(계층A)·제안은 자동 적용 안 함(편집기 수동).</p>
           </Card>
+          {/* M-y2 비용 합의 카드 — 선택 대상 N개·대상당 초안 잡 1개(claude run)·quota 확인 후에만 실행. */}
+          {selectable.length > 0 && (
+            <Card title="선택 AI 반영 (배치 초안)">
+              <p className="muted">
+                반영 가능한 지적이 있는 <b>{selectable.length}개</b> 아티팩트 중 <b>{selArr.length}개</b> 선택됨.
+                각 대상마다 <b>초안 잡 1개</b>(claude 실행)가 백그라운드로 돌며, 실제 비용은 모델·토큰량에 따릅니다. 적용은 검토 큐에서 <b>사람이 diff 확인 후</b> 저장할 때만 이뤄집니다(자동 적용 없음).
+              </p>
+              <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <button className="btn" disabled={selArr.length === 0}
+                  onClick={() => setSel(new Set(selectable.filter((a) => a.grade === "C" || a.grade === "D").map(keyOf)))}>C·D등급 전체 선택</button>
+                <button className="btn" disabled={sel.size === 0} onClick={() => setSel(new Set())}>선택 해제</button>
+                <label className="row" style={{ gap: 4 }}>
+                  <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+                  <span>{selArr.length}개 대상에 대해 초안 잡 실행(비용·quota)에 동의</span>
+                </label>
+                <button className="btn primary" disabled={selArr.length === 0 || !agreed || starting}
+                  onClick={() => startBatch(selArr.map((a) => ({ kind: a.kind, name: a.name })))}>
+                  {starting ? "시작 중…" : `선택 ${selArr.length}개 AI 반영`}
+                </button>
+                {startErr && <span className="warn-text" role="alert">{startErr}</span>}
+              </div>
+            </Card>
+          )}
           {/* 상세 — 같은 페이지 차트 하위(별도 페이지 아님). 아티팩트별 4축·지적사항·편집 딥링크. */}
-          <Table cols={["종류", "이름", "등급", "트리거", "구조", "유도", "가지치기", "지적", ""]} rows={d.artifacts.map((a) => [
+          <Table cols={["", "종류", "이름", "등급", "트리거", "구조", "유도", "가지치기", "지적", ""]} rows={d.artifacts.map((a) => [
+            remediableFindings(a).length > 0
+              ? <input type="checkbox" aria-label={`선택 ${a.name}`} checked={sel.has(keyOf(a))} onChange={() => toggle(keyOf(a))} />
+              : <span className="muted" aria-hidden="true"> </span>,
             a.kind === "agent" ? "에이전트" : "스킬",
             <span className="mono">{a.name}</span>,
             <Badge kind={evalGradeKind(a.grade)}>{a.grade}</Badge>,
@@ -2327,8 +2398,121 @@ export function Eval() {
             <span className="eval-actions"><RemediateButton a={a} /><a className="link" href={editLink(a)}>편집 →</a></span>,
           ])} />
         </>
-      )}</Async>
+        );
+      })()}</Async>
     </div>
+  );
+}
+
+// M-y2 검토 큐 — 배치 진행/결과를 대상별 카드로. ready 는 diff(접힘) + [적용](사람 승인)·[건너뛰기]. 적용=putDefinition(F7 재사용).
+const BATCH_TERMINAL = new Set(["ready", "failed", "invalid", "cancelled", "skipped"]);
+function batchStatusKind(s: string): "ok" | "warn" | "err" {
+  return s === "ready" ? "ok" : s === "running" || s === "queued" ? "warn" : "err";
+}
+function BatchReviewQueue({ batchId }: { batchId: string }) {
+  const [view, setView] = useState<BatchView | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [applied, setApplied] = useState<Set<string>>(new Set());
+  const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  const keyOf = (it: BatchItemView) => `${it.kind}:${it.name}`;
+  useEffect(() => {
+    let live = true; let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      try { const v = await getBatch(batchId); if (!live) return; setView(v); setErr(null);
+        if (v.done < v.total) timer = setTimeout(poll, 2000); // 미완 있으면 계속 폴링
+      } catch (e) { if (!live) return; setErr(e instanceof BatchError ? e.code : String(e)); timer = setTimeout(poll, 4000); }
+    };
+    void poll();
+    return () => { live = false; if (timer) clearTimeout(timer); };
+  }, [batchId]);
+
+  const retryTargets = (items: BatchItemView[]) => items.map((it) => ({ kind: it.kind, name: it.name }));
+  const regen = async (items: BatchItemView[]) => {
+    try { const { batchId: nb } = await startBatchRemediate(retryTargets(items)); location.hash = `#/eval?batch=${encodeURIComponent(nb)}`; }
+    catch (e) { setErr(e instanceof BatchError ? e.code : String(e)); }
+  };
+
+  return (
+    <div className="screen">
+      <h2>Eval <span className="ver">검토 큐</span></h2>
+      <p className="muted"><a className="link" href="#/eval">← Eval 로</a> · 배치 <span className="mono">{batchId}</span></p>
+      {err && <p className="banner err" role="alert">배치 조회 오류: {err}</p>}
+      {!view ? <div className="muted">불러오는 중…</div> : (() => {
+        const failed = view.items.filter((it) => (it.status === "failed" || it.status === "invalid") && !skipped.has(keyOf(it)));
+        const staleReady = view.items.filter((it) => it.status === "ready" && it.stale && !applied.has(keyOf(it)));
+        return (<>
+          <Card title={`진행 ${view.done}/${view.total}${view.done < view.total ? " (실행 중…)" : " · 완료"}`}>
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <span className="muted">적용 {applied.size} · 건너뜀 {skipped.size} · 실패 {failed.length} · stale {staleReady.length}</span>
+              {failed.length > 0 && <button className="btn" onClick={() => regen(failed)}>실패분 {failed.length}개 재시도</button>}
+              {staleReady.length > 0 && <button className="btn" onClick={() => regen(staleReady)}>stale {staleReady.length}개 재생성</button>}
+            </div>
+          </Card>
+          {view.items.map((it) => (
+            <BatchItemCard key={keyOf(it)} item={it} applied={applied.has(keyOf(it))} skipped={skipped.has(keyOf(it))}
+              onApplied={() => setApplied((s) => new Set(s).add(keyOf(it)))}
+              onSkip={() => setSkipped((s) => new Set(s).add(keyOf(it)))} />
+          ))}
+        </>);
+      })()}
+    </div>
+  );
+}
+
+function BatchItemCard({ item, applied, skipped, onApplied, onSkip }: {
+  item: BatchItemView; applied: boolean; skipped: boolean; onApplied: () => void; onSkip: () => void;
+}) {
+  const [draft, setDraft] = useState<RemediationResult | null>(null);
+  const [loadingDraft, setLoadingDraft] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const loadDraft = async () => {
+    if (draft || loadingDraft || !item.runId) return;
+    setLoadingDraft(true);
+    try { setDraft(await getRemediation(item.runId)); } catch (e) { setMsg(e instanceof DefEditError ? e.code : String(e)); }
+    finally { setLoadingDraft(false); }
+  };
+  const apply = async () => {
+    if (!item.runId) return;
+    setApplying(true); setMsg(null);
+    try {
+      const d = draft ?? await getRemediation(item.runId);
+      setDraft(d);
+      if (d.status !== "ready") { setMsg("초안이 준비되지 않았습니다"); setApplying(false); return; }
+      const def = await getDefinition(item.kind, item.name); // 현재 baseHash·pathId(낙관적 동시성)
+      await putDefinition(item.kind, item.name, { content: d.proposedContent, baseHash: def.baseHash, pathId: def.pathId });
+      onApplied(); setMsg("적용됨(저장 완료)");
+    } catch (e) {
+      const code = e instanceof DefEditError ? e.code : String(e);
+      setMsg(code === "stale-definition" || code === "conflict" ? "정의가 변경됨 — [stale 재생성] 필요" : `적용 실패: ${code}`);
+    } finally { setApplying(false); }
+  };
+  const done = applied || skipped;
+  return (
+    <Card title={`${item.kind === "agent" ? "에이전트" : "스킬"} · ${item.name}`}>
+      <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <Badge kind={batchStatusKind(item.status)}>{item.status}</Badge>
+        {item.stale && item.status === "ready" && <Badge kind="warn">stale(정의 변경됨)</Badge>}
+        {applied && <Badge kind="ok">적용됨</Badge>}
+        {skipped && <Badge kind="err">건너뜀</Badge>}
+        {item.error && <span className="muted">{item.error}</span>}
+      </div>
+      {item.status === "ready" && !done && (
+        <>
+          <details className="finding-details" onToggle={(e) => (e.currentTarget as HTMLDetailsElement).open && loadDraft()}>
+            <summary>변경 미리보기(diff)</summary>
+            {loadingDraft ? <p className="muted">초안 불러오는 중…</p>
+              : draft && draft.status === "ready" ? <DiffView before={draft.originalContent} after={draft.proposedContent} />
+              : <p className="muted">초안을 불러오려면 펼치세요.</p>}
+          </details>
+          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+            <button className="btn primary" disabled={applying} onClick={apply}>{applying ? "적용 중…" : "적용(저장)"}</button>
+            <button className="btn" disabled={applying} onClick={onSkip}>건너뛰기</button>
+          </div>
+        </>
+      )}
+      {msg && <p className={`banner ${applied ? "ok" : "err"}`} role="status">{msg}</p>}
+    </Card>
   );
 }
 

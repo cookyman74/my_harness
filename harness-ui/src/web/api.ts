@@ -283,6 +283,32 @@ export const startRemediate = (kind: "agent" | "skill", name: string, baseHash: 
   apiPost<{ runId: string; status: "running" }>("/api/eval/remediate", { kind, name, baseHash, findings });
 export const getRemediation = (runId: string) => apiGet<RemediationResult>(`/api/eval/remediate/${encodeURIComponent(runId)}`);
 
+// M-y1/M-y2 배치 초안 — 서버가 findings 재도출(client 는 대상만 전송). 응답 batchId 로 검토 큐 폴링.
+export type BatchTarget = { kind: "agent" | "skill"; name: string; baseHash?: string };
+export type BatchItemStatus = "queued" | "running" | "ready" | "failed" | "invalid" | "cancelled" | "skipped";
+export type BatchItemView = { kind: "agent" | "skill"; name: string; status: BatchItemStatus; runId: string | null; stale?: boolean; error?: string };
+export type BatchView = { batchId: string; done: number; total: number; items: BatchItemView[] };
+// 배치 에러 — status + error code 보존(queue-full 429·too-many-targets 400·edit-disabled 403 UI 매핑용).
+export class BatchError extends Error {
+  constructor(public status: number, public code: string) { super(`${status}: ${code}`); this.name = "BatchError"; }
+}
+async function batchReject(r: Response): Promise<never> {
+  if (r.status === 401) { clearSession(); throw new BatchError(401, "session-expired"); }
+  let code = String(r.status);
+  try { const d = await r.json() as { error?: string }; if (d?.error) code = d.error; } catch { /* */ }
+  throw new BatchError(r.status, code);
+}
+export async function startBatchRemediate(targets: BatchTarget[]): Promise<{ batchId: string; queued: number; skipped: number }> {
+  const r = await fetch("/api/eval/remediate/batch", { method: "POST", headers: authHeaders({ "content-type": "application/json" }), body: JSON.stringify({ targets }) });
+  if (!r.ok) return batchReject(r);
+  return r.json() as Promise<{ batchId: string; queued: number; skipped: number }>;
+}
+export async function getBatch(batchId: string): Promise<BatchView> {
+  const r = await fetch(`/api/eval/remediate/batch/${encodeURIComponent(batchId)}`, { headers: authHeaders() });
+  if (!r.ok) return batchReject(r);
+  return r.json() as Promise<BatchView>;
+}
+
 // ── F16(M-f) 스킬 사본 drift 분류·다타깃 동기 ──
 export type SkillCopyClass =
   | "canonical" | "symlink-to-canonical" | "hardlink-same-inode"
