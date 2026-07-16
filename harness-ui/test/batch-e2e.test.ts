@@ -42,7 +42,9 @@ async function seedTarget(name: string, runId: string) {
   return { kind: "skill" as const, name, baseHash: sha(skillDef(name)), baseCanonicalHash: "c", findings: [], runId, status: "running" as const };
 }
 
-describe("M-y3 배치 검토→일괄 적용 E2E (HTTP·결정적)", () => {
+// Windows 는 정의 mutation 이 기본 차단(501 unsupported-platform-write·v0.8 확립 정책·safePathWindows 증명 전)이라
+//   PUT 적용을 검증하는 이 E2E 는 POSIX 전용. 기존 defedit/driftsync mutation 스위트와 동일 가드.
+describe.skipIf(process.platform === "win32")("M-y3 배치 검토→일괄 적용 E2E (HTTP·결정적)", () => {
   it("3개 대상 배치 → GET ready 집계 → 대상별 초안 조회 → PUT 적용 → 무손실", async () => {
     const batchId = "2026-07-16T00-00-00-000Z-batch-e2edeadbeef";
     const items = [await seedTarget("alpha", `${batchId}-0`), await seedTarget("beta", `${batchId}-1`), await seedTarget("gamma", `${batchId}-2`)];
