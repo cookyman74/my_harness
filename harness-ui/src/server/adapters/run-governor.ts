@@ -13,20 +13,28 @@ import { identity } from "../supervisor/osadapter.js";
 
 // pid 가 확정적으로 우리 프로세스가 아님(사멸/재사용)인지 판정.
 //   dead: absent(null) 또는 startTime 불일치=재사용 → release 안전. alive: startTime 일치. unknown: lookup 실패(indeterminate)=보존.
-// 최후 안전망 kill — startTime 정확 일치 확인 후에만 SIGKILL(오kill 방지). orphan 이 reconcileRun 로 안 죽을 때.
-async function killIfOurs(pid: number, startTime: string | null): Promise<void> {
-  if (!startTime) return; // 대조 불가 → kill 안 함(오kill 방지)
-  const id = await identity(pid).catch(() => null);
-  if (!id || id.startTime !== startTime) return; // 부재/재사용 → 우리 것 아님
-  try { process.kill(pid, "SIGKILL"); } catch { /* 이미 사멸/권한 */ }
+// 소유 대조 — startTime AND exe 일치(둘 다 있을 때)만 우리 프로세스로 인정(PID 재사용 방어 강화·R12).
+function ownsPid(id: { startTime: string; exe: string } | null, startTime: string | null, exe: string | null): boolean {
+  if (!id || !startTime) return false;
+  if (id.startTime !== startTime) return false;
+  if (exe && id.exe !== exe) return false; // exe 기록돼 있으면 대조(불일치=재사용)
+  return true;
 }
 
-export async function pidState(pid: number, startTime: string | null): Promise<"dead" | "alive" | "unknown"> {
+// 최후 안전망 kill — 소유 확인(startTime+exe) 후 **프로세스 그룹** SIGKILL(detached 자식 포함). orphan 이 reconcileRun 로 안 죽을 때.
+async function killIfOurs(pid: number, startTime: string | null, exe: string | null): Promise<void> {
+  const id = await identity(pid).catch(() => null);
+  if (!ownsPid(id, startTime, exe)) return; // 부재/재사용/exe 불일치 → 우리 것 아님(오kill 방지)
+  try { process.kill(-pid, "SIGKILL"); }     // 그룹 종료(detached=leader·pgid=pid·자식 포함)
+  catch { try { process.kill(pid, "SIGKILL"); } catch { /* 이미 사멸/권한 */ } } // 그룹 실패 시 단일 fallback
+}
+
+export async function pidState(pid: number, startTime: string | null, exe: string | null = null): Promise<"dead" | "alive" | "unknown"> {
   try {
     const id = await identity(pid);
-    if (!id) return "dead";           // 부재 = 확정 사멸(startTime 무관·release 안전·capacity leak 방지·R8)
-    if (!startTime) return "unknown"; // 존재하나 startTime 미기록(attach 시 identity 실패) → 대조 불가·보수적 보존(살아있는 run 오release 방지·R7)
-    return id.startTime === startTime ? "alive" : "dead"; // startTime 불일치 = PID 재사용 → dead
+    if (!id) return "dead";           // 부재 = 확정 사멸(release 안전·capacity leak 방지·R8)
+    if (!startTime) return "unknown"; // startTime 미기록 → 대조 불가·보수적 보존(R7)
+    return ownsPid(id, startTime, exe) ? "alive" : "dead"; // startTime/exe 불일치 = PID 재사용 → dead(R12)
   } catch { return "unknown"; } // IdentityLookupError 등 → 보존
 }
 
@@ -39,7 +47,7 @@ const SLOT_META_MAX = 64 * 1024;
 // 슬롯 메타(단일 파일 O_EXCL 원자 생성·attach 시 rename 갱신). leaseId=fencing token.
 export type SlotMeta = {
   leaseId: string; ownerType: OwnerType; batchId: string | null;
-  claimedAt: number; runId: string | null; pid: number | null; startTime: string | null; runDir: string | null;
+  claimedAt: number; runId: string | null; pid: number | null; startTime: string | null; exe: string | null; runDir: string | null;
   orphan?: boolean; // attach 실패 child(원치 않음) — reap 이 terminate 후 확정 사멸 시 release.
 };
 export type Claim = { slotIdx: number; leaseId: string };
@@ -75,7 +83,7 @@ export class RunGovernor {
     for (let i = 0; i < limit; i++) {
       const got = await this.withSlot(i, async (): Promise<Claim | null> => {
         const leaseId = randomBytes(16).toString("hex");
-        const meta: SlotMeta = { leaseId, ownerType, batchId, claimedAt: Date.now(), runId: null, pid: null, startTime: null, runDir: null };
+        const meta: SlotMeta = { leaseId, ownerType, batchId, claimedAt: Date.now(), runId: null, pid: null, startTime: null, exe: null, runDir: null };
         let fh;
         try { fh = await open(slotPath(i), constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600); }
         catch (e) { if ((e as NodeJS.ErrnoException).code === "EEXIST") return null; throw e; } // 점유만 null·그 외 throw
@@ -88,12 +96,12 @@ export class RunGovernor {
   }
 
   // attach: spawn 후 pid/runId 기록(leaseId 검증 → 임시파일 rename 원자 갱신).
-  async attach(c: Claim, info: { pid: number; startTime: string; runId: string; runDir: string }): Promise<boolean> {
+  async attach(c: Claim, info: { pid: number; startTime: string; exe: string; runId: string; runDir: string }): Promise<boolean> {
     await this.ensureReady();
     return this.withSlot(c.slotIdx, async () => {
       const m = await this.readSlot(c.slotIdx);
       if (!m || m.leaseId !== c.leaseId) return false; // 내 lease 아님 → no-op
-      const next: SlotMeta = { ...m, pid: info.pid, startTime: info.startTime, runId: info.runId, runDir: info.runDir };
+      const next: SlotMeta = { ...m, pid: info.pid, startTime: info.startTime, exe: info.exe, runId: info.runId, runDir: info.runDir };
       const tmp = slotPath(c.slotIdx) + ".tmp";
       await writeFile(tmp, JSON.stringify(next), "utf8");
       await rename(tmp, slotPath(c.slotIdx));
@@ -103,12 +111,12 @@ export class RunGovernor {
 
   // markOrphan: attach 실패 child 를 slot 에 pid+orphan 기록(lease 검증). slot 존재로 claim 차단·reap 이 terminate 담당.
   //   release 대신 이걸 호출하면 슬롯이 점유 상태로 남아(K 회계 정확) reap 이 확정 사멸까지 책임진다.
-  async markOrphan(c: Claim, info: { pid: number; startTime: string; runId: string; runDir: string }): Promise<boolean> {
+  async markOrphan(c: Claim, info: { pid: number; startTime: string; exe: string; runId: string; runDir: string }): Promise<boolean> {
     await this.ensureReady();
     return this.withSlot(c.slotIdx, async () => {
       const m = await this.readSlot(c.slotIdx);
       if (!m || m.leaseId !== c.leaseId) return false;
-      const next: SlotMeta = { ...m, pid: info.pid, startTime: info.startTime, runId: info.runId, runDir: info.runDir, orphan: true };
+      const next: SlotMeta = { ...m, pid: info.pid, startTime: info.startTime, exe: info.exe, runId: info.runId, runDir: info.runDir, orphan: true };
       const tmp = slotPath(c.slotIdx) + ".tmp";
       await writeFile(tmp, JSON.stringify(next), "utf8");
       await rename(tmp, slotPath(c.slotIdx));
@@ -166,8 +174,8 @@ export class RunGovernor {
         // orphan(attach 실패·원치 않는 child) = terminate(kill) 부수효과. **release 게이트=pidState dead**(R10 HIGH-2: reconcileRun gone 이 registry 기반일 수 있어 pidState 로 실사멸 확인).
         if (m.orphan && m.runId && m.runDir && m.pid != null) {
           await reconcileRun(m.runDir, m.runId, { terminate: true, finalState: "stale" }).catch(() => null); // kill 시도(부수효과)
-          if ((await pidState(m.pid, m.startTime)) === "alive") await killIfOurs(m.pid, m.startTime); // R11 HIGH: runDir/owner 유실로 reconcile 이 못 죽이면 거버너 직접 SIGKILL(무한 quarantine·거버넌스 밖 child 방지)
-          if ((await pidState(m.pid, m.startTime)) === "dead") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
+          if ((await pidState(m.pid, m.startTime, m.exe)) === "alive") await killIfOurs(m.pid, m.startTime, m.exe); // R11 HIGH: runDir/owner 유실로 reconcile 이 못 죽이면 거버너 직접 SIGKILL(무한 quarantine·거버넌스 밖 child 방지)
+          if ((await pidState(m.pid, m.startTime, m.exe)) === "dead") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
           return "quarantined"; // alive/unknown(권한 등) → 보존(다음 tick 재시도)
         }
         if (now - m.claimedAt <= GRACE_MS) return "keep"; // 갓-claim 보호
@@ -176,7 +184,7 @@ export class RunGovernor {
         }
         // pid 있는 정상 run: reconcileRun(verify·finalize 부수효과) 후 **release 게이트=pidState dead**(alive/unknown=keep·PID 재사용 잠식·살아있는 run 오release 방지).
         await reconcileRun(m.runDir, m.runId, { terminate: false, finalState: "stale" }).catch(() => null);
-        if ((await pidState(m.pid, m.startTime)) === "dead") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
+        if ((await pidState(m.pid, m.startTime, m.exe)) === "dead") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
         return "keep";
       });
       if (res === "released") released++; else if (res === "quarantined") quarantined++;
