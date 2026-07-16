@@ -75,12 +75,14 @@ describe("RunGovernor — 강제 상한·풀", () => {
     void a;
   });
 
-  it("reap skip — in-flight 슬롯(spawn 진행 중)은 회수 안 함", async () => {
+  it("reap skip — in-flight 슬롯(lease 일치)은 회수 안 함·lease 불일치는 회수", async () => {
     const g = await gov(2);
     const a = await g.claim("interactive");                        // pid 미기록(spawn 전)
-    const r = await g.reap(Date.now() + 20_000, new Set([a!.slotIdx])); // grace 경과여도 skip
-    expect(r.released).toBe(0);
+    // lease 일치 skip → 보호
+    expect((await g.reap(Date.now() + 20_000, new Map([[a!.slotIdx, a!.leaseId]]))).released).toBe(0);
     expect(await g.activeCount()).toBe(1);
+    // lease 불일치(다른 leaseId) → 보호 안 됨·stuck 회수
+    expect((await g.reap(Date.now() + 20_000, new Map([[a!.slotIdx, "other-lease"]]))).released).toBe(1);
   });
 
   it("재시작 복구 — 새 인스턴스가 기존 슬롯 파일 인식(활성 카운트 유지)", async () => {

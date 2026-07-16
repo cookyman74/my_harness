@@ -114,16 +114,16 @@ export class RunGovernor {
 
   // reap: grace 경과 슬롯 회수. stuck(pid 없음)·dead pid → reconcileRun 검증 후 release/quarantine.
   //   release 는 reconcile 결과 killed/gone(+pid 소멸)일 때만. kill-failed/indeterminate → 슬롯 보존(quarantine·재시도).
-  //   skip: 현재 프로세스에서 spawn/attach 진행 중(in-flight)인 슬롯 — pid 아직 미기록이라 stuck 으로 오회수 방지(R1 HIGH-3).
-  async reap(now: number = Date.now(), skip?: ReadonlySet<number>): Promise<{ released: number; quarantined: number }> {
+  //   skip: slotIdx→leaseId 맵. 그 슬롯이 현재 in-flight(spawn/attach 중)이고 **lease 가 일치**할 때만 보호(R2 HIGH·
+  //   지연 release 가 후속 lease 슬롯을 오삭제/오노출하는 것 방지 — lease 대조).
+  async reap(now: number = Date.now(), skip?: ReadonlyMap<number, string>): Promise<{ released: number; quarantined: number }> {
     await this.ensureReady();
     let released = 0, quarantined = 0;
     for (let i = 0; i < this.k; i++) {
-      if (skip?.has(i)) continue; // in-flight 슬롯 보호
       const res = await this.withSlot(i, async (): Promise<"released" | "quarantined" | "keep"> => {
-        if (skip?.has(i)) return "keep";
         const m = await this.readSlot(i);
         if (!m) return "keep";
+        if (skip && skip.get(i) === m.leaseId) return "keep"; // in-flight·lease 일치 → 보호
         if (now - m.claimedAt <= GRACE_MS) return "keep"; // 갓-claim 보호
         if (m.pid == null || m.runId == null || m.runDir == null) { // grace 초과 pid-null = 크래시-전-attach 고아(재시작 후)
           await unlink(slotPath(i)).catch(() => {}); return "released";

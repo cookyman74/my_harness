@@ -15,7 +15,7 @@ export type PendingEntry = {
 
 let gov: RunGovernor | null = null;
 const pending: PendingEntry[] = [];
-const inFlight = new Set<number>();       // spawn/attach 진행 중 슬롯(reap 보호·R1 HIGH-3)
+const inFlight = new Map<number, string>(); // slotIdx→leaseId(reap 보호·lease 대조·R2 HIGH: 지연 release 오삭제 방지)
 let ticking = false, tickAgain = false;   // tick single-flight(R1 HIGH tick race)
 let reapTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -31,22 +31,25 @@ export async function submitRun(e: PendingEntry): Promise<{ dispatched: boolean 
   const claim = await g.claim(e.ownerType, batchIdOf(e.runId));
   if (claim) { await dispatch(g, claim, e); return { dispatched: true }; }
   pending.push(e);
+  scheduleTick(); // R2 MED lost-wakeup: push 전 지나간 release/tick 이 놓친 경우 즉시 재확인
   return { dispatched: false };
 }
 function batchIdOf(runId: string): string | null { return runId.startsWith("batch-") ? runId : null; }
 
 // dispatch: spawn→attach·onExit→release→tick. attach 실패 시 살아있는 child terminate 후 release(uncounted 방지).
 async function dispatch(g: RunGovernor, claim: Claim, e: PendingEntry): Promise<void> {
-  inFlight.add(claim.slotIdx);
+  inFlight.set(claim.slotIdx, claim.leaseId);
   let released = false;
-  const release = () => { if (released) return; released = true; inFlight.delete(claim.slotIdx); void g.release(claim).then(() => scheduleTick()); };
+  // inFlight delete/skip 은 lease 대조 — 내 lease 일 때만(지연 호출이 후속 lease 보호막 오삭제 방지·R2 HIGH).
+  const clearInFlight = () => { if (inFlight.get(claim.slotIdx) === claim.leaseId) inFlight.delete(claim.slotIdx); };
+  const release = () => { if (released) return; released = true; clearInFlight(); void g.release(claim).then(() => scheduleTick()); };
   let res: SpawnResult = null;
   try { res = await e.spawn(release); }
   catch { release(); return; }
   if (!res || res.pid <= 0) { release(); return; }
   const id = await identity(res.pid).catch(() => null);
   const ok = await g.attach(claim, { pid: res.pid, startTime: id?.startTime ?? "", runId: e.runId, runDir: e.runDir });
-  inFlight.delete(claim.slotIdx);
+  clearInFlight();
   if (!ok) {
     // attach 실패(lease 경합·reap) → 살아있는 child 는 owner registry+reconcileRun 로 종료(거버넌스 밖 방치 금지·R1 HIGH-4).
     const alive = await identity(res.pid).catch(() => null);
@@ -56,7 +59,7 @@ async function dispatch(g: RunGovernor, claim: Claim, e: PendingEntry): Promise<
 }
 
 // tick single-flight — 동시 호출은 1회 실행·중첩 요청은 tickAgain 으로 재실행(pending splice race 방지·R1 HIGH).
-export function scheduleTick(): void { void tick(); }
+export function scheduleTick(): void { void tick().catch((e) => { try { console.error("[governor] tick error", e); } catch { /* */ } }); } // R2 LOW: unhandled rejection 방지
 export async function tick(): Promise<void> {
   if (ticking) { tickAgain = true; return; }
   ticking = true;
@@ -82,7 +85,7 @@ export async function initGovernance(projectRoot: string): Promise<void> {
   await g.init();
   await g.reap().catch(() => {}); // 크래시 잔존 슬롯 회수(fresh process·in-flight 없음)
   await failOrphanQueued(projectRoot).catch(() => {});
-  if (!reapTimer) reapTimer = setInterval(() => { void g.reap(Date.now(), inFlight).then(() => scheduleTick()).catch(() => {}); }, 5000);
+  if (!reapTimer) { reapTimer = setInterval(() => { void g.reap(Date.now(), inFlight).then(() => scheduleTick()).catch(() => {}); }, 5000); reapTimer.unref?.(); }
 }
 export function stopGovernance(): void { if (reapTimer) { clearInterval(reapTimer); reapTimer = null; } }
 

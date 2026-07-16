@@ -87,7 +87,7 @@ if (isMain) {
     const security = makeSecurity(port);
     const boot = await resolveBootProjectRoot();
     const app = buildServer({ security, projectRoot: boot.root });
-    await (await import("./adapters/governed.js")).initGovernance(boot.root).catch(() => {}); // M-y0: 거버너 부팅 재건·reap interval(실서버만·테스트 buildServer 제외)
+    await (await import("./adapters/governed.js")).initGovernance(boot.root).catch((e) => { process.stderr.write(`[governor] init failed: ${e}\n`); }); // M-y0: 거버너 부팅 재건·reap interval(실서버만). 실패는 로깅(R2 MED·은닉 금지)
     try {
       await app.listen({ host: "127.0.0.1", port });
       const { writeBootstrap } = await import("./launcher.js");
