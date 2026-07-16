@@ -61,12 +61,17 @@ export async function groupAlive(groupId: number | string | null, pid: number): 
   catch (e) { return (e as { code?: string }).code === "EPERM"; } // EPERM=alive, ESRCH=dead
 }
 
-// leader identity 가 expected 와 완전 일치하는지(startTime+groupId). lookup 실패→null(호출측 보수 처리).
-async function verifyLeader(pid: number, groupId: number | string | null, expected: { startTime: string }): Promise<boolean | null> {
+// leader identity 가 expected 와 일치하는지. lookup 실패→null(호출측 보수 처리).
+//   startTime 필수 대조. exe 는 best-effort 추가 게이트(양쪽 값 있을 때만 — 같은-초 PID 재사용 오kill 방어·R15 HIGH).
+//   groupId!==null 이면 그룹까지 요구·null 이면 leader pid 단독 대조(leaf 러너 orphan; groupId 소실 시 quarantine capacity leak 방지·R15 MED).
+async function verifyLeader(pid: number, groupId: number | string | null, expected: { startTime: string; exe?: string }): Promise<boolean | null> {
   let cur;
   try { cur = await identity(pid); } catch { return null; } // 미확인
   if (!cur) return false; // leader 부재
-  return cur.startTime === expected.startTime && String(cur.groupId) === String(groupId);
+  if (cur.startTime !== expected.startTime) return false;                 // startTime 불일치=PID 재사용
+  if (expected.exe && cur.exe && cur.exe !== expected.exe) return false;  // exe 대조(양쪽 값 있을 때만·하위호환)
+  if (groupId !== null && String(cur.groupId) !== String(groupId)) return false; // 그룹 요구(null=leader 단독)
+  return true;
 }
 
 // 그룹/프로세스 종료 확인.
