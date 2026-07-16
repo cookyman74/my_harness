@@ -337,7 +337,12 @@ export async function superviseRun(runDir: string, cmd: string, args: string[], 
     //   finalize 최종 write 뒤 늦은 pump 가 updatedAt/summary 를 clobber 하는 것을 막는다(R23 MED). 이미 발화한
     //   in-flight ingest 는 withStatusLock 이 finalize write 와 직렬화하므로 안전.
     const stop = () => { stopped = true; if (timer) clearTimeout(timer); };
-    exited.then((info) => { stop(); return finalize(runDir, info); }, () => { stop(); }).catch(() => {});
+    // 양쪽(resolve/reject) 모두 stop 후 finalize 보장 — exited 는 현 구현상 항상 resolve 하지만, 방어적으로
+    //   reject 경로에서도 finalize 를 돌려 상태 미확정·owner 미정리(슬롯 leak)를 막는다(R24).
+    exited.then(
+      (info) => { stop(); return finalize(runDir, info); },
+      () => { stop(); return finalize(runDir, { code: null, signal: null }); },
+    ).catch(() => {});
     // M-y0: 거버너 release 통지 — exit 시 1회(정보 무관·슬롯 반환). finalize 와 독립 체인(release 지연 방지).
     if (onExit) exited.then((info) => { try { onExit(info); } catch { /* */ } }, () => { try { onExit({ code: null, signal: null }); } catch { /* */ } });
   }
