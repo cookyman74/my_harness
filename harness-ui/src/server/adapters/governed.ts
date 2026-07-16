@@ -106,13 +106,19 @@ export async function tick(): Promise<void> {
 
 // 부팅 재건(R1 HIGH-2): stale 슬롯 reap + orphan queued run 을 failed 로 명시 종료(spawn envelope 소실·영구정체 방지).
 //   배치 resume(M-y1)은 별도 envelope 영속 후. reap interval 시작.
-export async function initGovernance(projectRoot: string): Promise<void> {
+export async function initGovernance(projectRoot: string, opts: { sweep?: () => Promise<void> } = {}): Promise<void> {
   const g = governor();
   await g.init();
   await g.reap(Date.now(), inFlight).catch(() => {}); // 크래시 잔존 슬롯 회수. 부팅은 listen 전이라 inFlight 는 비어있지만
   //   타이머 reap 과 동일 시그니처로 통일 — initGovernance 가 향후 서버 가동 중 재호출돼도 in-flight 슬롯 오회수 방지(R26 방어).
   await failOrphanQueued(projectRoot).catch(() => {});
-  if (!reapTimer) { reapTimer = setInterval(() => { void g.reap(Date.now(), inFlight).then(() => scheduleTick()).catch(() => {}); }, 5000); reapTimer.unref?.(); }
+  await opts.sweep?.().catch(() => {}); // 부팅 배치 sweep(폴링 없이 terminal 반납·M-y1)
+  if (!reapTimer) {
+    reapTimer = setInterval(() => {
+      void g.reap(Date.now(), inFlight).then(() => scheduleTick()).then(() => opts.sweep?.()).catch(() => {}); // reap + 배치 sweep(폴링-종속 큐잠금 방지)
+    }, 5000);
+    reapTimer.unref?.();
+  }
 }
 export function stopGovernance(): void { if (reapTimer) { clearInterval(reapTimer); reapTimer = null; } }
 
