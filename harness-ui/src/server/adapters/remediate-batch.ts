@@ -146,18 +146,22 @@ export async function startBatch(root: string, targets: BatchTarget[], deps: Bat
 
     const batchId = newRunId("batch");
     const createdAt = new Date().toISOString();
-    // **runId 를 submit 前 미리 할당**하고 batch.json 을 먼저 영속한다. write#1 이후 submit 도중 크래시해도 batch.json 이
-    //   runId 를 이미 가지므로 sweeper 가 그 run 을 reconcile(없으면 failed) → 고아 run·영구 queued(cap 누수) 방지(R2 HIGH).
-    for (const it of runnable) it.runId = newRunId("batch");
-    await writeBatchAtomic(root, batchId, { batchId, createdAt, items });
-    for (const it of runnable) {
-      const content = contents.get(`${it.kind}:${it.name}`)!;
-      try {
-        const r = await startRun(root, it.kind, it.name, content, it.findings, { ownerType: "batch", runId: it.runId! });
-        it.status = r.dispatched ? "running" : "queued";
-      } catch { it.status = "failed"; it.error = "submit-failed"; } // 실패 아이템은 terminal → 파생 계수에서 제외(cap 정확)
-    }
-    await writeBatchAtomic(root, batchId, { batchId, createdAt, items });
+    // write#1 → submit → write#2 전체를 **배치 락**으로 감싼다 — 그 사이 sweeper/readBatch 가 같은 batch.json 을 동시
+    //   write 하면 tmp+rename 경합으로 torn JSON·ENOENT 가 난다(agy R3 HIGH). 신규 batchId 라 초기 경합은 없지만
+    //   write#1(runId·queued) 직후 sweeper 가 집어가므로 락 필수.
+    await withBatchLock(batchId, async () => {
+      // **runId 를 submit 前 미리 할당**하고 먼저 영속 — 크래시해도 sweeper 가 run 을 reconcile(고아·cap 누수 방지·R2 HIGH).
+      for (const it of runnable) it.runId = newRunId("batch");
+      await writeBatchAtomic(root, batchId, { batchId, createdAt, items });
+      for (const it of runnable) {
+        const content = contents.get(`${it.kind}:${it.name}`)!;
+        try {
+          const r = await startRun(root, it.kind, it.name, content, it.findings, { ownerType: "batch", runId: it.runId! });
+          it.status = r.dispatched ? "running" : "queued";
+        } catch { it.status = "failed"; it.error = "submit-failed"; } // 실패 아이템은 terminal → 파생 계수에서 제외(cap 정확)
+      }
+      await writeBatchAtomic(root, batchId, { batchId, createdAt, items });
+    });
     return { ok: true as const, batchId, queued: runnable.filter((i) => i.status !== "failed").length, skipped: items.length - runnable.length };
   });
 }

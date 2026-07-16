@@ -80,4 +80,15 @@ describe("GET /api/eval/remediate/batch/:batchId — 게이트·경로 분리·4
     expect(r.statusCode).toBe(404);
     expect(r.json().error).toBe("not-found");
   });
+
+  it("newRunId 형식 batchId(<TS>-batch-<hex>) GET → 200(정규식이 실제 id 를 막지 않음·R3 HIGH)", async () => {
+    await setGate(true);
+    const batchId = "2026-07-16T13-24-31-230Z-batch-a1b2c3d4e5f6"; // newRunId 형식(선두 숫자·batch 는 중간)
+    const dir = join(root, "_workspace", "batches", batchId);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "batch.json"), JSON.stringify({ batchId, createdAt: "t", items: [] }), "utf8");
+    const r = await app().inject({ url: `/api/eval/remediate/batch/${batchId}` });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().batchId).toBe(batchId);
+  });
 });

@@ -38,10 +38,10 @@ export const SUPERVISOR_VERSION = "0.5.0";
 
 export function newRunId(name: string): string {
   const t = iso().replace(/[:.]/g, "-");
-  const rnd = Math.abs(hashStr(name + t)).toString(36).slice(0, 6);
+  // 랜덤 접미(hashStr 결정론 폐기) — 같은 ms 다중 호출(배치 루프 등)이 동일 id 를 낳아 runDir 충돌·교차오염하던 결함 차단(R3 HIGH).
+  const rnd = randomBytes(6).toString("hex");
   return `${t}-${name}-${rnd}`.replace(/[^A-Za-z0-9._-]/g, "-");
 }
-function hashStr(s: string): number { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return h; }
 
 export async function writeManifest(runDir: string, m: Manifest): Promise<void> {
   await mkdir(runDir, { recursive: true });

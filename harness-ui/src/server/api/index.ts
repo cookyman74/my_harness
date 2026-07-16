@@ -701,7 +701,9 @@ export function registerApi(
   });
   app.get<{ Params: { batchId: string } }>("/api/eval/remediate/batch/:batchId", async (req, reply) => {
     if (!(await isEditEnabled())) return reply.code(403).send({ error: "edit-disabled" });
-    if (!/^batch-[A-Za-z0-9._-]+$/.test(req.params.batchId)) return reply.code(400).send({ error: "invalid-batchId" }); // path traversal 차단
+    // path-safety(traversal 차단) — batchId 는 newRunId 형식 `<TS>-batch-<hex>`(선두 영숫자·슬래시/`..` 불가). 이전 `^batch-` 접두 정규식은
+    //   실제 batchId 를 전부 400 으로 막아 GET 이 write-only 였다(R3 HIGH). 선두 영숫자 강제로 `.`/`..` 도 배제.
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(req.params.batchId)) return reply.code(400).send({ error: "invalid-batchId" });
     const v = await readBatch(projectRoot, req.params.batchId, currentDefContent);
     if (!v) return reply.code(404).send({ error: "not-found" });
     return v;
