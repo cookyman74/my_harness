@@ -1,7 +1,11 @@
 # M-y3 작업결과서 — 일괄 적용·E2E
 
 > 계획: [M-y-batch-remediation.md](../todo/M-y-batch-remediation.md) M-y3. 등급: 중대(적용·비가역·E2E). 완료 2026-07-16.
-> 선행 M-y2(검토 큐) 수렴 위. 외부감사 대기(no-high 2연속까지).
+> 선행 M-y2(검토 큐) 수렴 위. **외부감사 R1~R3 수렴(R2·R3 codex+agy 양엔진 no-high 2연속)** — 5 confirmed·alignment 1.0.
+
+## 외부감사 R1~R3
+- **R1(HIGH 2):** 일괄 적용 중 per-card 버튼 미비활성→동시 PUT 경합 → **busy prop 전파**. applied/skipped 키 kind:name → **runId 키**(방어·dedup 로 실제 충돌은 없음). +MED: bulkApply 상태머신 미테스트 → **bulkApplyItems 순수 추출+유닛**·부분실패 은닉 → 실패 대상명/코드 표기·E2E 백업/롤백 미검증 → **롤백 스텝 추가**.
+- **R2·R3:** 양엔진 no-high 2연속 → 수렴.
 
 ## 1. 구현
 - **일괄 적용(`src/web/screens.tsx`):**
