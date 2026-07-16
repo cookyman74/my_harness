@@ -14,9 +14,12 @@ import { identity, IdentityLookupError } from "../supervisor/osadapter.js";
 // pid 가 확정적으로 우리 프로세스가 아님(사멸/재사용)인지 판정.
 //   dead: absent(null) 또는 startTime 불일치=재사용 → release 안전. alive: startTime 일치. unknown: lookup 실패(indeterminate)=보존.
 export async function pidState(pid: number, startTime: string | null): Promise<"dead" | "alive" | "unknown"> {
-  if (!startTime) return "unknown"; // startTime 미기록(attach 시 identity 실패)이면 대조 불가 → 보수적 unknown(살아있는 run 오release 방지·R7 HIGH)
-  try { const id = await identity(pid); if (!id) return "dead"; return id.startTime === startTime ? "alive" : "dead"; }
-  catch { return "unknown"; } // IdentityLookupError 등 → 보존
+  try {
+    const id = await identity(pid);
+    if (!id) return "dead";           // 부재 = 확정 사멸(startTime 무관·release 안전·capacity leak 방지·R8)
+    if (!startTime) return "unknown"; // 존재하나 startTime 미기록(attach 시 identity 실패) → 대조 불가·보수적 보존(살아있는 run 오release 방지·R7)
+    return id.startTime === startTime ? "alive" : "dead"; // startTime 불일치 = PID 재사용 → dead
+  } catch { return "unknown"; } // IdentityLookupError 등 → 보존
 }
 
 export type OwnerType = "interactive" | "batch";
