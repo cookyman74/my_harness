@@ -197,7 +197,9 @@ async function ingestLocked(runDir: string): Promise<number> {
       // ── 상태 projection: seq-skip 이전에 항상 수행(크래시 후 durable event 상태 유실 방지) ──
       if (raw.phase) st.phase = raw.phase;
       if (typeof raw.progress === "number") st.progress = Math.max(0, Math.min(100, raw.progress));
-      if (raw.state && (["queued", "running", "blocked", "failed", "completed", "cancelled", "stale"] as string[]).includes(raw.state)) {
+      // 단말 상태는 sticky — cancel/reap 이 cancelled/stale 을 쓴 뒤 잔여 raw line 의 running/completed 가
+      //   이를 되돌리면 취소/스테일 판정이 유실된다(R22 HIGH). 이미 단말이면 raw state projection 생략.
+      if (raw.state && !TERMINAL_STATES.includes(st.state) && (["queued", "running", "blocked", "failed", "completed", "cancelled", "stale"] as string[]).includes(raw.state)) {
         st.state = raw.state as RunState;
       }
       if (raw.agent && AGENT_NAME.test(raw.agent)) { // 파일명 traversal 차단(untrusted child 로그)
@@ -321,8 +323,17 @@ export async function superviseRun(runDir: string, cmd: string, args: string[], 
     });
   } catch { /* status write 실패 → 감독은 finally 에서 부착되어 finalize/ingest 가 이후 상태 기록 */ }
   finally {
-    const timer = setInterval(() => { ingest(runDir).catch(() => {}); }, 500); // 주기 승격(rejection 무시)
-    exited.then((info) => finalize(runDir, info)).catch(() => {}).finally(() => clearInterval(timer));
+    // 주기 승격 — 자기재예약(setTimeout) 으로 이전 ingest 완료 후에만 다음 틱 예약. setInterval 은 ingest 지연 시
+    //   withStatusLock 큐에 프로미스를 무한 적재해 지연 증폭·정리 지연을 낳는다(R22 MED).
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const pump = async () => {
+      if (stopped) return;
+      try { await ingest(runDir); } catch { /* */ }
+      if (!stopped) timer = setTimeout(pump, 500);
+    };
+    timer = setTimeout(pump, 500);
+    exited.then((info) => finalize(runDir, info)).catch(() => {}).finally(() => { stopped = true; if (timer) clearTimeout(timer); });
     // M-y0: 거버너 release 통지 — exit 시 1회(정보 무관·슬롯 반환). finalize 와 독립 체인(release 지연 방지).
     if (onExit) exited.then((info) => { try { onExit(info); } catch { /* */ } }, () => { try { onExit({ code: null, signal: null }); } catch { /* */ } });
   }
@@ -331,7 +342,9 @@ export async function superviseRun(runDir: string, cmd: string, args: string[], 
 
 async function finalize(runDir: string, info: ExitInfo): Promise<void> {
   try {
-    await ingest(runDir); // 최종 승격(락 내부에서 획득/해제)
+    // 종료 후 잔여 로그 전량 승격 — MAX_INGEST(4MB) cap 때문에 1회 호출은 앞부분만 처리한다. promoted>0 인 동안
+    //   반복(안전 상한 10000)해 꼬리 로그(최종 결과/완료 이벤트) 유실을 막는다(R22 HIGH).
+    for (let i = 0; i < 10000; i++) { if ((await ingest(runDir)) <= 0) break; }
     await withStatusLock(runDir, async () => { // RMW 를 락으로 원자화(ingest/reconcile 와 clobber 방지·R21 HIGH)
       const f = await loadStatus(runDir);
       if (!TERMINAL_STATES.includes(f.state)) f.state = info.code === 0 ? "completed" : "failed";

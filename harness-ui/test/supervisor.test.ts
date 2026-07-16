@@ -120,6 +120,25 @@ describe("크래시 중복방지(A25) + status/agent baseline 유지", () => {
     await expect(stat(join(runDir, "..", "pwned.json"))).rejects.toBeTruthy();
     await rm(runDir, { recursive: true, force: true });
   });
+  it("단말(cancelled) 상태는 sticky — 잔여 raw line 의 state:running 이 되돌리지 못함(R22)", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "hui-sticky-"));
+    await writeManifest(runDir, manifest("run-sticky"));
+    // cancel 이 status 를 cancelled 로 기록한 상태 모사
+    const { writeStatus } = await import("../src/server/supervisor/supervisor.js");
+    const cancelled: Status = {
+      schemaVersion: "1", runId: "run-sticky", state: "cancelled", phase: "p", progress: 80,
+      updatedAt: "2026-07-09T10:00:00+09:00", heartbeatAt: "2026-07-09T10:00:00+09:00",
+      serverPid: 1, serverStartTime: "x", childPid: null, childStartTime: null, childProcessGroupId: null,
+      exitCode: null, exitSignal: null, cancelRequestedAt: null, stateReason: "user", summary: "", error: null,
+    };
+    await writeStatus(runDir, cancelled);
+    // 취소 직전 child 가 남긴 running 이벤트가 커서에 남아있는 상황
+    await writeFile(join(runDir, "raw.jsonl"), raw({ event: "still-working", state: "running", progress: 80 }));
+    await ingest(runDir);
+    const st = JSON.parse(await readFile(join(runDir, "status.json"), "utf8"));
+    expect(st.state).toBe("cancelled"); // running 으로 clobber 안 됨
+    await rm(runDir, { recursive: true, force: true });
+  });
   it("state 없는 배치가 completed 를 running 으로 regress 안 함", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "hui-base-"));
     await writeManifest(runDir, manifest("run-base"));
