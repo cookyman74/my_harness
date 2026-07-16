@@ -2409,6 +2409,18 @@ function EvalMain() {
   );
 }
 
+// M-y2/M-y3 적용 — 초안 baseHash 로 putDefinition(F7 재사용·낙관적 동시성). 단건 카드·일괄 적용 공용.
+//   ready 아님/ stale → 적용 거부(현재본 덮어쓰기 방지). throw 는 DefEditError code 로 매핑.
+async function applyBatchItem(item: BatchItemView): Promise<{ ok: boolean; code: string }> {
+  if (!item.runId) return { ok: false, code: "no-run" };
+  const d = await getRemediation(item.runId);            // 항상 최신 재조회
+  if (d.status !== "ready") return { ok: false, code: "not-ready" };
+  if (d.stale) return { ok: false, code: "stale" };      // 초안 base≠현재 → 재생성 필요
+  const def = await getDefinition(item.kind, item.name); // pathId
+  await putDefinition(item.kind, item.name, { content: d.proposedContent, baseHash: d.baseHash, pathId: def.pathId }); // 초안 base 기준(409=stale)
+  return { ok: true, code: "applied" };
+}
+
 // M-y2 검토 큐 — 배치 진행/결과를 대상별 카드로. ready 는 diff(접힘) + [적용](사람 승인)·[건너뛰기]. 적용=putDefinition(F7 재사용).
 const BATCH_TERMINAL = new Set(["ready", "failed", "invalid", "cancelled", "skipped"]);
 function batchStatusKind(s: string): "ok" | "warn" | "err" {
@@ -2437,6 +2449,19 @@ function BatchReviewQueue({ batchId }: { batchId: string }) {
     try { const { batchId: nb } = await startBatchRemediate(retryTargets(items)); location.hash = `#/eval?batch=${encodeURIComponent(nb)}`; }
     catch (e) { setErr(e instanceof BatchError ? e.code : String(e)); }
   };
+  // M-y3 일괄 적용 — 준비된(ready·비stale·미적용·미건너뜀) 대상을 순차 적용. 대상별 F7 PUT(낙관적 동시성)·부분성공 요약.
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+  const [bulking, setBulking] = useState(false);
+  const bulkApply = async (items: BatchItemView[]) => {
+    setBulking(true); setBulkMsg(null);
+    let ok = 0, fail = 0; const applied2 = new Set<string>();
+    for (const it of items) {
+      try { const r = await applyBatchItem(it); if (r.ok) { applied2.add(keyOf(it)); ok++; } else fail++; }
+      catch { fail++; }
+    }
+    if (applied2.size) setApplied((s) => { const n = new Set(s); for (const k of applied2) n.add(k); return n; });
+    setBulking(false); setBulkMsg(`일괄 적용 완료 — 성공 ${ok} · 실패/건너뜀 ${fail} (실패분은 [stale 재생성] 또는 개별 검토)`);
+  };
 
   return (
     <div className="screen">
@@ -2446,13 +2471,16 @@ function BatchReviewQueue({ batchId }: { batchId: string }) {
       {!view ? <div className="muted">불러오는 중…</div> : (() => {
         const failed = view.items.filter((it) => (it.status === "failed" || it.status === "invalid") && !skipped.has(keyOf(it)));
         const staleReady = view.items.filter((it) => it.status === "ready" && it.stale && !applied.has(keyOf(it)) && !skipped.has(keyOf(it)));
+        const readyToApply = view.items.filter((it) => it.status === "ready" && !it.stale && !applied.has(keyOf(it)) && !skipped.has(keyOf(it)));
         return (<>
           <Card title={`진행 ${view.done}/${view.total}${view.done < view.total ? " (실행 중…)" : " · 완료"}`}>
-            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-              <span className="muted">적용 {applied.size} · 건너뜀 {skipped.size} · 실패 {failed.length} · stale {staleReady.length}</span>
-              {failed.length > 0 && <button className="btn" onClick={() => regen(failed)}>실패분 {failed.length}개 재시도</button>}
-              {staleReady.length > 0 && <button className="btn" onClick={() => regen(staleReady)}>stale {staleReady.length}개 재생성</button>}
+            <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <span className="muted">적용 {applied.size} · 건너뜀 {skipped.size} · 실패 {failed.length} · stale {staleReady.length} · 준비 {readyToApply.length}</span>
+              {readyToApply.length > 0 && <button className="btn primary" disabled={bulking} onClick={() => bulkApply(readyToApply)}>{bulking ? "적용 중…" : `준비된 ${readyToApply.length}개 모두 적용`}</button>}
+              {failed.length > 0 && <button className="btn" disabled={bulking} onClick={() => regen(failed)}>실패분 {failed.length}개 재시도</button>}
+              {staleReady.length > 0 && <button className="btn" disabled={bulking} onClick={() => regen(staleReady)}>stale {staleReady.length}개 재생성</button>}
             </div>
+            {bulkMsg && <p className="banner ok" role="status">{bulkMsg}</p>}
           </Card>
           {view.items.map((it) => (
             <BatchItemCard key={keyOf(it)} item={it} applied={applied.has(keyOf(it))} skipped={skipped.has(keyOf(it))}
@@ -2485,19 +2513,13 @@ function BatchItemCard({ item, applied, skipped, onApplied, onSkip }: {
     if (!item.runId) return;
     setApplying(true); setMsg(null);
     try {
-      const d = await getRemediation(item.runId); // **항상 최신 재조회** — 캐시 draft 의 낡은 stale 판정 재사용 금지.
-      setDraft(d);
-      if (d.status !== "ready") { setMsg("초안이 준비되지 않았습니다"); setApplying(false); return; }
-      // 초안이 만들어진 base 와 현재 정의가 다르면(stale) 적용 금지 — 현재본을 초안으로 덮어써 동시 수정분을 유실하는 것 차단.
-      if (d.stale) { setMsg("정의가 변경됨 — [stale 재생성] 필요(현재본 덮어쓰기 방지)"); setApplying(false); return; }
-      const def = await getDefinition(item.kind, item.name); // pathId(안정)
-      // 낙관적 동시성 = **초안 기준 baseHash**(현재 읽은 값 아님). 현재 정의가 초안 base 와 다르면 서버가 409 → stale 재생성(R1 HIGH).
-      await putDefinition(item.kind, item.name, { content: d.proposedContent, baseHash: d.baseHash, pathId: def.pathId });
-      onApplied(); setMsg("적용됨(저장 완료)");
+      const r = await applyBatchItem(item);
+      if (r.ok) { if (mounted.current) { onApplied(); setMsg("적용됨(저장 완료)"); } return; }
+      if (mounted.current) setMsg(r.code === "stale" ? "정의가 변경됨 — [stale 재생성] 필요(현재본 덮어쓰기 방지)" : r.code === "not-ready" ? "초안이 준비되지 않았습니다" : `적용 불가: ${r.code}`);
     } catch (e) {
       const code = e instanceof DefEditError ? e.code : String(e);
-      setMsg(code === "stale-write" || code === "path-id-mismatch" || code === "conflict" ? "정의가 변경됨 — [stale 재생성] 필요" : `적용 실패: ${code}`);
-    } finally { setApplying(false); }
+      if (mounted.current) setMsg(code === "stale-write" || code === "path-id-mismatch" || code === "conflict" ? "정의가 변경됨 — [stale 재생성] 필요" : `적용 실패: ${code}`);
+    } finally { if (mounted.current) setApplying(false); }
   };
   const done = applied || skipped;
   return (
