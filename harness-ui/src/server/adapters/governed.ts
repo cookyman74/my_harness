@@ -50,20 +50,18 @@ async function dispatch(g: RunGovernor, claim: Claim, e: PendingEntry): Promise<
   if (!res || res.pid <= 0) { release(); return; }
   const id = await identity(res.pid).catch(() => null);
   // attach 는 fs(rename) 예외 가능 → try/catch(예외 시 ok=false·정리·terminate 실행·inFlight leak/좀비 방지·R3 agy HIGH).
+  const info = { pid: res.pid, startTime: id?.startTime ?? "", runId: e.runId, runDir: e.runDir };
   let ok = false;
-  try { ok = await g.attach(claim, { pid: res.pid, startTime: id?.startTime ?? "", runId: e.runId, runDir: e.runDir }); }
+  try { ok = await g.attach(claim, info); }
   catch (e2) { ok = false; try { console.error("[governor] attach error", e2); } catch { /* */ } } // R4 LOW: 예외 로그
+  if (ok) { clearInFlight(); return; }
+  // attach 실패 → child 를 orphan 슬롯으로 표기(release 아님·R5 HIGH). 슬롯 존재로 claim 차단·activeCount 카운트 유지·
+  //   reap 이 terminate 후 확정 사멸 시 release. markOrphan 성공 시에만 clearInFlight(그 전엔 in-flight 보호 유지).
+  const marked = await g.markOrphan(claim, info).catch(() => false);
+  if (marked) { clearInFlight(); return; }                 // reap 이 orphan 슬롯 책임
+  // markOrphan 실패(lease 경합=이미 후속이 슬롯 차지) → 이 child 는 우리 슬롯 아님·직접 종료(reconcileRun)·inFlight 는 우리 lease 만 clear.
+  await reconcileRun(e.runDir, e.runId, { terminate: true, finalState: "stale" }).catch(() => {});
   clearInFlight();
-  if (!ok) {
-    // attach 실패 → child 확정 종료 시에만 release(reap 과 동일 원칙·R4 HIGH: kill-failed/indeterminate/none 에 release 시 살아있는 child+슬롯해제=K 초과).
-    const alive = await identity(res.pid).catch(() => null);
-    if (!alive) { release(); return; }                       // 이미 사멸
-    const r = await reconcileRun(e.runDir, e.runId, { terminate: true, finalState: "stale" }).catch(() => null);
-    if (r && (r.action === "killed" || r.action === "gone")) { release(); return; }
-    const still = await identity(res.pid).catch(() => null); // reconcile 불확실 → 실사멸 확인
-    if (!still) { release(); return; }
-    // 여전히 살아있음 → release 안 함(슬롯 quarantine·reap interval 이 재종료·재회수). inFlight 는 이미 clear(재spawn 아님).
-  }
 }
 
 // tick single-flight — 동시 호출은 1회 실행·중첩 요청은 tickAgain 으로 재실행(pending splice race 방지·R1 HIGH).

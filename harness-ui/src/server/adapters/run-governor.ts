@@ -21,6 +21,7 @@ const SLOT_META_MAX = 64 * 1024;
 export type SlotMeta = {
   leaseId: string; ownerType: OwnerType; batchId: string | null;
   claimedAt: number; runId: string | null; pid: number | null; startTime: string | null; runDir: string | null;
+  orphan?: boolean; // attach 실패 child(원치 않음) — reap 이 terminate 후 확정 사멸 시 release.
 };
 export type Claim = { slotIdx: number; leaseId: string };
 
@@ -81,6 +82,21 @@ export class RunGovernor {
     });
   }
 
+  // markOrphan: attach 실패 child 를 slot 에 pid+orphan 기록(lease 검증). slot 존재로 claim 차단·reap 이 terminate 담당.
+  //   release 대신 이걸 호출하면 슬롯이 점유 상태로 남아(K 회계 정확) reap 이 확정 사멸까지 책임진다.
+  async markOrphan(c: Claim, info: { pid: number; startTime: string; runId: string; runDir: string }): Promise<boolean> {
+    await this.ensureReady();
+    return this.withSlot(c.slotIdx, async () => {
+      const m = await this.readSlot(c.slotIdx);
+      if (!m || m.leaseId !== c.leaseId) return false;
+      const next: SlotMeta = { ...m, pid: info.pid, startTime: info.startTime, runId: info.runId, runDir: info.runDir, orphan: true };
+      const tmp = slotPath(c.slotIdx) + ".tmp";
+      await writeFile(tmp, JSON.stringify(next), "utf8");
+      await rename(tmp, slotPath(c.slotIdx));
+      return true;
+    });
+  }
+
   // release: leaseId 검증 후 unlink(후속 claimer 슬롯 오삭제 방지).
   async release(c: Claim): Promise<void> {
     await this.ensureReady();
@@ -124,21 +140,20 @@ export class RunGovernor {
         const m = await this.readSlot(i);
         if (!m) return "keep";
         if (skip && skip.get(i) === m.leaseId) return "keep"; // in-flight·lease 일치 → 보호
+        // orphan(attach 실패 child) = grace 무관 즉시 terminate 대상(원치 않는 child). 확정 사멸만 release.
+        if (m.orphan && m.runId && m.runDir) {
+          const r = await reconcileRun(m.runDir, m.runId, { terminate: true, finalState: "stale" }).catch(() => null);
+          if (r && (r.action === "killed" || r.action === "gone")) { await unlink(slotPath(i)).catch(() => {}); return "released"; }
+          return "quarantined"; // kill-failed/indeterminate/none/lookup 불확실 → 슬롯 보존·다음 tick 재시도(살아있는 child+슬롯해제=K 초과 방지)
+        }
         if (now - m.claimedAt <= GRACE_MS) return "keep"; // 갓-claim 보호
         if (m.pid == null || m.runId == null || m.runDir == null) { // grace 초과 pid-null = 크래시-전-attach 고아(재시작 후)
           await unlink(slotPath(i)).catch(() => {}); return "released";
         }
-        const alive = await identity(m.pid).catch(() => null);
-        if (alive && alive.startTime === m.startTime) return "keep"; // 살아있음·같은 프로세스
-        // 죽었거나 PID 재사용 → owner registry+reconcileRun 로 소유 검증 종료. release 는 확정 사멸만.
-        const r = await reconcileRun(m.runDir, m.runId, { terminate: true, finalState: "stale" }).catch(() => null);
-        if (r && (r.action === "killed" || r.action === "gone")) { await unlink(slotPath(i)).catch(() => {}); return "released"; }
-        if (r && r.action === "none") { // owner 없음 — pid 실제 사멸 확인된 경우만 release(살아있으면 leak 방지 quarantine)
-          const still = await identity(m.pid).catch(() => null);
-          if (!still || still.startTime !== m.startTime) { await unlink(slotPath(i)).catch(() => {}); return "released"; }
-          return "quarantined";
-        }
-        return "quarantined"; // kill-failed/skipped-mismatch/indeterminate → 보존(다음 tick 재시도)
+        // pid 있는 정상 run: 소유 검증(reconcileRun) 신뢰 — killed/gone(확정 사멸)만 release·그 외(alive/indeterminate/lookup 실패)=keep.
+        const r = await reconcileRun(m.runDir, m.runId, { terminate: false, finalState: "stale" }).catch(() => null);
+        if (r && r.action === "gone") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
+        return "keep"; // 살아있음·불확실 → 보존(terminate 안 함·정상 run 은 죽이지 않음)
       });
       if (res === "released") released++; else if (res === "quarantined") quarantined++;
     }
