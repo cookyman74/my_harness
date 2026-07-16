@@ -29,23 +29,50 @@
 
 ## 4. 아키텍처 (E5-a·인프라 재사용)
 
-### 4-0. 전역 run 거버너 (신규 인프라 — H1·재사용 아님·load-bearing)
-> **기획 리뷰 정정:** `countActiveRuns`(`index.ts:84`)는 `activeRunsWarning` **카운트 노출일 뿐 run 시작을 막는 게이트가 아니다**. `startRemediationRun`·`/api/runs` 에 동시성 상한이 **없다**. 유일한 in-flight 뮤텍스는 `BuildGate`(빌드 초안 전용). 즉 "bounded fan-out·백프레셔 재사용"은 **현재 존재하지 않는 인프라** — 신규 구축 대상.
-- **run 시작점 전역 세마포어**(활성 `claude` subprocess 상한 K) 신설 — **단건 E5-a·배치 E5-b·일반 run 공유**(프로세스 전역). 배치 2개 또는 배치+단건 동시에도 전역 활성 run ≤ K 보장(2K fan-out 방지).
-- 모든 run-start(`startRemediationRun` 포함)가 이 거버너를 경유·초과 시 큐잉. §6 P0-1 = raw K 측정이 아니라 **강제 상한이 실제로 걸리는지** 검증.
-- v1 배치의 안전(비용·quota 통제)이 이 거버너에 의존 → **M-y1 명시 산출물(또는 pre-M-y1 인프라)**.
+### 4-0. 전역 run 거버너 — **영속 lease registry**(신규 인프라·H1·load-bearing)
+
+> **동시성 모델(R6 판정·정본 제약):** 이 제품은 **로컬 단일 사용자·단일 서버 프로세스**(127.0.0.1·`npm start` 하나·단일 Node 이벤트루프). 따라서 거버너 상태의 **런타임 진실은 인메모리**이고, 슬롯 파일은 **재시작 복구·프로세스 크래시 감사용 영속**이다. 슬롯 변경(claim 검증·rename·release·reap)의 동시성은 **프로세스 내 per-slot async mutex(promise-chain 직렬화)**로 보장 — check-and-act 가 await interleave 없이 원자 실행(단일 이벤트루프에서 상호 배제). *codex/agy 가 상정한 "다중 서버 프로세스가 같은 `_workspace` 를 동시 경합"은 이 제품 범위 밖(단일 서버)*. 다중 프로세스 방어는 **belt(선택): 슬롯당 `flock`** 로 read-check-write/unlink 직렬화 — 범위 밖이라 v1 필수 아님·문서화. leaseId fencing 은 부팅 reconcile·기존 슬롯 파일 재부착 시 소유 검증용.
+> **기획 리뷰 정정:** `countActiveRuns`(`index.ts:84`)는 `activeRunsWarning` **카운트 노출일 뿐 run 시작 게이트가 아니다**. `startRemediationRun`·`/api/runs` 에 동시성 상한 **없다**(유일 뮤텍스=`BuildGate`·빌드 전용). "run cap 재사용"은 허위 → 신규 구축.
+> **외부감사 R1 정정(HIGH-1·both):** 메모리 세마포어는 **서버 재시작/크래시에 취약**(zombie 큐·고아 claude 프로세스 미회계·상한 K 오차). → **영속 lease + 부팅 복구** 필수.
+- **run lease registry**(영속·`_workspace/runs/leases/` 또는 단일 파일): 항목 = `{ runId, pid, startTime, ownerType:"single|batch|run", batchId?, status:"claimed|running|terminal", heartbeatAt }`.
+- **claim-before-spawn / release-on-exit:** 모든 run-start(`startRemediationRun`·`/api/runs`)가 spawn 전 **활성 lease < K 확인 후 claim**·초과 시 큐잉. 종료 시 release. 단건·배치·일반 run **공유 상한 K**(2K fan-out 방지).
+- **원자성 primitive — K 고정 슬롯·단일 파일 O_EXCL(R3 HIGH count-TOCTOU·R4 HIGH 빈슬롯 회수경합 동시 해결):**
+  - "active<K 세고 claim"은 경합(R3) → **K개 고정 슬롯 파일**(`slot-0`..`slot-{K-1}`). **슬롯 이름 K개뿐 → `≤K` 구조적 불변**(카운트 없음).
+  - **claim = `open(slot-i, O_CREAT|O_EXCL|O_WRONLY)` 로 메타 한 번에 원자 기록.** 첫 성공=획득·EEXIST=다음 슬롯·전부 실패=큐잉. 초기 메타=`{leaseId,ownerType,batchId,claimedAt,cancelRequested?}` — **`leaseId`=고유 nonce(fencing token·R5 codex HIGH-2)**. (pid/runId 는 spawn 후.)
+  - **직렬화 + fencing(R5·R6 HIGH 근본):** 슬롯 변경 op(claim 검증·rename·release·reap)는 **per-slot async mutex 하에서 check-and-act 를 무-interleave 원자 실행**(단일 프로세스 이벤트루프 상호배제·R6 TOCTOU 제거). leaseId 검증은 그 임계구역 안에서 — 검증과 unlink/rename 사이 다른 op 끼어들 수 없음. "tick unlink → 지연 rename 좀비 부활"·"release 후속 claimer 삭제"는 같은 mutex 로 직렬화돼 불가. (다중 프로세스 belt=`flock`·범위 밖.)
+  - **spawn 후 갱신 = mutex 하 leaseId 검증 → 임시파일 write→`rename`(원자)** 로 `{pid,startTime,runId,heartbeatAt}`. **rename 직전 `now-claimedAt>grace` 면 abort+자살 + 방어적 self-unlink(leaseId 일치 시·R6 agy LOW-1)** — tick 회수만 기다리지 않고 즉시 슬롯 반환.
+  - **release/reap = leaseId 검증 후 `unlink`.** reap 은 후속 claimer(다른 leaseId)면 no-op(내 것 아님).
+  - **회수 grace:** tick 은 `now-claimedAt>grace`(예 10s) **이후에만** 회수 — spawn 전 갓-claim 오회수 방지. 조건: grace 경과+(pid 없음=stuck→leaseId 검증 unlink+requeue) 또는 (pid 죽음).
+  - **고아 child SIGKILL = 부팅 reconcile 1회만**(런타임 tick 상시 스캔 금지 — rename 직전 정상 프로세스 오인 kill 방지·R5 agy LOW-2).
+  - registry = 슬롯 파일 스캔 rebuild. AE13 동시 claim + fencing race 테스트.
+- **전역 큐 카운터 일관성(R2 agy·R3 codex·R4 정밀):** pending = `nonTerminalWaiting`(queued + claimed·runId 미발급). **append-only journal** 로 갱신 — **increment=accept(신규 queued)·decrement=runId 발급(running 전환) 또는 terminal(ready/failed/cancelled)**(claim 시점 아님·claimed-without-runId 는 여전히 대기로 카운트·R4 codex MED-1). 개별 batch.json 스캔 없이 O(1) 429. **부팅 reconcile: batch 상태 재계산 → 스냅샷 기록 후 journal rotate**(무한증가 방지·R4 agy MED-1). **rotate 배타(R5 codex MED-1·R6 agy MED-1 락범위 축소):** 카운터도 인메모리 진실·journal 은 영속 append. snapshot **I/O(write)는 락 밖 임시파일**·준비된 파일 `rename` 으로 generation 교체하는 **짧은 순간만 per-counter mutex**(락 범위 최소·병목 제거). accept/decrement 도 같은 mutex 경유. **rotate generation 프로토콜(R7·R8 codex MED-1·명시):** append 는 항상 **현재 active generation journal** 에 기록. rotate = mutex 하 **원자 세대 스왑**: (1) 새 빈 journal(gen N+1) 생성 → (2) active 포인터를 N+1 로 `rename`(원자) → (3) gen N 스냅샷 계산·기록. 스왑 이후 append 는 전부 N+1 로 가므로 **경계에서 유실·이중계상 0**. 부팅 reconcile = 최신 스냅샷 + 그 이후 generation journal 재생. drift 는 reconcile 정정.
+- **워커 재시작 주체(R2 agy MED-1):** 배치 진행 루프는 POST 핸들러 종속이 아니라 **부팅 스캔 + worker-tick(또는 GET lazy-resume)** 로 재가동 — 미완료 batch.json(queued)을 주워 거버너 슬롯으로 재개. 크래시로 루프 증발해도 queued 무한 고착 방지.
+- **부팅 복구(AE17·R2 codex LOW-1 상태별 분리):** 서버 기동 시 registry + process table(pid+**startTime**으로 PID 재사용 구분) + run result 로 재구성.
+  - **crash-window 상태 전이표(R3 codex MED-3·R4 단일파일 모델·요소=슬롯파일 O_EXCL 원자):**
+    | 크래시 지점 | 슬롯 파일 | 복구(grace 경과 후) |
+    |------------|-----------|------|
+    | `queued`(claim 전) | 없음 | 재개(손실 0·`cancelRequested=false`) |
+    | claim(O_EXCL) 후 spawn 전 | 有·pid 없음 | grace 후 stuck → `unlink`+requeue(attempt++) |
+    | spawn 후 rename(pid/runId) 전 | 有·pid 없음 + 매칭 안 되는 child | child SIGKILL·`unlink`+requeue(attempt++) |
+    | rename 후 | 有·pid/runId 有 | pid+startTime+heartbeat: 삶→재부착·죽음→`unlink`+requeue(attempt++) |
+  - **requeue 일관(R4 agy LOW):** 러너 read-only(부작용 0·멱등)이므로 **crash 지점 무관 attempt 상한 내 requeue**(runId 발급 후 죽음도 재시도)·attempt 초과만 `failed(worker-crashed)`. 
+  - **고아 child**(어느 슬롯 파일 pid 와도 매칭 안 됨) → SIGKILL.
+- §6 P0-1 = raw K 측정 아니라 **강제 상한이 실제로 걸리나 + 재시작 중/후에도 활성 claude ≤ K**(AE13) 검증.
+- **M-y0 선결 인프라**(배치 안전이 이 lease 에 의존).
 
 ### 4-1. 배치 초안 생성 — `POST /api/eval/remediate/batch`
-- 입력: `{ targets: [{ kind, name, baseHash, findings }...] }`. 상한 2축: **대상 수 ≤N(기본 50·초과 400 `too-many-targets`)** + per-target `findings ≤20`(E5-a `index.ts:657` 정합).
-- 게이트: `definitionEditEnabled` API-레벨 403(**POST·GET 양쪽**·E5-a 동일).
-- 처리: 배치 워커가 대상을 **전역 거버너(§4-0) 슬롯**으로 순차 spawn(`startRemediationRun` 재사용). 슬롯 열릴 때만 spawn → **미spawn 대상은 아직 runId 없음(queued)**.
-- **출력(H2 계약 고정): `{ batchId }` 만 즉시 반환**(핸들). per-target runId 는 spawn 시점에 `GET .../batch/:batchId` items 에 점진 채워짐(status queued→running→ready). *"즉시 전건 runId"는 K-큐잉과 모순이라 폐기.*
-- 배치 메타 영속: `_workspace/runs/batch-<batchId>/batch.json` = `{ targets:[{kind,name,baseHash,runId?}], createdAt }`(캡드 nofollow 리더·runId 는 spawn 시 갱신).
-- **취소(H2):** running=`/api/runs/:runId/cancel`(기존)·**queued=배치 워커 cancel 플래그**(runId 없어 개별 cancel 불가 → 워커가 존중).
+- 입력: `{ targets: [{ kind, name, baseHash }...] }`. 상한 2축: **대상 수 ≤N(기본 50·초과 400 `too-many-targets`)** + **전역 큐 상한(예: 1000·초과 429 `queue-full`·AE18)**. **큐 상한 산식(R2 codex MED-2):** `nonTerminalWaiting = queued + claimed(runId 미발급)` 기준·POST 는 **수락될 신규 queued 포함**해 초과 시 429. running 은 K 가 통제하므로 큐 상한 제외.
+- **findings 서버 재조회(R1 codex MED-3·신뢰경계):** client 가 findings 텍스트 제공 안 함 — 서버가 `evaluateArtifacts` 로 **현재 eval 결과에서 대상 findings 재도출**(allowlist·per-target ≤20). injection quota drain 차단. **base canonical 도 이때 저장:** batch item 에 `baseCanonicalHash`(=`canon(현재정의)`) 기록(R2 codex MED-3·재개 base 판정용).
+- **멱등성(R1 agy MED·AE19·R2 codex LOW-2):** in-flight key = **`kind+name`**. 이미 `claimed|running|queued` 이면 **중복 spawn 안 함**(스킵·사유). baseHash 불일치 시 사유 `in-flight-different-base`.
+- 게이트: `definitionEditEnabled` API-레벨 403(**POST·GET 양쪽**).
+- 처리: 배치 워커가 대상을 **전역 거버너(§4-0) lease**로 순차 claim·spawn(`startRemediationRun` 재사용). 슬롯 열릴 때만 spawn → **미spawn 대상은 runId 없음(queued)**.
+- **출력(H2 고정): `{ batchId }` 만 즉시 반환**. per-target runId 는 spawn 시 `GET .../batch/:batchId` items 에 점진 채움.
+- **배치 아이템 상태 영속(R1 codex HIGH-2·워커 크래시 복구):** `_workspace/runs/batch-<batchId>/batch.json` = `{ createdAt, items:[{ kind, name, baseHash, runId?, status, attempt, workerId?, claimedAt?, cancelRequested }] }`(캡드 nofollow). status ∈ `queued|claimed|running|ready|invalid|failed|cancelled`. 부팅/GET/worker-tick 중 하나가 **stale claim 회수**(heartbeat 만료 → queued 재개 또는 failed).
+- **취소(H2):** running=`/api/runs/:runId/cancel`·queued=**영속 `cancelRequested` 필드**(메모리 플래그 아님·워커가 존중·크래시 후에도 유지).
 
 ### 4-2. 배치 상태 집계 — `GET /api/eval/remediate/batch/:batchId`
 - batch.json 의 각 runId 에 **E5-a `readRemediationResult` 재사용**으로 상태 조회·집계.
-- 출력: `{ batchId, done, total, items: [{ kind, name, runId?, status, error?, stale? }...] }`. **status ∈ queued|running|ready|invalid|failed** (queued 대상은 아직 `runId` 없음 → 옵셔널·H2 점진 모델 정합). `stale` 은 적용 시점 판정(현재해시≠baseHash·AE14)이라 item 에 별도 플래그.
+- 출력: `{ batchId, done, total, items: [{ kind, name, runId?, status, error?, stale? }...] }`. **status ∈ queued|claimed|running|ready|invalid|failed|cancelled** (queued/claimed 는 `runId` 없을 수 있음·옵셔널). `stale` 은 적용시점 판정(현재해시≠baseHash·AE14) 별도 플래그. **`done` = terminal(ready|invalid|failed|cancelled) 아이템 수·`total`=배치 전체 대상 수**(진행률).
 - 폴링(웹 2s·E5-a 패턴). 초안 전문은 개별 `GET /api/eval/remediate/:runId`로 지연 로드(집계는 상태만·페이로드 비대화 방지).
 
 ### 4-3. 배치 검토·적용 (웹 + 기존 PUT)
@@ -62,7 +89,7 @@
 blind 일괄 적용은 사람 diff 승인 원칙 위배. **검토-후-일괄** 로 해소:
 - **기본:** 초안 일괄 생성 → 사람이 diff 훑고 체크 → [검토한 것 모두 적용]. 각 초안은 이미 서버 검증(name/kind 불변·타겟 외 deep-equal·surface 실반영) 통과분만 ready.
 - **리스크 등급 노브(PRD 정합·M6 가드):**
-  - **저위험**(dedupe·add-trigger-context·move 축약): "저위험 전체 선택" 허용하되 **여전히 접힌 diff 카드로 렌더**(확장 가능). [검토한 것 모두 적용] 시 미확장 적용분 **로깅**(무검토 적용 추적).
+  - **저위험**(dedupe·add-trigger-context·move 축약): "저위험 전체 선택" 허용하되 **여전히 접힌 diff 카드로 렌더**(확장 가능). **용어 분리(R1 codex MED-1):** 미확장 일괄 적용 = "**검토됨(reviewed)**" 아니라 "**risk-accepted bulk apply**". 적용 전 **확인 모달에 요약 diff 통계(파일명·축·±라인 수) + 수량** 표시. 미확장 적용분 로깅. 저위험 bulk 수량 상한(classifier 오분류 시 대량 오적용 방어).
   - **중·고위험**(rewrite-description 대재작성·add-required-section 구조): **카드 확장+체크가 있어야 "검토됨"** — 확장 안 하면 일괄에서 제외(강제).
   - **등급무관 1확인 일괄(§9-1 c안) 기각** — 대량 오적용 리스크 그 자체.
 - **자율 노브 금지 확대:** `_workspace/.autonomous` 있어도 diff 검토 스킵은 범위 밖(적용은 사람 클릭 유지). 이 저위험 1클릭은 **human-in-loop 편의이지 auto-adopt 사다리 아님**(§9-5).
@@ -74,7 +101,7 @@ blind 일괄 적용은 사람 diff 승인 원칙 위배. **검토-후-일괄** �
 - == `baseHash` → **미적용**.
 - 둘 다 아님 → **diverged/stale**(그새 편집됨).
 - 재개 = 배치 재오픈(`?batch=<batchId>`) → batch.json(target→runId·baseHash 앵커)으로 재폴링·재diff. "이 배치 N일 경과·초안 stale 가능" 배너.
-- **가정(ND6·P0/구현 확인):** "현재해시==proposedContent해시→적용됨" 판정은 **putDefinition 이 proposedContent 를 바이트 동일 기록**함을 전제. 쓰기 경로가 정규화(개행·frontmatter 재직렬화)를 가하면 적용된 대상이 diverged 로 오분류 → **저장 후 canonical 해시를 초안에도 동일 canonicalize 후 비교**하거나 putDefinition 바이트 동일성을 실측 확인.
+- **canonical 해시 판정(R1 codex MED-2·R2 MED-3·R3 MED-2·ND6):** putDefinition 은 canonicalize(재직렬화·개행) 가함 → **양쪽 canonicalize 후 비교**. 저장 시점: `baseCanonicalHash`=§4-1 findings 재조회 시·**`proposedCanonicalHash`=item `ready` 전환 시 `canon(proposedContent)` 저장**(batch item)·GET 은 저장값 반환(매 계산 아님). 판정: `canon(현재정의)==proposedCanonicalHash`→적용됨·`==baseCanonicalHash`→미적용·else diverged. **AE20**: PUT 후 재조회 canonical 해시 == proposed 판정 일치.
 
 ## 6. 선검증 (P0 — 가정 위 구현 금지)
 1. **전역 거버너 강제 상한 + 다수 러너 안정성:** ① §4-0 거버너가 **활성 claude run ≤ K 를 실제로 강제**하는지(배치 2개·배치+단건 동시에도·AE13) — raw K 측정이 아니라 상한이 걸리는지. ② K=3~5 동시 `claude` subprocess 가 인증·rate-limit·리소스에서 안정 완료되나(1건 ~90초·opus). rate_limit_event 빈도·실패율 실측 → K·큐 정책 확정.
@@ -94,8 +121,8 @@ blind 일괄 적용은 사람 diff 승인 원칙 위배. **검토-후-일괄** �
 
 ## 8. 마일스톤
 - **M-y P0 선검증**(§6) — **전역 거버너 강제 상한 실측** + 다수 러너 안정성·비용. 통과 못 하면 K·N 재설계.
-- **M-y0** **전역 run 거버너(§4-0) 신규 구축**(단건·배치·일반 run 공유 세마포어). run-start 전건 경유·AE13 테스트. *H1 — batch 안전의 선결 인프라.*
-- **M-y1** batch API(`POST/GET /api/eval/remediate/batch`·거버너 경유 fan-out·batch.json·상한 2축/게이트·취소) + 테스트(AE10~AE12·AE16).
+- **M-y0** **전역 run 거버너(§4-0) 신규 구축 — 영속 lease + 부팅 복구**(단건·배치·일반 run 공유·claim-before-spawn·startTime PID 가드·고아 정리). run-start 전건 경유·AE13·**AE17** 테스트. *H1 — batch 안전 선결 인프라.*
+- **M-y1** batch API(`POST/GET /api/eval/remediate/batch`·findings 서버 재조회·아이템 상태 영속·거버너 경유·큐 상한 429·멱등성·취소·워커 크래시 복구) + 테스트(AE10~12·AE16·AE18·AE19).
 - **M-y2** 웹: 선택 AI 반영·비용 합의 카드·진행률·취소·검토 큐(정렬/필터/벌크선택·diff 카드·리스크 등급 노브)·재개(해시 파생).
 - **M-y3** 일괄 적용(대상별 PUT·부분성공·무손실 요약·집계 재시도/재생성·rollback 어피던스)·E2E.
 - 각 마일스톤 외부감사(codex+agy·러너 제외) no-high 2연속·결과서·측정 꼬리.
@@ -114,7 +141,15 @@ blind 일괄 적용은 사람 diff 승인 원칙 위배. **검토-후-일괄** �
 - **AE13** 동시 배치 2개(또는 배치+단건)에도 **전역 활성 claude run ≤ K**(§4-0 거버너·실측).
 - **AE14** stale 대상(현재 해시≠baseHash)은 적용에서 **자동 제외**·사유 배지·[stale 모두 재생성].
 - **AE15** findings 0 아티팩트는 [AI 반영] 대상 아님(빈 상태 비활성).
-- **AE16** 취소: running→프로세스 종료·queued→미spawn(워커 플래그)·부분 취소 후 상태 일관.
+- **AE16** 취소: running→프로세스 종료·queued→미spawn(영속 `cancelRequested`)·부분 취소 후 상태 일관·status `cancelled`(failed 로 뭉개지 않음).
+- **AE17(내결함성·R1 both HIGH-1):** 서버 재시작 시 기존 배치의 `queued`/`claimed`/`running` 대상은 무한 대기 않고 `failed(worker-crashed)` 또는 재개로 수렴. 고아 claude 프로세스는 정리(SIGKILL)·lease release·활성 run 회계 정확(재시작 후에도 ≤K).
+- **AE18(백프레셔·R1 agy HIGH-2):** 전역 큐 대기열 상한 초과 배치 POST → 429 `queue-full`(단건/타 배치 기아 방지).
+- **AE19(멱등성·R1 agy MED):** 이미 `claimed|running|queued` 인 대상이 POST targets 에 포함 → 중복 spawn 안 함(스킵/사유).
+- **AE20(canonical 재개·R1 codex MED-2):** PUT 후 재조회 canonical 해시가 proposed 판정과 일치(적용됨 정분류).
+- **AE21(mutex 계약·R7 codex LOW-1):** 모든 슬롯 writer 는 단일 helper 만 경유·leaseId 검증과 unlink/rename 사이 외부 await 콜백 금지·bypass path 없음(테스트).
+- **AE22(rotate 무손실·R7 codex MED-1):** counter journal rotate 중 발생한 append 이벤트가 유실·이중계상되지 않음(generation 경계 검증).
+
+**운영 제한(R7 codex LOW-2):** 거버너는 단일 서버 프로세스 전제. `flock` belt 미적용 상태에서 **동일 `_workspace` 로 `npm start` 다중 기동은 미지원**(단일 사용자 로컬 dev-tool 범위). 다중 프로세스 안전은 v1 비목표.
 
 ## 참고 (문서 함정 예방)
 - **L2:** E5-a **as-built 은 충돌 게이트를 드롭**함(`index.ts:670` "충돌 게이트 없음 — 에이전트 병합"). E5-a 설계서 §4-1.3 의 409 conflicting-findings 규칙은 코드에 없음. E5-b 는 대상별 findings 통째 전달이라 무의존(무해)·"충돌 규칙 재사용" 뉘앙스 금지.
