@@ -11,25 +11,15 @@ import { stateHome } from "../lib/paths.js";
 import { reconcileRun } from "../supervisor/reconcile.js";
 import { identity, terminateTree } from "../supervisor/osadapter.js";
 
-const normExe = (e: string | null | undefined): string => (e ?? "").replace(/ \(deleted\)$/, ""); // Linux /proc exe (deleted) 정규화(R13 agy)
-
-// 소유 대조 — startTime 필수 일치 + exe 는 **양쪽 present 일 때만** 대조(identity exe best-effort·빈값 시 대조 생략·R13 codex HIGH-2).
-function ownsPid(id: { startTime: string; exe: string } | null, startTime: string | null, exe: string | null): boolean {
-  if (!id || !startTime) return false;
-  if (id.startTime !== startTime) return false;
-  const se = normExe(exe), ce = normExe(id.exe);
-  if (se && ce && se !== ce) return false; // 둘 다 있고 불일치 → 재사용. 한쪽 빈값 → startTime 로만 인정(오판 방지)
-  return true;
-}
-
-export async function pidState(pid: number, startTime: string | null, exe: string | null = null): Promise<"dead" | "alive" | "unknown"> {
+// pid 생사 판정(release 게이트). exe 대조·kill 은 terminateTree(osadapter verifyLeader) 담당 — 여기선 startTime 만.
+//   부재→dead(release 안전·R8)·startTime 불일치→dead(PID 재사용)·미기록/lookup 실패→unknown(보존·R7).
+export async function pidState(pid: number, startTime: string | null): Promise<"dead" | "alive" | "unknown"> {
   try {
     const id = await identity(pid);
-    if (!id) return "dead";           // 부재 = 확정 사멸(release 안전·capacity leak 방지·R8)
-    if (!startTime) return "unknown"; // startTime 미기록 → 대조 불가·보수적 보존(R7)
-    if (id.startTime !== startTime) return "dead"; // startTime 불일치 = PID 재사용
-    return "alive";                   // startTime 일치(exe 빈값 오판 방지 — exe 대조는 kill 게이트 terminateTree 가·R13)
-  } catch { return "unknown"; } // IdentityLookupError 등 → 보존
+    if (!id) return "dead";
+    if (!startTime) return "unknown";
+    return id.startTime === startTime ? "alive" : "dead";
+  } catch { return "unknown"; }
 }
 
 export type OwnerType = "interactive" | "batch";
@@ -168,7 +158,7 @@ export class RunGovernor {
         // orphan(attach 실패·원치 않는 child) = terminate(kill) 부수효과. **release 게이트=pidState dead**(R10 HIGH-2: reconcileRun gone 이 registry 기반일 수 있어 pidState 로 실사멸 확인).
         if (m.orphan && m.runId && m.runDir && m.pid != null) {
           // terminateTree = 크로스플랫폼 verified tree kill(leader startTime+exe 검증·POSIX 그룹/Windows taskkill /T)·tree-dead 반환(R13 HIGH-1).
-          const dead = await terminateTree(m.groupId, m.pid, { startTime: m.startTime ?? "", exe: m.exe ?? "" }).catch(() => false);
+          const dead = await terminateTree(m.groupId ?? null, m.pid, { startTime: m.startTime ?? "", exe: m.exe ?? "" }).catch(() => false); // 구버전 슬롯 groupId undefined 방어(agy). 러너=leaf(--tools ""·자식 없음)라 leader-dead=tree-dead.
           if (dead) { await reconcileRun(m.runDir, m.runId, { terminate: false, finalState: "stale" }).catch(() => null); await unlink(slotPath(i)).catch(() => {}); return "released"; }
           return "quarantined"; // tree 미사멸(권한·미확인) → 보존(다음 tick 재terminate)
         }
@@ -178,7 +168,7 @@ export class RunGovernor {
         }
         // pid 있는 정상 run: reconcileRun(verify·finalize 부수효과) 후 **release 게이트=pidState dead**(alive/unknown=keep·PID 재사용 잠식·살아있는 run 오release 방지).
         await reconcileRun(m.runDir, m.runId, { terminate: false, finalState: "stale" }).catch(() => null);
-        if ((await pidState(m.pid, m.startTime, m.exe)) === "dead") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
+        if ((await pidState(m.pid, m.startTime)) === "dead") { await unlink(slotPath(i)).catch(() => {}); return "released"; }
         return "keep";
       });
       if (res === "released") released++; else if (res === "quarantined") quarantined++;

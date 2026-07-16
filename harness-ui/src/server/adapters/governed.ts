@@ -63,7 +63,7 @@ async function dispatch(g: RunGovernor, claim: Claim, e: PendingEntry): Promise<
     for (let attempt = 0; attempt < 3; attempt++) {
       const r = await reconcileRun(e.runDir, e.runId, { terminate: true, finalState: "stale" }).catch(() => null);
       if (r && (r.action === "killed" || r.action === "gone")) break;
-      if ((await pidState(res.pid, info.startTime, info.exe)) === "dead") break;
+      if ((await pidState(res.pid, info.startTime)) === "dead") break;
       await new Promise((r2) => setTimeout(r2, 200));
     }
   } finally { clearInFlight(); }
