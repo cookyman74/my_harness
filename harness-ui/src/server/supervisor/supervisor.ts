@@ -100,15 +100,25 @@ async function durableMaxSeq(runDir: string): Promise<number> {
 const AGENT_NAME = /^[A-Za-z0-9._-]+$/; // agent 이름 allowlist(파일명 traversal 차단)
 
 const MAX_INGEST = 4 * 1024 * 1024; // 회차당 raw 처리 상한(OOM 방지 — 초과분은 다음 회차)
-const locks = new Map<string, Promise<unknown>>(); // 런별 직렬화(동시 ingest 경합 방지)
+// 단말 상태 — 이 상태에 도달하면 이후 running/stale 등으로 되돌리지 않는다(상태 clobber 방지 SSOT).
+export const TERMINAL_STATES: RunState[] = ["completed", "failed", "cancelled", "stale"];
 
-export async function ingest(runDir: string): Promise<number> {
+const locks = new Map<string, Promise<unknown>>(); // 런별 status.json RMW 직렬화(ingest·finalize·superviseRun·reconcile.setState 공유)
+
+// 런별 status 뮤텍스 — status.json read-modify-write 를 한 런 안에서 직렬화한다. 모든 status 쓰기 지점이
+//   이 락을 공유해야 read 와 write 사이 타 쓰기가 끼어들어 성공 상태/exitCode 를 clobber 하는 것을 막는다(R21 HIGH).
+//   read 도 반드시 fn 안(락 보유 중)에서 수행해야 원자적 RMW 가 된다.
+export function withStatusLock<T>(runDir: string, fn: () => Promise<T>): Promise<T> {
   const prev = locks.get(runDir) ?? Promise.resolve();
-  const run = prev.then(() => ingestLocked(runDir), () => ingestLocked(runDir));
+  const run = prev.then(fn, fn); // 이전 실패해도 다음 실행(체인 유지)
   const guard = run.catch(() => {});
   locks.set(runDir, guard);
   guard.finally(() => { if (locks.get(runDir) === guard) locks.delete(runDir); }); // 누수 방지
   return run;
+}
+
+export async function ingest(runDir: string): Promise<number> {
+  return withStatusLock(runDir, () => ingestLocked(runDir));
 }
 
 // events.jsonl 끝이 개행이 아니면(크래시 torn 라인) 마지막 개행까지 절단 — 다음 append 오염 방지.
@@ -288,9 +298,12 @@ export async function spawnRun(runDir: string, cmd: string, args: string[], env:
 export async function superviseRun(runDir: string, cmd: string, args: string[], env: Record<string, string> = {}, onExit?: (info: ExitInfo) => void): Promise<{ pid: number }> {
   const { pid, child, exited } = await spawnRun(runDir, cmd, args, env);
   if (pid <= 0 || !child) {
-    const st = await loadStatus(runDir);
-    st.state = "failed"; st.stateReason = "spawn-failed"; st.error = "spawn failed"; st.updatedAt = iso();
-    await writeStatus(runDir, st);
+    await withStatusLock(runDir, async () => {
+      const st = await loadStatus(runDir);
+      if (TERMINAL_STATES.includes(st.state)) return; // 이미 단말(예: 즉시 cancel)이면 보존
+      st.state = "failed"; st.stateReason = "spawn-failed"; st.error = "spawn failed"; st.updatedAt = iso();
+      await writeStatus(runDir, st);
+    }).catch(() => {});
     onExit?.({ code: -1, signal: null }); // M-y0: spawn 실패도 거버너 release 통지(슬롯 leak 방지)
     return { pid: -1 };
   }
@@ -298,11 +311,14 @@ export async function superviseRun(runDir: string, cmd: string, args: string[], 
   // exited 는 (spawnRun 이 동기 캡처한) 프로미스라 이미 resolve 됐어도 이후 .then 이 유효 → 늦은 부착도 유실 없음.
   // 순서상 running-write → (exit 시) finalize 가 뒤에 completed 를 써 clobber 없음(과거 reorder 경쟁 회피).
   try {
-    const st = await loadStatus(runDir);
     const cur = await import("./osadapter.js").then((m) => m.identity(pid)).catch(() => null);
-    st.state = st.state === "completed" || st.state === "failed" ? st.state : "running";
-    st.childPid = pid; st.childStartTime = cur?.startTime ?? null; st.childProcessGroupId = cur?.groupId ?? null; st.updatedAt = iso();
-    await writeStatus(runDir, st);
+    await withStatusLock(runDir, async () => {
+      const st = await loadStatus(runDir);
+      // 단말 상태(취소·완료·실패·stale) 전부 보존 — spawn 직후 즉시 cancel 된 런을 running 으로 되돌리지 않음(R21 MED).
+      st.state = TERMINAL_STATES.includes(st.state) ? st.state : "running";
+      st.childPid = pid; st.childStartTime = cur?.startTime ?? null; st.childProcessGroupId = cur?.groupId ?? null; st.updatedAt = iso();
+      await writeStatus(runDir, st);
+    });
   } catch { /* status write 실패 → 감독은 finally 에서 부착되어 finalize/ingest 가 이후 상태 기록 */ }
   finally {
     const timer = setInterval(() => { ingest(runDir).catch(() => {}); }, 500); // 주기 승격(rejection 무시)
@@ -315,11 +331,13 @@ export async function superviseRun(runDir: string, cmd: string, args: string[], 
 
 async function finalize(runDir: string, info: ExitInfo): Promise<void> {
   try {
-    await ingest(runDir); // 최종 승격
-    const f = await loadStatus(runDir);
-    if (!["completed", "failed", "cancelled", "stale"].includes(f.state)) f.state = info.code === 0 ? "completed" : "failed";
-    f.exitCode = info.code; f.exitSignal = info.signal; f.updatedAt = iso();
-    await writeStatus(runDir, f);
+    await ingest(runDir); // 최종 승격(락 내부에서 획득/해제)
+    await withStatusLock(runDir, async () => { // RMW 를 락으로 원자화(ingest/reconcile 와 clobber 방지·R21 HIGH)
+      const f = await loadStatus(runDir);
+      if (!TERMINAL_STATES.includes(f.state)) f.state = info.code === 0 ? "completed" : "failed";
+      f.exitCode = info.code; f.exitSignal = info.signal; f.updatedAt = iso();
+      await writeStatus(runDir, f);
+    });
     const { removeOwner } = await import("./registry.js");
     const rid = JSON.parse(await readFile(join(runDir, "manifest.json"), "utf8").catch(() => "{}")).runId;
     if (rid) await removeOwner(rid);

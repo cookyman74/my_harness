@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readOwner, removeOwner } from "./registry.js";
 import { identity, groupAlive, terminateTree, IdentityLookupError } from "./osadapter.js";
-import { writeStatus } from "./supervisor.js";
+import { writeStatus, withStatusLock, TERMINAL_STATES } from "./supervisor.js";
 import { Status, isSchemaValid, type RunState } from "../schemas.js";
 
 export type ReconcileResult =
@@ -16,15 +16,18 @@ export type ReconcileResult =
   | { action: "gone"; reason: string };
 
 async function setState(runDir: string, state: RunState, reason: string): Promise<void> {
-  const raw = await readFile(join(runDir, "status.json"), "utf8").catch(() => null);
-  let st: Status | null = null;
-  if (raw) { const v = isSchemaValid(Status, (() => { try { return JSON.parse(raw); } catch { return null; } })()); if (v.ok) st = v.value; }
-  if (!st) return;
-  // 단말 상태(completed/failed/cancelled) 보존 — 모든 분기에 적용. finalize 가 "completed" 를 쓰고 owner 를 지운 뒤
-  //   reap 이 뒤늦게 reconcileRun(finalState:"stale") 을 돌면 !owner 분기에서 성공 런을 "stale" 로 clobber 하던 것 방지(R20 HIGH).
-  if (st.state === "completed" || st.state === "failed" || st.state === "cancelled") return;
-  st.state = state; st.stateReason = reason; st.updatedAt = new Date().toISOString();
-  await writeStatus(runDir, st);
+  // 공유 status 락 안에서 read-modify-write — ingest/finalize/superviseRun 과 직렬화(read 와 write 사이 clobber 방지·R21 HIGH).
+  await withStatusLock(runDir, async () => {
+    const raw = await readFile(join(runDir, "status.json"), "utf8").catch(() => null);
+    let st: Status | null = null;
+    if (raw) { const v = isSchemaValid(Status, (() => { try { return JSON.parse(raw); } catch { return null; } })()); if (v.ok) st = v.value; }
+    if (!st) return;
+    // 단말 상태 보존 — 모든 분기에 적용. finalize 가 "completed"+owner 삭제 뒤 reap 이 뒤늦게 reconcileRun(stale) 을
+    //   돌면 !owner 분기가 성공 런을 clobber 하던 것 방지(R20). 락 보유 중 read 라 TOCTOU 없음(R21).
+    if (TERMINAL_STATES.includes(st.state)) return;
+    st.state = state; st.stateReason = reason; st.updatedAt = new Date().toISOString();
+    await writeStatus(runDir, st);
+  });
 }
 
 export async function reconcileRun(
