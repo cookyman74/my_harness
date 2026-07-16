@@ -51,13 +51,18 @@ async function dispatch(g: RunGovernor, claim: Claim, e: PendingEntry): Promise<
   const id = await identity(res.pid).catch(() => null);
   // attach 는 fs(rename) 예외 가능 → try/catch(예외 시 ok=false·정리·terminate 실행·inFlight leak/좀비 방지·R3 agy HIGH).
   let ok = false;
-  try { ok = await g.attach(claim, { pid: res.pid, startTime: id?.startTime ?? "", runId: e.runId, runDir: e.runDir }); } catch { ok = false; }
+  try { ok = await g.attach(claim, { pid: res.pid, startTime: id?.startTime ?? "", runId: e.runId, runDir: e.runDir }); }
+  catch (e2) { ok = false; try { console.error("[governor] attach error", e2); } catch { /* */ } } // R4 LOW: 예외 로그
   clearInFlight();
   if (!ok) {
-    // attach 실패(lease 경합·reap) → 살아있는 child 는 owner registry+reconcileRun 로 종료(거버넌스 밖 방치 금지·R1 HIGH-4).
+    // attach 실패 → child 확정 종료 시에만 release(reap 과 동일 원칙·R4 HIGH: kill-failed/indeterminate/none 에 release 시 살아있는 child+슬롯해제=K 초과).
     const alive = await identity(res.pid).catch(() => null);
-    if (alive) await reconcileRun(e.runDir, e.runId, { terminate: true, finalState: "stale" }).catch(() => {});
-    release();
+    if (!alive) { release(); return; }                       // 이미 사멸
+    const r = await reconcileRun(e.runDir, e.runId, { terminate: true, finalState: "stale" }).catch(() => null);
+    if (r && (r.action === "killed" || r.action === "gone")) { release(); return; }
+    const still = await identity(res.pid).catch(() => null); // reconcile 불확실 → 실사멸 확인
+    if (!still) { release(); return; }
+    // 여전히 살아있음 → release 안 함(슬롯 quarantine·reap interval 이 재종료·재회수). inFlight 는 이미 clear(재spawn 아님).
   }
 }
 
