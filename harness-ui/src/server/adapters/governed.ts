@@ -109,7 +109,8 @@ export async function tick(): Promise<void> {
 export async function initGovernance(projectRoot: string): Promise<void> {
   const g = governor();
   await g.init();
-  await g.reap().catch(() => {}); // 크래시 잔존 슬롯 회수(fresh process·in-flight 없음)
+  await g.reap(Date.now(), inFlight).catch(() => {}); // 크래시 잔존 슬롯 회수. 부팅은 listen 전이라 inFlight 는 비어있지만
+  //   타이머 reap 과 동일 시그니처로 통일 — initGovernance 가 향후 서버 가동 중 재호출돼도 in-flight 슬롯 오회수 방지(R26 방어).
   await failOrphanQueued(projectRoot).catch(() => {});
   if (!reapTimer) { reapTimer = setInterval(() => { void g.reap(Date.now(), inFlight).then(() => scheduleTick()).catch(() => {}); }, 5000); reapTimer.unref?.(); }
 }
