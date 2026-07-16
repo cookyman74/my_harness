@@ -53,6 +53,17 @@ describe("reconcile 3중검증 (§4-C)", () => {
     await rm(runDir, { recursive: true, force: true });
   });
 
+  it("R20: 단말 상태 보존 — completed 런은 owner 소실 후 reconcile(stale) 이 덮어쓰지 않음", async () => {
+    const runDir = await mkdtemp(join(tmpdir(), "hui-r-"));
+    await writeManifest(runDir, manifest("done"));
+    await writeStatus(runDir, { ...runningStatus("done"), state: "completed" }); // finalize 가 completed 기록
+    // owner.json 없음(finalize 가 removeOwner) → reap 이 늦게 reconcileRun(stale) 호출하는 상황 모사
+    const r = await reconcileRun(runDir, "done", { terminate: false, finalState: "stale" });
+    expect(r.action).toBe("none");
+    expect((await readStatus(runDir)).state).toBe("completed"); // stale 로 clobber 안 됨
+    await rm(runDir, { recursive: true, force: true });
+  });
+
   it("A20: identity startTime 불일치(PID reuse) → kill 안 함", async () => {
     const runDir = await mkdtemp(join(tmpdir(), "hui-r-"));
     await writeManifest(runDir, manifest("reuse"));

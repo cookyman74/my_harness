@@ -20,6 +20,9 @@ async function setState(runDir: string, state: RunState, reason: string): Promis
   let st: Status | null = null;
   if (raw) { const v = isSchemaValid(Status, (() => { try { return JSON.parse(raw); } catch { return null; } })()); if (v.ok) st = v.value; }
   if (!st) return;
+  // 단말 상태(completed/failed/cancelled) 보존 — 모든 분기에 적용. finalize 가 "completed" 를 쓰고 owner 를 지운 뒤
+  //   reap 이 뒤늦게 reconcileRun(finalState:"stale") 을 돌면 !owner 분기에서 성공 런을 "stale" 로 clobber 하던 것 방지(R20 HIGH).
+  if (st.state === "completed" || st.state === "failed" || st.state === "cancelled") return;
   st.state = state; st.stateReason = reason; st.updatedAt = new Date().toISOString();
   await writeStatus(runDir, st);
 }
