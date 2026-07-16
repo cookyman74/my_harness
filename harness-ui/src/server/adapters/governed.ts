@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { RunGovernor, pidState, type OwnerType, type Claim } from "./run-governor.js";
 import { identity, terminateTree } from "../supervisor/osadapter.js";
+import { readOwner } from "../supervisor/registry.js";
 
 export type SpawnResult = { pid: number } | null;
 export type PendingEntry = {
@@ -56,6 +57,12 @@ async function dispatch(g: RunGovernor, claim: Claim, e: PendingEntry): Promise<
       id = await identity(res.pid).catch(() => null);
       if (id && id.startTime) break;
       await new Promise((r2) => setTimeout(r2, 100));
+    }
+    // 재조회 실패 시 spawnRun 이 기록한 owner registry 를 권위 소스로 폴백 — res.pid>0 는 spawn 시 identity·writeOwner 확정을 의미하므로
+    //   registry 에 실 startTime 이 존재한다. 빈 startTime 이 slot 에 새어들어가 pidState "unknown"·terminateTree 검증불가(오release/rogue)로 이어지는 것 차단(R19).
+    if (!id || !id.startTime) {
+      const owner = await readOwner(e.runId).catch(() => null);
+      if (owner && owner.startTime) id = { pid: owner.pid, startTime: owner.startTime, exe: owner.exe, groupId: owner.groupId };
     }
     const info = { pid: res.pid, startTime: id?.startTime ?? "", exe: id?.exe ?? "", groupId: id?.groupId ?? null, runId: e.runId, runDir: e.runDir };
     let ok = false;
