@@ -19,6 +19,13 @@ const inFlight = new Map<number, string>(); // slotIdx→leaseId(reap 보호·le
 let ticking = false, tickAgain = false;   // tick single-flight(R1 HIGH tick race)
 let reapTimer: ReturnType<typeof setInterval> | null = null;
 
+// spawn 前 terminal 선체크용 — runDir status.json 이 이미 단말(cancel 등)이면 dispatch 가 spawn 생략(R4 churn 방지).
+const TERMINAL_RUN = new Set(["completed", "failed", "cancelled", "stale"]);
+async function isTerminalRun(runDir: string): Promise<boolean> {
+  try { const st = JSON.parse(await readFile(join(runDir, "status.json"), "utf8")); return TERMINAL_RUN.has(st?.state); }
+  catch { return false; } // 부재/파손 → 비단말 취급(정상 dispatch)
+}
+
 export function governor(): RunGovernor { if (!gov) { gov = new RunGovernor(); void gov.init(); } return gov; }
 export function _resetGovernorForTest(k?: number): RunGovernor {
   gov = new RunGovernor(k); pending.length = 0; inFlight.clear(); ticking = false; tickAgain = false;
@@ -46,6 +53,9 @@ async function dispatch(g: RunGovernor, claim: Claim, e: PendingEntry): Promise<
   const release = () => { if (released) return; released = true; clearInFlight(); void g.release(claim).catch((e2) => { try { console.error("[governor] release error", e2); } catch { /* */ } }).finally(() => scheduleTick()); };
   // clearInFlight 는 finally 로 항상 보장(예외 경로에서도·inFlight leak deadlock 방지·R7 agy HIGH). idempotent(lease 대조).
   try {
+    // spawn 前 terminal 선체크 — queued 중 cancel 된 run(status=cancelled·owner 미기록)을 뒤늦게 dispatch 할 때
+    //   짧게 띄웠다 죽이는 churn·API 비용을 없앤다(R4). 배치 다수 취소 시 특히 유효. 크래시-복구 안전(status 가 진실).
+    if (await isTerminalRun(e.runDir)) { release(); return; }
     let res: SpawnResult = null;
     try { res = await e.spawn(release); }
     catch { release(); return; }

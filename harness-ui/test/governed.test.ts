@@ -54,6 +54,17 @@ describe("governed.submitRun — claim/queued/dispatch", () => {
     expect(r.dispatched).toBe(true);          // interactive 는 예약 슬롯 사용
   });
 
+  it("spawn 前 terminal 선체크 — 이미 cancelled 인 run 은 spawn 생략(churn 방지·R4)", async () => {
+    const exits: Array<() => void> = [];
+    const e = fakeEntry("run-cancelled", "interactive", exits);
+    await mkdir(e.runDir, { recursive: true });
+    await writeFile(join(e.runDir, "status.json"), JSON.stringify({ schemaVersion: "1", runId: "run-cancelled", state: "cancelled" }), "utf8");
+    await submitRun(e);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(exits.length).toBe(0);      // spawn 호출 안 됨(terminal 선체크로 skip)
+    expect(pendingCount()).toBe(0);    // 슬롯은 release(누수 없음)
+  });
+
   it("부팅 재건 — orphan queued run 을 failed(server-restarted)로 명시 종료", async () => {
     const g = _resetGovernorForTest(3); await g.init();
     const runDir = join(stateDir, "_workspace", "runs", "old-queued");
