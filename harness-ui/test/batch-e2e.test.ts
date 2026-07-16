@@ -71,6 +71,14 @@ describe("M-y3 배치 검토→일괄 적용 E2E (HTTP·결정적)", () => {
       expect(onDisk).toContain("구체적 트리거"); // 초안이 실제로 파일에 반영
     }
     expect(applied).toBe(3); // 무손실 — 3개 전부 적용
+
+    // 백업·롤백 계약 — alpha 를 되돌리면 원본 복원(rollback 성공 = 백업본이 실제로 생성됐다는 증거).
+    const put0 = (await a.inject({ method: "PUT", url: `/api/skills/alpha/definition`, payload: {
+      content: proposedDef("alpha") + "\n추가\n", baseHash: sha(proposedDef("alpha")), pathId: (await a.inject({ url: "/api/skills/alpha/definition" })).json().pathId } })).json();
+    const rb = await a.inject({ method: "POST", url: `/api/skills/alpha/definition/rollback`, payload: { expectedCurrentHash: put0.newHash, backupHash: put0.prevHash } });
+    expect(rb.statusCode).toBe(200); // 백업 존재+복원 성공
+    const restored = await readFile(join(root, ".claude", "skills", "alpha", "SKILL.md"), "utf8");
+    expect(restored).not.toContain("추가"); // 직전 상태(proposed)로 복원
   });
 
   it("초안 base 와 현재 정의가 다르면(stale) 적용이 409 로 차단(동시 수정 유실 방지)", async () => {

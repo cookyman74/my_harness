@@ -2,6 +2,8 @@
 // M-y2 웹 — 배치 초안 API 클라이언트 계약 소비 고정(URL·method·body/응답 shape·토큰 첨부). 서버 Zod 계약과 정확 일치.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { startBatchRemediate, getBatch, type BatchView } from "../src/web/api.js";
+import { bulkApplyItems } from "../src/web/screens.js";
+import type { BatchItemView } from "../src/web/api.js";
 
 const KEY = "harness-session";
 beforeEach(() => { sessionStorage.clear(); vi.restoreAllMocks(); });
@@ -53,5 +55,23 @@ describe("getBatch — GET /api/eval/remediate/batch/:batchId", () => {
   it("404 → DefEditError not-found", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => errJson(404, { error: "not-found" })));
     await expect(getBatch("batch-none")).rejects.toMatchObject({ code: "not-found" });
+  });
+});
+
+describe("bulkApplyItems — 순차·부분성공(중단 없음)", () => {
+  const item = (name: string, runId: string): BatchItemView => ({ kind: "skill", name, status: "ready", runId, stale: false });
+  it("일부 실패해도 나머지 계속·okKeys/failed 정확 집계", async () => {
+    const items = [item("a", "r-a"), item("b", "r-b"), item("c", "r-c")];
+    const apply = async (it: BatchItemView) => it.name === "b" ? { ok: false, code: "stale" } : { ok: true, code: "applied" };
+    const r = await bulkApplyItems(items, apply);
+    expect(r.okKeys).toEqual(["r-a", "r-c"]);            // runId 키(고유)
+    expect(r.failed).toEqual([{ key: "r-b", name: "b", code: "stale" }]);
+  });
+  it("apply throw 도 수집(전체 중단 없음)", async () => {
+    const items = [item("a", "r-a"), item("b", "r-b")];
+    const apply = async (it: BatchItemView) => { if (it.name === "a") throw new Error("net"); return { ok: true, code: "applied" }; };
+    const r = await bulkApplyItems(items, apply);
+    expect(r.okKeys).toEqual(["r-b"]);
+    expect(r.failed[0]).toMatchObject({ key: "r-a", name: "a" });
   });
 });

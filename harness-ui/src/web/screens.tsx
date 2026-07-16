@@ -2421,6 +2421,20 @@ async function applyBatchItem(item: BatchItemView): Promise<{ ok: boolean; code:
   return { ok: true, code: "applied" };
 }
 
+// M-y3 일괄 적용 루프(순차·부분성공) — 컴포넌트 상태와 분리해 테스트 가능. 실패는 중단 없이 수집(나머지 계속).
+export async function bulkApplyItems(
+  items: BatchItemView[],
+  apply: (it: BatchItemView) => Promise<{ ok: boolean; code: string }>,
+): Promise<{ okKeys: string[]; failed: Array<{ key: string; name: string; code: string }> }> {
+  const okKeys: string[] = []; const failed: Array<{ key: string; name: string; code: string }> = [];
+  for (const it of items) {
+    const key = it.runId ?? `${it.kind}:${it.name}`;
+    try { const r = await apply(it); if (r.ok) okKeys.push(key); else failed.push({ key, name: it.name, code: r.code }); }
+    catch (e) { failed.push({ key, name: it.name, code: e instanceof DefEditError ? e.code : "error" }); }
+  }
+  return { okKeys, failed };
+}
+
 // M-y2 검토 큐 — 배치 진행/결과를 대상별 카드로. ready 는 diff(접힘) + [적용](사람 승인)·[건너뛰기]. 적용=putDefinition(F7 재사용).
 const BATCH_TERMINAL = new Set(["ready", "failed", "invalid", "cancelled", "skipped"]);
 function batchStatusKind(s: string): "ok" | "warn" | "err" {
@@ -2431,7 +2445,7 @@ function BatchReviewQueue({ batchId }: { batchId: string }) {
   const [err, setErr] = useState<string | null>(null);
   const [applied, setApplied] = useState<Set<string>>(new Set());
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
-  const keyOf = (it: BatchItemView) => `${it.kind}:${it.name}`;
+  const keyOf = (it: BatchItemView) => it.runId ?? `${it.kind}:${it.name}`; // runId 우선(고유) — kind:name 은 배치 내 dedup 되나 방어적으로 runId 사용
   useEffect(() => {
     let live = true; let timer: ReturnType<typeof setTimeout> | null = null;
     const poll = async () => {
@@ -2454,13 +2468,11 @@ function BatchReviewQueue({ batchId }: { batchId: string }) {
   const [bulking, setBulking] = useState(false);
   const bulkApply = async (items: BatchItemView[]) => {
     setBulking(true); setBulkMsg(null);
-    let ok = 0, fail = 0; const applied2 = new Set<string>();
-    for (const it of items) {
-      try { const r = await applyBatchItem(it); if (r.ok) { applied2.add(keyOf(it)); ok++; } else fail++; }
-      catch { fail++; }
-    }
-    if (applied2.size) setApplied((s) => { const n = new Set(s); for (const k of applied2) n.add(k); return n; });
-    setBulking(false); setBulkMsg(`일괄 적용 완료 — 성공 ${ok} · 실패/건너뜀 ${fail} (실패분은 [stale 재생성] 또는 개별 검토)`);
+    const { okKeys, failed } = await bulkApplyItems(items, applyBatchItem);
+    if (okKeys.length) setApplied((s) => { const n = new Set(s); for (const k of okKeys) n.add(k); return n; });
+    const failNote = failed.length ? ` · 실패 ${failed.length}: ${failed.map((f) => `${f.name}(${f.code})`).join(", ")}` : "";
+    setBulking(false);
+    setBulkMsg(`일괄 적용 완료 — 성공 ${okKeys.length}${failNote}${failed.length ? " · 실패분은 [stale 재생성] 또는 개별 검토" : ""}`);
   };
 
   return (
@@ -2483,7 +2495,7 @@ function BatchReviewQueue({ batchId }: { batchId: string }) {
             {bulkMsg && <p className="banner ok" role="status">{bulkMsg}</p>}
           </Card>
           {view.items.map((it) => (
-            <BatchItemCard key={keyOf(it)} item={it} applied={applied.has(keyOf(it))} skipped={skipped.has(keyOf(it))}
+            <BatchItemCard key={keyOf(it)} item={it} applied={applied.has(keyOf(it))} skipped={skipped.has(keyOf(it))} busy={bulking}
               onApplied={() => setApplied((s) => new Set(s).add(keyOf(it)))}
               onSkip={() => setSkipped((s) => new Set(s).add(keyOf(it)))} />
           ))}
@@ -2493,8 +2505,8 @@ function BatchReviewQueue({ batchId }: { batchId: string }) {
   );
 }
 
-function BatchItemCard({ item, applied, skipped, onApplied, onSkip }: {
-  item: BatchItemView; applied: boolean; skipped: boolean; onApplied: () => void; onSkip: () => void;
+function BatchItemCard({ item, applied, skipped, busy, onApplied, onSkip }: {
+  item: BatchItemView; applied: boolean; skipped: boolean; busy?: boolean; onApplied: () => void; onSkip: () => void;
 }) {
   const [draft, setDraft] = useState<RemediationResult | null>(null);
   const [loadingDraft, setLoadingDraft] = useState(false);
@@ -2540,8 +2552,8 @@ function BatchItemCard({ item, applied, skipped, onApplied, onSkip }: {
               : <p className="muted">초안을 불러오려면 펼치세요.</p>}
           </details>
           <div className="row" style={{ gap: 8, marginTop: 8 }}>
-            <button className="btn primary" disabled={applying} onClick={apply}>{applying ? "적용 중…" : "적용(저장)"}</button>
-            <button className="btn" disabled={applying} onClick={onSkip}>건너뛰기</button>
+            <button className="btn primary" disabled={applying || busy} onClick={apply}>{applying ? "적용 중…" : "적용(저장)"}</button>
+            <button className="btn" disabled={applying || busy} onClick={onSkip}>건너뛰기</button>
           </div>
         </>
       )}
