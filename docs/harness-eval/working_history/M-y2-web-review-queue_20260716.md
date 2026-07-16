@@ -1,7 +1,11 @@
 # M-y2 작업결과서 — 웹 검토 큐·전환기
 
 > 계획: [M-y-batch-remediation.md](../todo/M-y-batch-remediation.md) M-y2. 등급: 중대(다도메인·UI). 완료 2026-07-16.
-> 선행 M-y1(배치 API) 수렴 위. 외부감사 대기(no-high 2연속까지).
+> 선행 M-y1(배치 API) 수렴 위. **외부감사 R1~R3 수렴(R2·R3 codex+agy 양엔진 no-high 2연속)** — 7 confirmed·alignment 1.0.
+
+## 외부감사 R1~R3
+- **R1(HIGH 2):** 적용이 현재 baseHash 로 putDefinition→stale-write 우회(동시 수정 silent 유실) → **초안 baseHash 사용+d.stale 차단+항상 재조회**. `<BatchReviewQueue>` key 누락→applied/skipped Set 배치간 bleed → **key={batchId}**. +MED/LOW: 완료 후 폴링 정지(stale 배지 미갱신)→느린 폴링 지속·batchFromHash decode 미가드→try/catch·staleReady !skipped·에러 매핑·언마운트 가드.
+- **R2·R3:** 양엔진 no-high 2연속 → 수렴.
 
 ## 1. 구현 (`src/web/`)
 - **`api.ts`:** `startBatchRemediate(targets)`·`getBatch(batchId)` + 타입(`BatchTarget`·`BatchItemView`·`BatchView`). **`BatchError`(status+code)** — apiPost/apiGet 는 code 미보존이라 batch 는 전용 fetch+error 파싱(queue-full 429·too-many-targets 400·edit-disabled 403 UI 매핑).
