@@ -15,4 +15,10 @@ describe("osadapter.terminateTree — PID 재사용 인식(R16 capacity leak 방
     const dead = await terminateTree(null, 999999, { startTime: "any", exe: "x" }, 10);
     expect(dead).toBe(true);
   });
+
+  it("startTime 빈값 + 살아있는 pid → 검증 불가 → dead 오판 금지(false)", async () => {
+    // identity 미확보(startTime="")로 살아있는 프로세스를 죽었다고 오판→false-release→untracked child leak 방지(R18).
+    const dead = await terminateTree(null, process.pid, { startTime: "", exe: "" }, 10);
+    expect(dead).toBe(false); // 검증 불가 → 사멸 아님(슬롯 보존·자연 종료까지 대기)
+  });
 });

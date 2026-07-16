@@ -67,7 +67,8 @@ export async function groupAlive(groupId: number | string | null, pid: number): 
 async function verifyLeader(pid: number, groupId: number | string | null, expected: { startTime: string; exe?: string }): Promise<boolean | null> {
   let cur;
   try { cur = await identity(pid); } catch { return null; } // 미확인
-  if (!cur) return false; // leader 부재
+  if (!cur) return false; // leader 부재(pid 부재)=확정 사멸
+  if (!expected.startTime) return null;                                   // 기대 startTime 미확보=검증 불가(오kill·오release 금지·R18)
   if (cur.startTime !== expected.startTime) return false;                 // startTime 불일치=PID 재사용
   if (expected.exe && cur.exe && cur.exe !== expected.exe) return false;  // exe 대조(양쪽 값 있을 때만·하위호환)
   if (groupId !== null && String(cur.groupId) !== String(groupId)) return false; // 그룹 요구(null=leader 단독)
