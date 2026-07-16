@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RunGovernor, MIN_K } from "../src/server/adapters/run-governor.js";
+import { RunGovernor, MIN_K, pidState } from "../src/server/adapters/run-governor.js";
 
 let stateDir: string;
 const orig = process.env.HARNESS_STATE_HOME;
@@ -14,6 +14,13 @@ async function gov(k?: number) { const g = new RunGovernor(k); await g.init(); r
 
 describe("RunGovernor — 강제 상한·풀", () => {
   it("K 하한 강제(K<2→2)", () => { expect(new RunGovernor(1).k).toBe(MIN_K); expect(new RunGovernor(0).k).toBe(MIN_K); });
+
+  it("pidState — 부재→dead·존재+startTime 없음→unknown·존재+불일치→dead(재사용)·존재+일치→alive", async () => {
+    expect(await pidState(999999, "any")).toBe("dead");           // 부재(startTime 무관)
+    expect(await pidState(999999, null)).toBe("dead");            // 부재(startTime 없어도 dead)
+    expect(await pidState(process.pid, null)).toBe("unknown");    // 존재하나 대조 불가 → 보존
+    expect(await pidState(process.pid, "bogus-starttime")).toBe("dead"); // 존재+불일치=PID 재사용
+  });
 
   it("AE13 활성 ≤ K — K개 claim 성공·K+1=null(queued)", async () => {
     const g = await gov(3);
