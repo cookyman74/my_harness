@@ -333,7 +333,11 @@ export async function superviseRun(runDir: string, cmd: string, args: string[], 
       if (!stopped) timer = setTimeout(pump, 500);
     };
     timer = setTimeout(pump, 500);
-    exited.then((info) => finalize(runDir, info)).catch(() => {}).finally(() => { stopped = true; if (timer) clearTimeout(timer); });
+    // exit 즉시 pump 중단(finalize 실행 **전**) — finalize drain 중 pump 가 청크를 가로채 drain 을 조기 종료시키거나,
+    //   finalize 최종 write 뒤 늦은 pump 가 updatedAt/summary 를 clobber 하는 것을 막는다(R23 MED). 이미 발화한
+    //   in-flight ingest 는 withStatusLock 이 finalize write 와 직렬화하므로 안전.
+    const stop = () => { stopped = true; if (timer) clearTimeout(timer); };
+    exited.then((info) => { stop(); return finalize(runDir, info); }, () => { stop(); }).catch(() => {});
     // M-y0: 거버너 release 통지 — exit 시 1회(정보 무관·슬롯 반환). finalize 와 독립 체인(release 지연 방지).
     if (onExit) exited.then((info) => { try { onExit(info); } catch { /* */ } }, () => { try { onExit({ code: null, signal: null }); } catch { /* */ } });
   }
@@ -342,9 +346,16 @@ export async function superviseRun(runDir: string, cmd: string, args: string[], 
 
 async function finalize(runDir: string, info: ExitInfo): Promise<void> {
   try {
-    // 종료 후 잔여 로그 전량 승격 — MAX_INGEST(4MB) cap 때문에 1회 호출은 앞부분만 처리한다. promoted>0 인 동안
-    //   반복(안전 상한 10000)해 꼬리 로그(최종 결과/완료 이벤트) 유실을 막는다(R22 HIGH).
-    for (let i = 0; i < 10000; i++) { if ((await ingest(runDir)) <= 0) break; }
+    // 종료 후 잔여 로그 전량 승격 — MAX_INGEST(4MB) cap 으로 1회는 앞부분만 처리. **cursor offset 전진**을 진전
+    //   기준으로 drain 한다: capped-no-newline(초대형 라인)·중복(seq<=max)·malformed 청크는 promoted=0 이어도
+    //   offset 은 전진하므로 promoted 기준 조기 종료 시 정상 꼬리(completed)를 유실한다(R23 HIGH). offset 정체=완료.
+    let prevOffset = -1;
+    for (let i = 0; i < 10000; i++) {
+      await ingest(runDir);
+      const off = await readCursor(runDir).then((c) => c.offset).catch(() => prevOffset);
+      if (off === prevOffset) break; // 더 이상 소비할 바이트 없음
+      prevOffset = off;
+    }
     await withStatusLock(runDir, async () => { // RMW 를 락으로 원자화(ingest/reconcile 와 clobber 방지·R21 HIGH)
       const f = await loadStatus(runDir);
       if (!TERMINAL_STATES.includes(f.state)) f.state = info.code === 0 ? "completed" : "failed";
