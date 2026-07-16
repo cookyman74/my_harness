@@ -298,7 +298,12 @@ export async function spawnRun(runDir: string, cmd: string, args: string[], env:
 // 실행 관리: spawn + 주기 ingest + child exit 시 최종 ingest·terminal status·owner 정리.
 // exit 는 spawnRun 이 동기 캡처한 exited 프로미스로 처리(유실 없음). 모든 콜백 try/catch(rejection→server crash 방지).
 export async function superviseRun(runDir: string, cmd: string, args: string[], env: Record<string, string> = {}, onExit?: (info: ExitInfo) => void): Promise<{ pid: number }> {
-  const { pid, child, exited } = await spawnRun(runDir, cmd, args, env);
+  // spawnRun 셋업(mkdir/open) 예외도 spawn 실패로 흡수 — 미포착 시 dispatch 가 슬롯만 release 하고 status 는
+  //   "queued" 좀비로 방치된다(R28). pid<=0 경로가 failed 를 기록하도록 정규화.
+  let sr: Awaited<ReturnType<typeof spawnRun>>;
+  try { sr = await spawnRun(runDir, cmd, args, env); }
+  catch { sr = { pid: -1, child: null, exited: Promise.resolve({ code: -1, signal: null }) }; }
+  const { pid, child, exited } = sr;
   if (pid <= 0 || !child) {
     await withStatusLock(runDir, async () => {
       const st = await loadStatus(runDir);
@@ -314,13 +319,19 @@ export async function superviseRun(runDir: string, cmd: string, args: string[], 
   // 순서상 running-write → (exit 시) finalize 가 뒤에 completed 를 써 clobber 없음(과거 reorder 경쟁 회피).
   try {
     const cur = await import("./osadapter.js").then((m) => m.identity(pid)).catch(() => null);
+    let cancelledDuringSpawn = false;
     await withStatusLock(runDir, async () => {
       const st = await loadStatus(runDir);
       // 단말 상태(취소·완료·실패·stale) 전부 보존 — spawn 직후 즉시 cancel 된 런을 running 으로 되돌리지 않음(R21 MED).
       st.state = TERMINAL_STATES.includes(st.state) ? st.state : "running";
+      // spawn window(owner 미기록) 중 cancel 된 경우 status 는 cancelled 지만 프로세스는 살아있다 — 감지해 직접 kill(R28 HIGH).
+      //   owner 는 이제 spawnRun 이 기록했으므로 이후 cancel 은 정상 reconcile 경로가 kill. 이 창만 여기서 보완.
+      if (st.state === "cancelled" || st.cancelRequestedAt) cancelledDuringSpawn = true;
       st.childPid = pid; st.childStartTime = cur?.startTime ?? null; st.childProcessGroupId = cur?.groupId ?? null; st.updatedAt = iso();
       await writeStatus(runDir, st);
     });
+    // child 핸들 직접 kill — pid-reuse 모호성 없음(방금 생성한 우리 자식). exited 가 곧 resolve→finalize(cancelled 보존)·release.
+    if (cancelledDuringSpawn) { try { child.kill("SIGKILL"); } catch { /* */ } }
   } catch { /* status write 실패 → 감독은 finally 에서 부착되어 finalize/ingest 가 이후 상태 기록 */ }
   finally {
     // 주기 승격 — 자기재예약(setTimeout) 으로 이전 ingest 완료 후에만 다음 틱 예약. setInterval 은 ingest 지연 시
@@ -363,7 +374,9 @@ async function finalize(runDir: string, info: ExitInfo): Promise<void> {
     }
     await withStatusLock(runDir, async () => { // RMW 를 락으로 원자화(ingest/reconcile 와 clobber 방지·R21 HIGH)
       const f = await loadStatus(runDir);
-      if (!TERMINAL_STATES.includes(f.state)) f.state = info.code === 0 ? "completed" : "failed";
+      // finalize 는 이 프로세스가 감독한 런의 **권위 있는** 종료 결과다. reap 이 종료-직후 창에서 먼저 "stale" 로
+      //   써버린 경우(R28 HIGH) 실제 exit code 로 교정한다. 단 completed/failed/cancelled(확정 판정)는 덮지 않는다.
+      if (!["completed", "failed", "cancelled"].includes(f.state)) f.state = info.code === 0 ? "completed" : "failed";
       f.exitCode = info.code; f.exitSignal = info.signal; f.updatedAt = iso();
       await writeStatus(runDir, f);
     });
