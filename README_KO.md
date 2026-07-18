@@ -252,6 +252,23 @@ myharness는 Claude Code 에이전트 생태계의 **메타 팩토리** 계층 �
 - **화면(11 · 그룹 사이드바):** Overview · **Harness** / Agents / Skills / Context / History · Docs · Runs / Drift / Ops / Eval · Settings. 흐름: 도메인 → Harness 자동빌드(초안 → create) 또는 New Run → run 생성 → 관찰(fire-and-observe).
 - **보안·범위:** 로컬 127.0.0.1 전용 · 토큰 bootstrap → 세션 · 읽기 우선(mutating은 정의 편집·projectRoot·평가 config·하네스 빌드뿐 — 화이트리스트·원자·기본 off 게이트, 자동빌드는 no-tools isolated exec + no-auto-apply). 이력·통계는 **UI로 실행한 run만** 반영, 터미널 CLI 실행은 v0.7(CLI 세션 로그 관측)까지 범위 밖.
 
+### Eval — 각 에이전트/스킬을 어떻게 채점하나 (`#/eval`)
+
+**Eval** 화면은 모든 에이전트·스킬을 **4축** + **관계 건강도**로 채점합니다. 각 축은 0.0–1.0이며, 등급은 가중 평균 — **A ≥ 0.90 · B ≥ 0.75 · C ≥ 0.60 · D < 0.60** — 에 **min-gate**를 겁니다: 구조적 과락(예: 500줄 본문에 `references/` 0개)이면 등급을 D로 상한 처리해, 좋은 산문 점수로 깨진 구조를 세탁하지 못하게 합니다.
+
+| 축 | 무엇을·왜 재나 | 가중치(기계 + 판정) |
+|------|------------------------|------------------------------|
+| **트리거** | *description ROI* — description이 상시 컨텍스트 비용을 정당화하나? (a) 하는 일, (b) 구체적 트리거 상황, (c) 발동하면 **안 되는** near-miss 경우를 밝힘. | 0.4 기계 + 0.6 판정 |
+| **구조** | *2계층 아키텍처* — 본문은 절차만 유지(≤ 500줄), 조건부·부피 큰 자료는 `references/`로 이동. | 0.7 기계 + 0.3 판정 |
+| **유도** | *다음 행동 유도* — 명령형 어조, "왜" 근거, 에이전트의 다음 행동을 분명히 이끄는 leading words(모호한 서술 대비). | 0.3 기계 + 0.7 판정 |
+| **가지치기** | *삭제 테스트 [핵심]* — "이 문장을 지우면 동작이 바뀌나?" 아니오 = 군더더기. 점수 = `1 − deletion-candidates / total`. **완전성 가드**가 필수 섹션(트리거 조건 · 에러 핸들링 · 핵심 제약)을 과-축약으로부터 보호. | 기계 + 보수적 판정 |
+
+**관계 건강도**(4축이 못 보는 그래프 신호): 고아(미배선 정의) · 죽은 링크 · 커버리지 공백 · 드리프트(스킬 복제본 불일치) — 페널티로 점수에 접힙니다.
+
+> **현재 한계 — 참고(advisory)로 읽으세요.** **정적 계층**(기계 · 결정론 · 정규식/밀도)만 active이며, confidence는 의도적으로 낮게(0.45–0.5) 잡혀 있습니다. 의미 판정 계층(LLM)과 교차 검증은 후속입니다. **자동 적용되는 것은 없습니다** — findings는 정의 편집기로 흘러가 사람이 diff를 검토한 뒤 저장합니다(다수는 배치 검토 큐로).
+>
+> 전체 rubric·가중치·근거 → [`docs/harness-eval/design/eval-v1-design.md`](docs/harness-eval/design/eval-v1-design.md).
+
 **상세 문서**
 - 앱 패키지·개발 가이드 → [`harness-ui/README.md`](harness-ui/README.md)
 - 문서 허브(설계 · PRD · 수용기준 · 감사 이력) → [`docs/harness-ui/`](docs/harness-ui/README.md)

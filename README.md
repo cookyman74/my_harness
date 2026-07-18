@@ -254,6 +254,23 @@ A local web app that **observes and controls** a built harness. It reads the fil
 - **Screens (11, grouped sidebar):** Overview · **Harness** / Agents / Skills / Context / History · Docs · Runs / Drift / Ops / Eval · Settings. Flow: domain → Harness auto-build (draft → create) or New Run → run created → observe (fire-and-observe).
 - **Security & scope:** local 127.0.0.1 only · token bootstrap → session · read-first (the only mutating paths are definition editing, projectRoot, eval config, and harness build — whitelisted, atomic, gated off by default; auto-build runs no-tools isolated exec with no auto-apply). History/stats reflect **UI-launched runs only**; terminal CLI runs are out of scope until v0.7 (CLI session-log observability).
 
+### Eval — how each agent/skill is scored (`#/eval`)
+
+The **Eval** screen grades every agent and skill on **four axes** plus **relationship health**. Each axis is 0.0–1.0; the grade is a weighted average — **A ≥ 0.90 · B ≥ 0.75 · C ≥ 0.60 · D < 0.60** — with a **min-gate**: a structural failure (e.g. a 500-line body with zero `references/`) caps the grade at D so a good prose score can't launder a broken structure.
+
+| Axis | What & why it measures | Weight (machine + judgment) |
+|------|------------------------|------------------------------|
+| **Trigger** | *description ROI* — does the description justify its always-on context cost? States (a) what it does, (b) concrete trigger situations, (c) near-miss cases where it must **not** fire. | 0.4 machine + 0.6 judgment |
+| **Structure** | *two-layer architecture* — body keeps only the procedure (≤ 500 lines); conditional/bulky material moved to `references/`. | 0.7 machine + 0.3 judgment |
+| **Induction** | *next-action steering* — imperative voice, "why" rationale, and leading words that clearly steer the agent's next move (vs vague description). | 0.3 machine + 0.7 judgment |
+| **Pruning** | *deletion test [core]* — "if this sentence were deleted, would behavior change?" No = filler. Score = `1 − deletion-candidates / total`. A **completeness guard** protects required sections (trigger conditions · error handling · core constraints) from over-pruning. | machine + conservative judgment |
+
+**Relationship health** (graph signals the four axes can't see): orphans (unwired definitions) · dead links · coverage gaps · drift (skill-copy mismatch) — folded into the score as penalties.
+
+> **Current limitation — read it as advisory.** Only the **static layer** (machine · deterministic · regex/density) is active; confidence is deliberately low (0.45–0.5). The semantic-judgment layer (LLM) and cross-verification are follow-ups. **Nothing is auto-applied** — findings feed the definition editor where a human reviews the diff before saving (or the batch review queue for many at once).
+>
+> Full rubric, weights, and rationale → [`docs/harness-eval/design/eval-v1-design.md`](docs/harness-eval/design/eval-v1-design.md).
+
 **Detailed docs**
 - App package & dev guide → [`harness-ui/README.md`](harness-ui/README.md)
 - Docs hub (design · PRD · acceptance criteria · audit history) → [`docs/harness-ui/`](docs/harness-ui/README.md)

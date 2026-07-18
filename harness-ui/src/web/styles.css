@@ -84,7 +84,16 @@ body { margin:0; font:14px/1.55 var(--sans); background:var(--bg); color:var(--f
 .eval-diagnostics > summary { cursor:pointer; color:var(--muted); font-size:13px; padding:4px 0; }
 .axis-rollup { display:flex; flex-direction:column; gap:6px; }
 .axis-row { display:flex; align-items:center; gap:10px; }
-.axis-label { flex:0 0 72px; font-size:12px; color:var(--muted); }
+/* 축 라벨 = 근거 툴팁(title) 보유 → 점선 밑줄로 hover/focus 가능 affordance. 키보드 focus 링 유지. */
+.axis-label { flex:0 0 72px; font-size:12px; color:var(--muted); text-decoration:underline dotted var(--line-strong); text-underline-offset:3px; cursor:help; }
+.axis-label:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:3px; }
+/* 평가 기준 해설(접힘) — 각 축 정의 + 등급/한계. */
+.eval-explain { border:1px solid var(--line); border-radius:8px; padding:8px 12px; margin-bottom:12px; background:var(--panel-2); }
+.eval-explain > summary { cursor:pointer; font-weight:600; font-size:13px; }
+.eval-axis-defs { margin:10px 0 6px; display:flex; flex-direction:column; gap:6px; }
+.eval-axis-def { display:grid; grid-template-columns:78px 1fr; gap:10px; font-size:12px; }
+.eval-axis-def dt { font-weight:650; color:var(--fg); }
+.eval-axis-def dd { margin:0; color:var(--fg-2); line-height:1.5; }
 .axis-bar { flex:1; height:10px; background:var(--panel-2); border:1px solid var(--line); border-radius:999px; overflow:hidden; }
 .axis-fill { display:block; height:100%; border-radius:999px; background:var(--muted); }
 .axis-fill.ok { background:var(--ok, #3aa76d); } .axis-fill.warn { background:var(--warn, #d19a00); } .axis-fill.err { background:var(--err, #c9503f); }
@@ -307,7 +316,8 @@ details.tier-b[open] > summary { margin-bottom:8px; }
 @media (prefers-reduced-motion:reduce) { .conn-spin { animation:none; } }
 
 /* F7 정의 편집기 */
-.detail-actions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+/* 상세 액션(예: "이 에이전트에게 요청") — 아래 편집기 카드(section)와 붙지 않도록 하단 간격 확보. */
+.detail-actions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:10px 0 14px; }
 .edit-disabled-wrap { display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .edit-reason { font-size:12px; }
 .edit-btn { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 16px; font:inherit; cursor:pointer; }
@@ -319,9 +329,9 @@ details.tier-b[open] > summary { margin-bottom:8px; }
 .def-textarea[readonly] { opacity:.75; }
 .def-editor-toolbar { display:flex; gap:12px; align-items:center; margin-top:10px; }
 .def-editor-toolbar .primary { margin-left:auto; }
-/* 렌더/원문 모드 토글(docs 뷰어 동형) */
-.def-mode-toggle { display:flex; gap:6px; margin:10px 0 6px; }
-.def-mode-toggle button { padding:3px 12px; border-radius:6px; font-size:12px; }
+/* 편집기 툴바는 docs/context 뷰어와 동일 클래스(.viewer-toolbar/.seg-toggle/.dl-btn) 재사용 — 전용 토글 스타일 폐지.
+   위아래 요소와 붙지 않도록 간격만 보정. */
+.def-toolbar { margin:10px 0 8px; }
 /* 렌더 미리보기: 콘텐츠 full-height(내부 스크롤 없음·overflow visible) → 페이지 단일 스크롤. */
 .def-render { margin-top:0; }
 pre.def-render { background:var(--panel-2); border:1px solid var(--line); border-radius:8px; padding:10px; font-family:var(--mono); font-size:12px; line-height:1.5; }

@@ -388,7 +388,7 @@ export function Agents() {
                   {/* F2 W1/A83: New Run 폼을 버튼 **바로 아래**(편집기 위)에 렌더 — 편집기가 full-height 로 커져도
                     폼이 화면 밖으로 밀리지 않게(구: md-layout 바깥 맨 아래 렌더 → 무반응처럼 보임). 자체 Async 3-state 로 실패 격리. */}
                   {runFor === a.name && <AgentRunForm key={a.name} name={a.name} onClose={() => setRunFor(null)} />}
-                  <DefinitionEditor key={"agent:" + a.name} kind="agent" name={a.name} onClose={() => setSel(null)} remediateRunId={sel === a.name ? remedRid : null} />
+                  <DefinitionEditor key={"agent:" + a.name} kind="agent" name={a.name} remediateRunId={sel === a.name ? remedRid : null} />
                 </>
               ) : null;
             })() : (
@@ -522,7 +522,7 @@ export function Skills() {
             {/* 선택 시 정의 편집기를 **바로** 표시(별도 상세 카드·편집 버튼 없이). 요약(name/트리거/참조)은
                 편집기 렌더 모드가 frontmatter 메타 + 본문으로 보여준다. 게이트/편집가능은 편집기가 내부 판정. */}
             {sel ? (
-              <DefinitionEditor key={"skill:" + sel} kind="skill" name={sel} onClose={() => setSel(null)} remediateRunId={remedRid} />
+              <DefinitionEditor key={"skill:" + sel} kind="skill" name={sel} remediateRunId={remedRid} />
             ) : (
               <div className="detail-empty" role="note">← 왼쪽에서 스킬을 선택하면 정의가 바로 열립니다.</div>
             )}
@@ -577,7 +577,9 @@ function MergeView({ disk, edited }: { disk: string; edited: string }) {
 // A93 stale-write 충돌 상태(편집분 보존 병합). diskContent=null → 디스크 현재본 재조회 실패 폴백.
 type StaleConflict = { currentHash: string; diskContent: string | null };
 
-function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKind; name: string; onClose: () => void; remediateRunId?: string | null }) {
+// onClose 미지정 = 닫기 버튼 없음(Agents/Skills — 좌측 목록 선택으로 전환·docs/context 뷰어 동형).
+//   지정 시에만 닫기 노출(Context 편집기는 트리 복귀 + 갱신 콜백이 필요해 유지).
+function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKind; name: string; onClose?: () => void; remediateRunId?: string | null }) {
   const [doc, setDoc] = useState<DefinitionDoc | null>(null);
   const [remed, setRemed] = useState<RemediationResult | { status: "loading" } | null>(null); // E5-a 초안 폴링 상태
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -650,9 +652,10 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
     return () => window.removeEventListener("beforeunload", h);
   }, [dirty]);
 
+  // 앱 내 닫기(제공된 경우만) — 미저장 편집 confirm 게이트. 브라우저 unload 경고는 위 useEffect(A86).
   const doClose = () => {
     if (dirty && !window.confirm("저장하지 않은 편집 내용이 있습니다. 편집기를 닫을까요?")) return;
-    onClose();
+    onClose?.();
   };
 
   const editable = doc?.editable === true;
@@ -709,7 +712,8 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
 
   return (
     <Card title={`정의 편집 · ${name}`}>
-      <button className="link" onClick={doClose}>✕ 닫기</button>
+      {/* 닫기는 onClose 제공 시에만(Agents/Skills 는 미제공 = 버튼 없음·좌측 목록으로 전환·docs/context 뷰어 동형). */}
+      {onClose && <button className="link" onClick={doClose}>✕ 닫기</button>}
       {loadErr && <p className="banner err" role="alert">⚠ {loadErr}</p>}
       {!doc && !loadErr && <p className="muted">불러오는 중…</p>}
       {doc && (
@@ -736,13 +740,19 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
             <p className="banner warn" role="note">⚠ 이 스킬 정의에 <code>name:</code> 필드가 없습니다 — 저장하려면 frontmatter 에 <code>name: {name}</code> 를 명시하세요.</p>
           )}
 
-          {/* 렌더/원문 편집 모드 토글 — docs 뷰어(FileViewer) 동형. 2-버튼 모드 스위치(aria-pressed·색 비의존).
+          {/* 툴바 — docs/context 뷰어(FileViewer) **동일 구조**(viewer-toolbar + seg-toggle + 크기 + 다운로드)로 통일.
               완전한 ARIA tab 위젯(roving focus)이 아니라 tablist/tab role 미사용(codex LOW: 불완전 tab 패턴 지양). */}
-          <div className="def-mode-toggle" role="group" aria-label="편집기 보기 모드">
-            <button aria-pressed={mode === "render"} className={mode === "render" ? "primary" : "link"}
-              onClick={() => setMode("render")}>렌더</button>
-            <button aria-pressed={mode === "edit"} className={mode === "edit" ? "primary" : "link"}
-              onClick={() => setMode("edit")}>{editable ? "원문 편집" : "원문"}</button>
+          <div className="viewer-toolbar def-toolbar">
+            <div className="seg-toggle" role="group" aria-label="편집기 보기 모드">
+              <button className={mode === "render" ? "on" : ""} aria-pressed={mode === "render"}
+                onClick={() => setMode("render")}>렌더</button>
+              <button className={mode === "edit" ? "on" : ""} aria-pressed={mode === "edit"}
+                onClick={() => setMode("edit")}>{editable ? "원문 편집" : "원문"}</button>
+            </div>
+            <span className="viewer-size muted">{fmtBytes(byteLen(edited))}</span>
+            {/* 다운로드 — 화면에 보이는 현재 내용(미저장 편집 포함)을 그대로 저장. 정의는 이미 메모리에 전량 로드돼
+                있으므로(서버 상한 내) 클라이언트 Blob 으로 처리(별도 API·크기 재협상 불필요). */}
+            <button className="dl-btn" onClick={() => downloadText(defFileName(kind, name, doc.sourcePath), edited)}>⤓ 다운로드</button>
           </div>
 
           {mode === "render" ? (
@@ -1111,6 +1121,26 @@ function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+// UTF-8 바이트 길이(표시용) — 문자열 length 는 멀티바이트에서 실제 크기와 다르다.
+function byteLen(s: string): number { return new Blob([s]).size; }
+
+// 정의 다운로드 파일명 — 스킬은 사본 전부 `SKILL.md` 라 basename 만 쓰면 구분 불가 → 논리 이름 + 확장자.
+//   (예: agent alpha/.claude/agents/alpha.md → alpha.md · skill beta/.../SKILL.md → beta.md · codex toml → beta.toml)
+function defFileName(kind: DefKind, name: string, sourcePath: string): string {
+  const dot = sourcePath.lastIndexOf(".");
+  const ext = dot > 0 ? sourcePath.slice(dot) : ".md";
+  const safe = name.replace(/[^A-Za-z0-9._-]/g, "_") || kind; // 파일명 안전화(경로 구분자·제어문자 제거)
+  return `${safe}${ext}`;
+}
+
+// 클라이언트 다운로드(Blob) — 정의는 이미 전량 메모리 로드(서버 상한 내)라 별도 API 불필요.
+function downloadText(filename: string, text: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
 }
 
 function FileViewer({ model }: { model: ViewerModel }) {
@@ -2263,8 +2293,12 @@ function RemediateButton({ a }: { a: ArtifactScore }) {
   );
 }
 
-const EVAL_AXES: Array<{ k: EvalAxis; label: string }> = [
-  { k: "trigger", label: "트리거" }, { k: "structure", label: "구조" }, { k: "induction", label: "유도" }, { k: "pruning", label: "가지치기" },
+// 4축 = 무엇을 왜 측정하는지 + 가중치(근거: docs/harness-eval/design/eval-v1-design.md §1). 툴팁으로 UI 자기설명화.
+const EVAL_AXES: Array<{ k: EvalAxis; label: string; why: string }> = [
+  { k: "trigger", label: "트리거", why: "description ROI — 상시 컨텍스트 비용을 정당화하나? 하는 일·구체 트리거 상황·유사 near-miss 구분(가중 0.4 기계+0.6 판정)" },
+  { k: "structure", label: "구조", why: "2계층 아키텍처 — 본문은 절차만(≤500줄), 조건부·대용량 자료는 references/로 분리했나(가중 0.7 기계+0.3 판정)" },
+  { k: "induction", label: "유도", why: "다음 행동 유도 — 명령형·why 설명·leading words 로 에이전트의 다음 행동을 명확히 이끄나(가중 0.3 기계+0.7 판정)" },
+  { k: "pruning", label: "가지치기", why: "삭제 테스트[핵심] — '이 문장을 지워도 행동이 같은가' Y=군더더기. 점수=1−삭제후보/전체. 필수 섹션은 완전성 가드로 보존" },
 ];
 const evalGradeKind = (g: string): "ok" | "warn" | "err" => (g === "A" || g === "B" ? "ok" : g === "C" ? "warn" : "err");
 const evalBarKind = (v: number): "ok" | "warn" | "err" => (v >= 0.75 ? "ok" : v >= 0.6 ? "warn" : "err");
@@ -2318,14 +2352,29 @@ function EvalMain() {
           <p className="muted">
             각 <b>에이전트·스킬</b>을 <b>4축</b>(트리거·구조·유도·가지치기)으로 평가하고, <b>구성 관계</b>(고아·끊긴 링크·미배정)를 점수에 반영한다. <b>차트로 전체 현황</b>을 본 뒤, 아래 <b>상세</b>에서 원인을 찾아 편집기로 수정한다.
           </p>
+          {/* 평가 기준 해설(접힘) — 각 축이 뭘 왜 재는지·등급·현재 한계. UI 자기설명(README/설계서 왕복 없이). */}
+          <details className="eval-explain">
+            <summary>평가 기준 — 4축은 무엇을 왜 재나 (근거)</summary>
+            <dl className="eval-axis-defs">
+              {EVAL_AXES.map(({ k, label, why }) => (
+                <div className="eval-axis-def" key={k}><dt>{label}</dt><dd>{why}</dd></div>
+              ))}
+              <div className="eval-axis-def"><dt>구성 관계</dt><dd>4축이 못 잡는 그래프 신호 — 고아(연결 안 된 정의)·끊긴 링크·미배정(커버 공백)·drift(사본 불일치). 점수에 감점으로 반영.</dd></div>
+            </dl>
+            <p className="muted">
+              등급 = 축 평균(가중) → <b>A≥0.90 · B≥0.75 · C≥0.60 · D&lt;0.60</b>. 단 <b>구조 과락</b>(예: 500줄+ 본문에 references 0)은 정성 점수로 세탁 못 하게 <b>D 상한(min-gate)</b>.
+              <br />⚠ <b>현재는 정적 측정(계층A·기계·결정적)만</b> — 규칙/밀도 기반이라 confidence 낮음(참고용). 의미 판정(계층B LLM)·교차검증은 후속. <b>제안은 자동 적용 안 함</b>(편집기에서 사람이 diff 확인 후 저장).
+              <br />근거 상세: <code className="path">docs/harness-eval/design/eval-v1-design.md</code>
+            </p>
+          </details>
           {/* 요약 차트 — 4축 평균 바 + 등급 분포 + 관계 건강. */}
           <Card title={`하네스 아티팩트 4축 (${d.rollup.count}개)`}>
             <div className="axis-rollup">
-              {EVAL_AXES.map(({ k, label }) => {
+              {EVAL_AXES.map(({ k, label, why }) => {
                 const v = d.rollup.axisAvg[k];
                 return (
                   <div key={k} className="axis-row">
-                    <span className="axis-label">{label}</span>
+                    <span className="axis-label" title={why} tabIndex={0} aria-label={`${label}: ${why}`}>{label}</span>
                     <span className="axis-bar"><span className={`axis-fill ${v == null ? "" : evalBarKind(v)}`} style={{ width: `${v == null ? 0 : evalPct(v)}%` }} /></span>
                     <span className="axis-val">{v == null ? "—" : v.toFixed(2)}</span>
                   </div>
@@ -2361,7 +2410,7 @@ function EvalMain() {
                 ))}
               </div>
             </div>
-            <p className="muted" style={{ marginTop: 8 }}>정적 측정(계층A)·제안은 자동 적용 안 함(편집기 수동).</p>
+            <p className="muted" style={{ marginTop: 8 }}>정적 측정(계층A·참고용)·제안은 자동 적용 안 함(편집기 수동). 축·등급 근거는 위 <b>평가 기준</b> 참조.</p>
           </Card>
           {/* M-y2 비용 합의 카드 — 선택 대상 N개·대상당 초안 잡 1개(claude run)·quota 확인 후에만 실행. */}
           {selectable.length > 0 && (
