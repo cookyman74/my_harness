@@ -248,7 +248,12 @@ myharness は Claude Code エージェントエコシステムの **メタファ
 ビルド済みハーネスを **観測・制御** するローカル Web アプリ。`_workspace/runs/**` のファイル状態を読み、インベントリ・実行・履歴・ドキュメント・drift・評価・ハーネス構成を 1 画面に集約します — CLI では一目で見えないもの。ドメインの一文から **ハーネス全体を自動ビルド** することもできます（ドラフト → 人間レビュー → create）。
 
 - **実行：** `cd harness-ui && npm install && npm start` — ビルド後 `127.0.0.1:5174` を単一オリジンで配信し、ワンタイム（fragment）トークンのリンクでブラウザを開く。開発：`npm run dev`。
-- **機能：** v0.5 正本コア（supervisor · OS アダプター · セキュリティ · ランチャー）+ v0.6 全機能（F2 プリフィル New Run · F3 projectRoot 編集 · F4 履歴 · F5 ドキュメント/artifact ビューア · F6 観測性 · F7 定義エディタ · F8 Eval ダッシュボード · F9 Docs ソース · F10 マルチランタイムコンテキスト）+ **config-centric 自己評価**（harness_scorecard · 採用段階ゲート）+ **ハーネス全体の自動ビルド**。
+- **機能（wave 別、すべて実装・稼働中 · harness-web 0.9.0）：**
+  - **v0.5 コア** — supervisor · OS アダプター · セキュリティ · ランチャー（certified）。
+  - **v0.6** — F2 プリフィル New Run · F3 projectRoot 編集 · F4 履歴 · F5 ドキュメント/artifact ビューア · F6 観測性 · F7 定義エディタ · F8 Eval ダッシュボード · F9 Docs ソース · F10 ハーネスコンテキスト。
+  - **v0.7–v0.8 マルチランタイム** — F11 ファクトリー保守 · F12 ランタイムアダプターレジストリ · F13 マルチランタイム読み取り · F14 Gemini md 編集 · F15 Codex TOML 編集（strict parse · injection-safe）· F16 トライランタイムスキル同期 · F17 インストールマトリクス（agy 4-state 認証）。claude/codex/gemini ハーネスを 1 つのツールから管理。
+  - **v0.9** — **Eval v1**（4軸 成果物採点、下記参照）+ **バッチ反映（M-y）**：`#/eval` の指摘を複数の定義に AI ドラフトで → レビューキュー → 一括適用、グローバル run ガバナーで上限。各重大マイルストーンは外部監査（codex + agy, no-high 2連続）で収束。
+  - さらに **config-centric 自己評価**（harness_scorecard · 採用段階ゲート）と **ハーネス全体の自動ビルド**。
 - **画面（11 · グループサイドバー）：** Overview · **Harness** / Agents / Skills / Context / History · Docs · Runs / Drift / Ops / Eval · Settings。フロー：ドメイン → Harness 自動ビルド（ドラフト → create）または New Run → run 生成 → 観測（fire-and-observe）。
 - **セキュリティ・範囲：** ローカル 127.0.0.1 のみ · トークン bootstrap → セッション · 読み取り優先（mutating は定義編集・projectRoot・評価 config・ハーネスビルドのみ — ホワイトリスト・アトミック・既定 off ゲート、自動ビルドは no-tools isolated exec + no-auto-apply）。履歴・統計は **UI で実行した run のみ** 反映、ターミナル CLI 実行は v0.7（CLI セッションログ観測）まで範囲外。
 

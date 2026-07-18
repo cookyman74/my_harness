@@ -248,7 +248,12 @@ myharness는 Claude Code 에이전트 생태계의 **메타 팩토리** 계층 �
 빌드된 하네스를 **관찰·통제**하는 로컬 웹 앱. `_workspace/runs/**` 파일 상태를 읽어 인벤토리·실행·이력·문서·드리프트·평가·하네스 구성을 한 화면에 모읍니다 — CLI로는 한눈에 안 보이는 것들. 도메인 한 문장으로 **하네스 전체를 자동 빌드**하기도 합니다(초안 → 사람 검토 → create).
 
 - **실행:** `cd harness-ui && npm install && npm start` — 빌드 후 `127.0.0.1:5174` 단일 오리진 서빙, 1회용(fragment) 토큰 링크로 브라우저 오픈. 개발: `npm run dev`.
-- **기능:** v0.5 정본 코어(supervisor · OS 어댑터 · 보안 · 런처) + v0.6 전 기능(F2 프리필 New Run · F3 projectRoot 편집 · F4 이력 · F5 문서/artifact 뷰어 · F6 관측성 · F7 정의 편집기 · F8 Eval 대시보드 · F9 Docs 소스 · F10 멀티런타임 컨텍스트) + **config-centric 자기평가**(harness_scorecard · 채택단계 게이트) + **하네스 전체 자동빌드**.
+- **기능(wave별, 전부 구현·라이브 · harness-web 0.9.0):**
+  - **v0.5 코어** — supervisor · OS 어댑터 · 보안 · 런처(certified).
+  - **v0.6** — F2 프리필 New Run · F3 projectRoot 편집 · F4 이력 · F5 문서/artifact 뷰어 · F6 관측성 · F7 정의 편집기 · F8 Eval 대시보드 · F9 Docs 소스 · F10 하네스 컨텍스트.
+  - **v0.7–v0.8 멀티런타임** — F11 팩토리 유지관리 · F12 런타임 어댑터 레지스트리 · F13 멀티런타임 읽기 · F14 Gemini md 편집 · F15 Codex TOML 편집(strict parse · injection-safe) · F16 트리런타임 스킬 동기 · F17 설치 매트릭스(agy 4-state 인증). claude/codex/gemini 하네스를 한 도구에서 관리.
+  - **v0.9** — **Eval v1**(4축 산출물 채점, 아래 참조) + **배치 반영(M-y)**: `#/eval` 지적을 여러 정의에 AI 초안으로 → 검토 큐 → 일괄 적용, 전역 run 거버너로 상한. 각 중대 마일스톤은 외부감사(codex + agy, no-high 2연속)로 수렴.
+  - 그리고 **config-centric 자기평가**(harness_scorecard · 채택단계 게이트)와 **하네스 전체 자동빌드**.
 - **화면(11 · 그룹 사이드바):** Overview · **Harness** / Agents / Skills / Context / History · Docs · Runs / Drift / Ops / Eval · Settings. 흐름: 도메인 → Harness 자동빌드(초안 → create) 또는 New Run → run 생성 → 관찰(fire-and-observe).
 - **보안·범위:** 로컬 127.0.0.1 전용 · 토큰 bootstrap → 세션 · 읽기 우선(mutating은 정의 편집·projectRoot·평가 config·하네스 빌드뿐 — 화이트리스트·원자·기본 off 게이트, 자동빌드는 no-tools isolated exec + no-auto-apply). 이력·통계는 **UI로 실행한 run만** 반영, 터미널 CLI 실행은 v0.7(CLI 세션 로그 관측)까지 범위 밖.
 
