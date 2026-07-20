@@ -1,0 +1,87 @@
+# 팩토리 정본(skills/myharness) 검증 — 정책 감사 + 업데이트 회귀 테스트를 Linux/Windows 양쪽에서.
+#
+# 왜 별도 파일인가: `ci.yml`(harness-ui-ci)은 `paths: ["harness-ui/**"]` 필터라
+# `skills/myharness` 변경이 어떤 CI 도 거치지 않는다. 같은 파일명으로 합치면 한쪽이 다른 쪽을
+# 덮으므로 용도별로 분리한다.
+#
+# 왜 Windows 도 도는가: 팩토리 스크립트는 bash 지만 사용자 상당수가 Windows(Git Bash)다.
+# 로케일·코드페이지·개행에서만 재현되는 결함이 Linux 러너만으로는 잡히지 않는다.
+name: factory-ci
+
+on:
+  push:
+    # GitHub Actions 는 태그 push 에 paths 필터를 평가하지 않는다 — 명시하지 않으면
+    # 모든 릴리스 태그에서 Linux/Windows 잡이 전건 실행된다(비용·실패 표면 증가).
+    tags-ignore: ["**"]
+    paths:
+      - "skills/**"
+      - "tests/**"
+      - "install.sh"
+      - ".claude-plugin/**"
+      - ".github/workflows/factory-ci.yml"
+      # 정책 감사가 버전 정합·진입점·문서 경로를 이 파일들에서 검사하므로 트리거에 포함한다.
+      # 빠지면 버전 텍스트만 틀린 커밋이 CI 를 통과한다.
+      - "README*.md"
+      - "CHANGELOG.md"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "CONTRIBUTING.md"
+      - ".agents/**"
+  pull_request:
+    paths:
+      - "skills/**"
+      - "tests/**"
+      - "install.sh"
+      - ".claude-plugin/**"
+      - ".github/workflows/factory-ci.yml"
+      - "README*.md"
+      - "CHANGELOG.md"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "CONTRIBUTING.md"
+      - ".agents/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install test dependency
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Policy audit
+        run: bash skills/myharness/scripts/run-policy-audit.sh
+      - name: Harness update regression tests
+        run: bash tests/test-harness-update.sh
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      # jq 는 harness-update.sh 와 test-harness-update.sh 의 필수 의존이다(폴백 없음).
+      - name: Ensure jq
+        shell: pwsh
+        run: |
+          if (-not (Get-Command jq -ErrorAction SilentlyContinue)) {
+            choco install jq -y --no-progress
+          }
+      # 셸 스크립트에 CRLF 가 섞이면 Git Bash 실행이 깨진다. 현재 전건 LF 이므로 회귀만 막는다.
+      - name: Verify shell script line endings
+        shell: pwsh
+        run: |
+          $bad = git ls-files --eol -- '*.sh' | Where-Object {
+            $_ -match 'w/(crlf|mixed)'
+          }
+          if ($bad) {
+            $bad | Write-Error
+            exit 1
+          }
+      - name: Policy audit
+        shell: bash
+        run: bash skills/myharness/scripts/run-policy-audit.sh
+      - name: Harness update regression tests
+        shell: bash
+        run: bash tests/test-harness-update.sh
