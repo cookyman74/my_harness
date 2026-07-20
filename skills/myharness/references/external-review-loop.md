@@ -102,30 +102,42 @@ if [ -z "$REVIEWERS" ] || [ "$REVIEWERS" = "none" ]; then
 fi
 
 # 리뷰어 1종 실행 헬퍼: 출력 _{tool}.md + 종료코드 _{tool}.rc(리뷰어별 개별 파일 = 경합 없음).
-#   ${TOFLAG} 미인용 = "gtimeout 600s" 단어분리 의도. stdin 미닫으면 무한대기 → 반드시 < /dev/null.
-run_reviewer() {  # $1=파일라벨  $2..=실행 커맨드
-  tool="$1"; shift
-  ${TOFLAG} "$@" < /dev/null > "$D/${S}_${tool}.md" 2>&1
+#   ${TOFLAG} 미인용 = "gtimeout 600s" 단어분리 의도.
+#
+# **프롬프트는 stdin 으로 준다(req).** argv 로 넘기면 `codex exec` 가 **첫 줄에서 잘린다** —
+# 중점 검토 항목·이슈 형식·근거 요구가 통째로 유실된 채 리뷰가 돈다. 첫 줄이 보통
+# "리뷰 대상: …" 형태라 리뷰어가 저장소를 뒤져 그럴듯한 결과를 내므로 **조용히 실패한다**.
+# 실측(win/codex v0.144.6): argv=첫 줄만 도달 / stdin=전문 도달. 같은 모델·같은 과제에서
+# 발견 3건 → 6건 + 요구 형식 준수로 벌어졌다.
+# `claude -p` 는 argv 다중행도 정상 처리하므로(실측 확인) 이 절단은 codex 한정이다.
+# 그럼에도 두 리뷰어를 **stdin 으로 통일**한다 — 헬퍼 분기를 없애고, 다른 CLI 가 같은 함정을
+# 가져도 영향을 받지 않는다. stdin 경유는 양쪽 모두에서 동작이 검증됐다.
+run_reviewer() {  # $1=파일라벨  $2=프롬프트파일  $3..=실행 커맨드(프롬프트 인자 없이)
+  tool="$1"; prompt_file="$2"; shift 2
+  ${TOFLAG} "$@" < "$prompt_file" > "$D/${S}_${tool}.md" 2>&1
   echo "$?" > "$D/${S}_${tool}.rc"
 }
 
 write_status "$(printf '{"status":"running","reviewers":"%s","started":%s,"results":{}}' "$REVIEWERS" "$NOW")"
 
 # 일반/정합성 리뷰어 = REVIEWERS 중 러너 아닌 쪽(codex|claude). 든 것만 실행.
+# 프롬프트는 argv 가 아니라 stdin(2번째 인자 = 프롬프트 파일)으로 전달한다 — 위 절단 주석 참조.
+GEN="$D/${S}_prompt_general.md"; PERF="$D/${S}_prompt_perf.md"
 case " $REVIEWERS " in
-  *" codex "*)  run_reviewer codex codex exec ${CODEX_MODEL:+-m "$CODEX_MODEL"} --sandbox read-only "$(cat $D/${S}_prompt_general.md)" & ;;
-  *" claude "*) run_reviewer claude claude -p "$(cat $D/${S}_prompt_general.md)" \
+  *" codex "*)  run_reviewer codex "$GEN" codex exec ${CODEX_MODEL:+-m "$CODEX_MODEL"} --sandbox read-only & ;;
+  # claude 는 -p 에 프롬프트 인자를 안 주면 stdin 을 읽는다(codex 와 동일 규약).
+  *" claude "*) run_reviewer claude "$GEN" claude -p \
       --permission-mode plan --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(rg:*)" & ;;
 esac
 # 성능/안정성 리뷰어 = agy(Gemini). agy 없고 gemini(legacy)만 있으면 gemini로 대체.
 case " $REVIEWERS " in
   # agy: --add-dir(리뷰대상 repo를 워크스페이스에)+--dangerously-skip-permissions(TTY 없는 -p서 권한 자동승인)
   # 필수 — 없으면 sandbox 파일 read가 권한 프롬프트→응답 불가→hang. 상세는 아래 "agy 파일접근 배선".
-  *" agy "*)    run_reviewer agy agy -p "$(cat $D/${S}_prompt_perf.md)" \
+  *" agy "*)    run_reviewer agy "$PERF" agy -p \
       --model "$AGY_MODEL" --add-dir "$REPO_ROOT" --dangerously-skip-permissions \
       --sandbox --print-timeout 300s & ;;
   # gemini(legacy)는 --add-dir/--dangerously-skip-permissions 미지원(-s만) → plain 호출(붙이면 unknown flag로 폴백 고장).
-  *" gemini "*) run_reviewer gemini gemini -p "$(cat $D/${S}_prompt_perf.md)" & ;;
+  *" gemini "*) run_reviewer gemini "$PERF" gemini -p & ;;
 esac
 wait
 
