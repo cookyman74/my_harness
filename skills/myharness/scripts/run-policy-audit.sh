@@ -52,9 +52,12 @@ g_out() { printf '%s' "${1%$RS*}"; }
 g_rc()  { printf '%s' "${1##*$RS}"; }
 
 # [[ ]] 주입 지시 (실경로여야 함) — 경고문 제외하고 '준수' 패턴만
+# rc≥2 면 성공 판정을 내지 않는다 — "검사 신뢰 불가" 경고와 "0건" 성공을 동시에 내면
+# 결과가 모순되고, 읽는 사람은 통과로 받아들인다.
 _r="$(grep_run -rnE $SELF '\[\[(dev-rules|tdd-doctrine)\]\].*준수' $SK)"
-[ "$(g_rc "$_r")" -ge 2 ] && wn "grep 오류(exit $(g_rc "$_r")) — [[ ]] 주입 지시 검사 신뢰 불가"
-if [ -n "$(g_out "$_r")" ]; then no "[[ ]] 주입 지시 잔존 (서브에이전트 미해소 — 실경로로)"; else ok "[[ ]] 주입 지시 0 (실경로화)"; fi
+if [ "$(g_rc "$_r")" -ge 2 ]; then wn "grep 오류(exit $(g_rc "$_r")) — [[ ]] 주입 지시 검사 신뢰 불가(판정 보류)"
+elif [ -n "$(g_out "$_r")" ]; then no "[[ ]] 주입 지시 잔존 (서브에이전트 미해소 — 실경로로)"
+else ok "[[ ]] 주입 지시 0 (실경로화)"; fi
 # 구 스킬 경로
 if grep -rqE $SELF 'skills/harness\b' $SK README*.md 2>/dev/null; then no "stale 'skills/harness' 잔존 (skills/myharness 여야)"; else ok "구 'skills/harness' 경로 0"; fi
 

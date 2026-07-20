@@ -10,8 +10,12 @@ name: factory-ci
 
 on:
   push:
-    # GitHub Actions 는 태그 push 에 paths 필터를 평가하지 않는다 — 명시하지 않으면
-    # 모든 릴리스 태그에서 Linux/Windows 잡이 전건 실행된다(비용·실패 표면 증가).
+    # branches 와 tags-ignore 를 함께 선언해야 한다(req).
+    # GitHub 규약: "If you define only tags/tags-ignore or only branches/branches-ignore,
+    # the workflow won't run for events affecting the undefined Git ref."
+    # 즉 tags-ignore 만 두면 브랜치 push 검증이 통째로 사라진다.
+    # 태그를 제외하는 이유는 태그 push 에는 paths 필터가 평가되지 않아 전건 실행되기 때문이다.
+    branches: ["**"]
     tags-ignore: ["**"]
     paths:
       - "skills/**"
@@ -19,15 +23,21 @@ on:
       - "install.sh"
       - ".claude-plugin/**"
       - ".github/workflows/factory-ci.yml"
-      # 정책 감사가 버전 정합·진입점·문서 경로를 이 파일들에서 검사하므로 트리거에 포함한다.
-      # 빠지면 버전 텍스트만 틀린 커밋이 CI 를 통과한다.
+      # 정책 감사가 직접 읽는 대상: README 3종·CHANGELOG(버전 정합), AGENTS.md(진입점),
+      # .claude/commands(생성 금지 원칙). .gitattributes 는 Windows 잡의 개행 검사 기준이다.
+      # CLAUDE.md·CONTRIBUTING.md 는 현재 감사가 내용을 읽지는 않으나, 팩토리 주요 진입점이라
+      # 변경 시 회귀 검사를 재실행한다.
       - "README*.md"
       - "CHANGELOG.md"
       - "AGENTS.md"
       - "CLAUDE.md"
       - "CONTRIBUTING.md"
+      - ".gitattributes"
+      - ".claude/commands/**"
       - ".agents/**"
   pull_request:
+    # push 쪽 목록과 동일하게 유지할 것 — 한쪽만 고치면 PR 은 통과하고 push 는 안 도는
+    # (또는 그 반대의) 비대칭이 생긴다.
     paths:
       - "skills/**"
       - "tests/**"
@@ -39,6 +49,8 @@ on:
       - "AGENTS.md"
       - "CLAUDE.md"
       - "CONTRIBUTING.md"
+      - ".gitattributes"
+      - ".claude/commands/**"
       - ".agents/**"
   workflow_dispatch:
 

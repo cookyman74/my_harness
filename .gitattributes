@@ -1,0 +1,7 @@
+# 셸 스크립트는 항상 LF 로 체크아웃한다.
+# Windows 의 Git 기본값은 core.autocrlf=true 라, 이 선언이 없으면 워크트리의 *.sh 가
+# CRLF 로 변환돼 Git Bash 실행이 깨진다. CI 의 개행 검사도 저장소 정책이 아니라
+# 러너의 Git 설정에 좌우되어 같은 커밋이 환경마다 다른 결과를 낸다.
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
