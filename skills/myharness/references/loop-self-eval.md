@@ -55,7 +55,7 @@
   "stage_id": "design-auth",
   "run_id": "20260612_1530",
   "rounds": 3,
-  "termination_reason": "converged-good | exhausted | max-rounds | failed-quality-gate",
+  "termination_reason": "converged-good | converged | exhausted | max-rounds | failed-quality-gate | degraded-accepted | degraded-override | degraded-blocked",
   "verdict_counts": { "confirmed": 6, "partial": 2, "deferred": 1, "rejected": 1, "duplicate": 1 },
   "alignment_score": 0.67,        // (confirmed + 0.5*partial) / adjudicated_non_deferred. deferred 분모 제외
   "rejected_rate": 0.11,          // rejected / adjudicated (1-alignment 아님, 별도)
@@ -90,6 +90,9 @@ gate/assertion은 **코드/테스트 단계 전용**. 설계·문서 리뷰엔 �
 - `converged`: 신규 0건 K회 (게이트 없는 단계의 중립 종료 — "더 찾을 신규 결함 없음". 품질 단정 아님). *주의: `exhausted`를 부정 라벨로 쓰지 말 것 — 게이트 없는 설계/문서는 이게 정상 수렴이다.*
 - `max-rounds`: MAX_ROUNDS 강제 종료(미수렴 보고).
 - `failed-quality-gate`: (코드 단계) 품질 θ 미달 명백 → **루프 중단**(MAX_ROUNDS 헛돌지 않게).
+- `degraded-accepted`: 리뷰어 축소(부재·PATH 밖 설치·런타임 실패) 상태에서 신규 0건 — **경량/표준** 등급이라 사유 기록 후 진행 허용. 교차검증이 아니므로 "양 엔진 수렴"으로 읽지 말 것.
+- `degraded-override`: 같은 축소 상태 + **중대** 등급이나 사용자가 명시 승인. 승인 사실을 결과서에 함께 남긴다.
+- `degraded-blocked`: 축소 + 중대 + 미승인 → **다음 단계 진행 금지**. 품질 실패(`failed-quality-gate`)가 아니라 **승인/리뷰어 복구 대기**형 정지다 — 소비자는 이 둘을 구분해 집계할 것.
 - **설계/문서 단계 품질은 라벨로 자기단정하지 않는다.** verdicts 완료 + 정본 대조 체크리스트는 종료 *조건*일 뿐, "양호" 단정(`design-ok` 같은)은 같은 오케스트레이터의 자기채점이 된다 → 금지. 품질 보증이 필요하면 독립 리뷰어 표본 감사·사용자 승인 같은 외부 신호를 별도로 받는다.
 
 ## 판정 보정 (P5 — Ground Truth만)

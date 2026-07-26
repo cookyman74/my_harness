@@ -39,14 +39,18 @@ while True:
       # 수렴도 수정도 아님(dry_streak 불변). 그대로 두면 같은 축소 리뷰를 MAX_ROUNDS 까지
       # 반복한 뒤 'max-rounds 미수렴'으로 오표기되므로 여기서 등급별로 분기한다.
       if 리스크 in {경량, 표준}: break  # label=degraded-accepted (사유 기록 후 진행 허용)
-      else: 리뷰어 복구 후 재실행. 복구 불가면 사용자 override 요청 —
-            승인 없으면 진행 금지(label=degraded-blocked), 승인 시 break(label=degraded-override)
+      elif 리뷰어 복구 성공: continue   # 재실행. round 는 아래 규칙(복구 리뷰어 전체 리뷰)을 따른다
+      elif 사용자 override 승인: break  # label=degraded-override
+      else: halt(label=degraded-blocked)  # 루프 탈출 + **다음 단계 진행 금지**.
+            # 재시도 루프가 아니라 사용자 승인/리뷰어 복구를 기다리는 정지 상태다.
+            # break 로 적지 않는 이유: break 는 "이 단계 통과"로 읽혀 후속이 진행된다.
   if dry_streak >= K(기본 1, 중대 2): break        # loop-until-dry
   if round >= MAX_ROUNDS(기본 3): break + 잔여 미수렴 보고
   round += 1
 ```
 - **K회 연속 신규 확인 0건**이면 수렴 종료. **MAX_ROUNDS 도달 시 강제 종료 + 미수렴 이슈 보고**(무한 루프 차단). **품질 θ 미달이 명백하면 `failed-quality-gate`로 즉시 중단**(MAX_ROUNDS 헛돌지 않게). 종료 사유는 `converged-good`/`exhausted`/`max-rounds`/`failed-quality-gate`/`degraded-accepted`(경량·표준 축소 허용)/`degraded-override`(중대 축소 + 사용자 승인)/`degraded-blocked`(중대 축소 + 미승인 → 진행 금지) 라벨로 기록. (gate/assertion은 코드 단계 전용 — 설계·문서는 `verdicts.json` 완료+정본 대조로 종료. 상세: `loop-self-eval.md`)
 - **수정본 재리뷰(req)**: round>1은 이전 라운드 수정 diff만 좁게 재리뷰 → 수정이 새 결함을 만들지 검증(같은 맹점 회피 전제가 수정에도 적용).
+  - **복구된 리뷰어는 예외(req)**: 축소 라운드 뒤 새로 붙은 리뷰어는 **원 산출물을 한 번도 본 적이 없다**. 그 상태로 "직전 수정분 diff만" 주면 그 리뷰어의 관점으로는 산출물 전체가 영원히 미검토로 남는다(축소가 만든 맹점이 복구 후에도 존속). 복구 리뷰어에게는 **`round==1` 과 동일하게 산출물 전체를 준다** — 이미 검토한 리뷰어만 좁은 diff 재리뷰. `verdicts.json` 의 `source` 로 리뷰어별 검토 이력을 판별한다.
 - **판정 원장(req)**: `_workspace/reviews/{단계ID}_verdicts.json` — 이슈지문(파일+결함요지 해시)→ 판정·라운드·근거. 매 라운드 **seen 대조로 신규만 판정**(기각 이슈 재부상 방지, dedup vs seen).
 
 ## Step 1 — 리뷰 요청 프롬프트
