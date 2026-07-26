@@ -75,7 +75,10 @@ Step 8(측정 꼬리) 수행          # **모든 종료 경로 공통 필수(req
 # **action 을 반드시 소비한다(req).** 여기가 없으면 BLOCK 의 효과가 주석에만 남아,
 # 구현자가 break 후 그대로 다음 단계로 진행한다(R7~R9 에서 두 번 재발한 계열).
 if action == BLOCK:
-    **후속 단계 진입 금지** — 사용자 승인 또는 리뷰어 복구 후 같은 단계에서 재개.
+    **후속 단계 진입 금지.** 재개 방법(req): 승인 또는 리뷰어 복구 후 **이 게이트를 다시 호출**해
+    새 판정(`degraded-override` 등)을 받고 나서 후속 절차로 간다. 산출물은 그대로 두고
+    게이트만 재실행한다 — 단계 전체 재시작(산출물 재생성)도, 게이트 건너뛰고 커밋으로
+    직행하는 것도 아니다(후자면 원장에 `degraded-blocked` 가 영구히 남아 실제와 어긋난다).
     return BLOCKED   # 호출한 오케스트레이터가 다음 단계를 시작하지 않도록 신호를 올린다
 ```
 - **K회 연속 신규 확인 0건**이면 수렴 종료. **MAX_ROUNDS 도달 시 강제 종료 + 미수렴 이슈 보고**(무한 루프 차단). **축소 상태로 상한에 닿으면 `max-rounds` 가 아니라 등급 분기의 `degraded-*` 라벨이 우선**한다 — 중대 + 미승인이면 `degraded-blocked`(진행 금지)가 `max-rounds`(보고 후 통과)를 이긴다. 어느 경로로 끝나든 **라벨 없는 종료는 금지**. **품질 θ 미달이 명백하면 `failed-quality-gate`로 즉시 중단**(MAX_ROUNDS 헛돌지 않게). 종료 사유는 `converged-good`/`exhausted`/`max-rounds`/`failed-quality-gate`/`degraded-accepted`(경량·표준 축소 허용)/`degraded-override`(중대 축소 + 사용자 승인)/`degraded-blocked`(중대 축소 + 미승인 → 진행 금지) 라벨로 기록. (gate/assertion은 코드 단계 전용 — 설계·문서는 `verdicts.json` 완료+정본 대조로 종료. 상세: `loop-self-eval.md`)
