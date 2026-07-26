@@ -29,6 +29,16 @@ description: 작업 단계 산출물(설계서·코드·문서)마다 외부 독
 이 게이트는 **라운드 반복 루프**다. 단일 패스가 아니다.
 
 ```
+# 축소 종결 규칙 — **한 곳에만 둔다(req).** else 블록 안에만 두면 `신규_확인 > 0` 경로가
+# 이 규칙을 통째로 우회한다(중대 축소인데 다른 리뷰어가 결함을 1건이라도 찾으면 상한 종료가
+# 'max-rounds 보고 후 통과'로 뚫린다). 축소 종결이 필요한 모든 지점에서 이걸 호출한다.
+def 축소종결(등급):
+    if 등급 in {경량, 표준}: break(label=degraded-accepted)   # 사유 기록 후 진행 허용
+    elif 사용자 override 승인: break(label=degraded-override)
+    else: halt(label=degraded-blocked)   # 루프 탈출 + **다음 단계 진행 금지**.
+          # 재시도 루프가 아니라 사용자 승인/리뷰어 복구를 기다리는 정지 상태다.
+          # break 로 적지 않는 이유: break 는 "이 단계 통과"로 읽혀 후속이 진행된다.
+
 round = 1; dry_streak = 0
 while True:
   Step 1~4 (round==1: {산출물} 전체 / round>1: 직전 수정분 diff만 좁게 재리뷰)
@@ -44,15 +54,14 @@ while True:
           round += 1; continue          # (bare continue 금지: 아래 round += 1·MAX_ROUNDS 검사를
                                         #  건너뛰어 무한 루프). 복구 리뷰어는 아래 "복구된
                                         #  리뷰어는 예외" 규칙 적용.
-      # 복구했어도 이미 마지막 라운드면 재실행할 여지가 없다 → 아래 등급 분기로 내려가
-      # 반드시 라벨을 남긴다. 라벨 없는 loop exit 금지(break 는 "단계 통과"로 읽힌다).
-      elif 리스크 in {경량, 표준}: break  # label=degraded-accepted (사유 기록 후 진행 허용)
-      elif 사용자 override 승인: break    # label=degraded-override
-      else: halt(label=degraded-blocked)  # 루프 탈출 + **다음 단계 진행 금지**.
-            # 재시도 루프가 아니라 사용자 승인/리뷰어 복구를 기다리는 정지 상태다.
-            # break 로 적지 않는 이유: break 는 "이 단계 통과"로 읽혀 후속이 진행된다.
-  if dry_streak >= K(기본 1, 중대 2): break        # loop-until-dry
-  if round >= MAX_ROUNDS(기본 3): break + 잔여 미수렴 보고
+      축소종결(리스크)                   # 복구 불가·또는 이미 마지막 라운드 → 반드시 라벨을 남긴다
+  if dry_streak >= K(기본 1, 중대 2): break        # loop-until-dry (degraded 라운드는 K에 기여 못함)
+  if round >= MAX_ROUNDS(기본 3):
+      # 축소 우선(req) — 여기서 degraded 를 안 보면, 축소 상태인데 다른 리뷰어가 결함을 1건이라도
+      # 찾아 위 `신규_확인 > 0` 분기를 탄 경우 degraded-blocked 를 건너뛰고 'max-rounds 보고 후
+      # 통과'로 빠져나간다(중대 진행 금지가 뚫림).
+      if status.degraded != "": 축소종결(리스크)
+      break + 잔여 미수렴 보고 (label=max-rounds)
   round += 1
 ```
 - **K회 연속 신규 확인 0건**이면 수렴 종료. **MAX_ROUNDS 도달 시 강제 종료 + 미수렴 이슈 보고**(무한 루프 차단). **축소 상태로 상한에 닿으면 `max-rounds` 가 아니라 등급 분기의 `degraded-*` 라벨이 우선**한다 — 중대 + 미승인이면 `degraded-blocked`(진행 금지)가 `max-rounds`(보고 후 통과)를 이긴다. 어느 경로로 끝나든 **라벨 없는 종료는 금지**. **품질 θ 미달이 명백하면 `failed-quality-gate`로 즉시 중단**(MAX_ROUNDS 헛돌지 않게). 종료 사유는 `converged-good`/`exhausted`/`max-rounds`/`failed-quality-gate`/`degraded-accepted`(경량·표준 축소 허용)/`degraded-override`(중대 축소 + 사용자 승인)/`degraded-blocked`(중대 축소 + 미승인 → 진행 금지) 라벨로 기록. (gate/assertion은 코드 단계 전용 — 설계·문서는 `verdicts.json` 완료+정본 대조로 종료. 상세: `loop-self-eval.md`)
