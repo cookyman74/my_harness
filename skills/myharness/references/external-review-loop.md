@@ -29,15 +29,17 @@ description: 작업 단계 산출물(설계서·코드·문서)마다 외부 독
 이 게이트는 **라운드 반복 루프**다. 단일 패스가 아니다.
 
 ```
-# 축소 종결 규칙 — **한 곳에만 둔다(req).** else 블록 안에만 두면 `신규_확인 > 0` 경로가
+# 축소 종결 판정 — **규칙은 한 곳에만 둔다(req).** else 블록 안에만 두면 `신규_확인 > 0` 경로가
 # 이 규칙을 통째로 우회한다(중대 축소인데 다른 리뷰어가 결함을 1건이라도 찾으면 상한 종료가
-# 'max-rounds 보고 후 통과'로 뚫린다). 축소 종결이 필요한 모든 지점에서 이걸 호출한다.
-def 축소종결(등급):
-    if 등급 in {경량, 표준}: break(label=degraded-accepted)   # 사유 기록 후 진행 허용
-    elif 사용자 override 승인: break(label=degraded-override)
-    else: halt(label=degraded-blocked)   # 루프 탈출 + **다음 단계 진행 금지**.
-          # 재시도 루프가 아니라 사용자 승인/리뷰어 복구를 기다리는 정지 상태다.
-          # break 로 적지 않는 이유: break 는 "이 단계 통과"로 읽혀 후속이 진행된다.
+# 'max-rounds 보고 후 통과'로 뚫린다).
+# **루프 제어는 하지 않고 (라벨, 후속동작)만 돌려준다** — 함수 안의 break 는 호출자의 while 을
+# 벗어나지 못하거나 문법 오류라, 그렇게 적으면 구현자가 "그냥 실행하고 다음 줄로" 번역해
+# 차단하려던 우회가 그대로 재발한다. break/halt 는 **호출부에서** 한다.
+축소종결판정(등급) -> (label, action):
+    등급 in {경량, 표준}  -> (degraded-accepted, PROCEED)   # 사유 기록 후 다음 단계 진행 허용
+    사용자 override 승인  -> (degraded-override, PROCEED)
+    그 외(중대·미승인)    -> (degraded-blocked,  BLOCK)     # 다음 단계 **진행 금지**
+                          # 재시도 루프가 아니라 사용자 승인/리뷰어 복구를 기다리는 정지 상태.
 
 round = 1; dry_streak = 0
 while True:
@@ -54,13 +56,15 @@ while True:
           round += 1; continue          # (bare continue 금지: 아래 round += 1·MAX_ROUNDS 검사를
                                         #  건너뛰어 무한 루프). 복구 리뷰어는 아래 "복구된
                                         #  리뷰어는 예외" 규칙 적용.
-      축소종결(리스크)                   # 복구 불가·또는 이미 마지막 라운드 → 반드시 라벨을 남긴다
+      # 복구 불가·또는 이미 마지막 라운드 → 반드시 라벨을 남기고 끝낸다
+      label, action = 축소종결판정(리스크); 기록(label); break   # action==BLOCK 이면 다음 단계 진행 금지
   if dry_streak >= K(기본 1, 중대 2): break        # loop-until-dry (degraded 라운드는 K에 기여 못함)
   if round >= MAX_ROUNDS(기본 3):
       # 축소 우선(req) — 여기서 degraded 를 안 보면, 축소 상태인데 다른 리뷰어가 결함을 1건이라도
       # 찾아 위 `신규_확인 > 0` 분기를 탄 경우 degraded-blocked 를 건너뛰고 'max-rounds 보고 후
       # 통과'로 빠져나간다(중대 진행 금지가 뚫림).
-      if status.degraded != "": 축소종결(리스크)
+      if status.degraded != "":
+          label, action = 축소종결판정(리스크); 기록(label); break   # BLOCK 이면 진행 금지
       break + 잔여 미수렴 보고 (label=max-rounds)
   round += 1
 ```
