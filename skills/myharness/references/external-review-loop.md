@@ -35,14 +35,17 @@ while True:
   신규_확인 = 이번 라운드 '확인/부분' 중 verdicts 원장에 없던 것
   if 신규_확인 > 0: dry_streak = 0; Step 5~7 (신규_확인만 수정·게이트·기록)
   elif status.degraded == "": dry_streak += 1                    # 온전한 리뷰의 0건 = 수렴 근거
-  else: pass                                                     # 축소 라운드의 0건 = 관측 부족
-                                                                 #   → 수렴도 수정도 아님(dry_streak 불변).
-                                                                 #   진행 여부는 §축소 정책(등급별)이 정한다.
+  else:                                                          # 축소 라운드의 0건 = 관측 부족
+      # 수렴도 수정도 아님(dry_streak 불변). 그대로 두면 같은 축소 리뷰를 MAX_ROUNDS 까지
+      # 반복한 뒤 'max-rounds 미수렴'으로 오표기되므로 여기서 등급별로 분기한다.
+      if 리스크 in {경량, 표준}: break  # label=degraded-accepted (사유 기록 후 진행 허용)
+      else: 리뷰어 복구 후 재실행. 복구 불가면 사용자 override 요청 —
+            승인 없으면 진행 금지(label=degraded-blocked), 승인 시 break(label=degraded-override)
   if dry_streak >= K(기본 1, 중대 2): break        # loop-until-dry
   if round >= MAX_ROUNDS(기본 3): break + 잔여 미수렴 보고
   round += 1
 ```
-- **K회 연속 신규 확인 0건**이면 수렴 종료. **MAX_ROUNDS 도달 시 강제 종료 + 미수렴 이슈 보고**(무한 루프 차단). **품질 θ 미달이 명백하면 `failed-quality-gate`로 즉시 중단**(MAX_ROUNDS 헛돌지 않게). 종료 사유는 `converged-good`/`exhausted`/`max-rounds`/`failed-quality-gate` 라벨로 기록. (gate/assertion은 코드 단계 전용 — 설계·문서는 `verdicts.json` 완료+정본 대조로 종료. 상세: `loop-self-eval.md`)
+- **K회 연속 신규 확인 0건**이면 수렴 종료. **MAX_ROUNDS 도달 시 강제 종료 + 미수렴 이슈 보고**(무한 루프 차단). **품질 θ 미달이 명백하면 `failed-quality-gate`로 즉시 중단**(MAX_ROUNDS 헛돌지 않게). 종료 사유는 `converged-good`/`exhausted`/`max-rounds`/`failed-quality-gate`/`degraded-accepted`(경량·표준 축소 허용)/`degraded-override`(중대 축소 + 사용자 승인)/`degraded-blocked`(중대 축소 + 미승인 → 진행 금지) 라벨로 기록. (gate/assertion은 코드 단계 전용 — 설계·문서는 `verdicts.json` 완료+정본 대조로 종료. 상세: `loop-self-eval.md`)
 - **수정본 재리뷰(req)**: round>1은 이전 라운드 수정 diff만 좁게 재리뷰 → 수정이 새 결함을 만들지 검증(같은 맹점 회피 전제가 수정에도 적용).
 - **판정 원장(req)**: `_workspace/reviews/{단계ID}_verdicts.json` — 이슈지문(파일+결함요지 해시)→ 판정·라운드·근거. 매 라운드 **seen 대조로 신규만 판정**(기각 이슈 재부상 방지, dedup vs seen).
 
@@ -209,13 +212,27 @@ if [ "$ok" = 0 ] && [ "$fail" = 0 ]; then overall=failed; results='"_none":"no-r
 elif [ "$fail" = 0 ]; then overall=completed
 elif [ "$ok" = 0 ]; then overall=failed
 else overall=partial; fi
+# 축소는 '실행 전 리뷰어 부재'만이 아니다(req). 리뷰어가 붙었어도 **런타임 실패**(타임아웃·인증·
+# 크래시)하면 결과는 똑같이 반쪽 리뷰인데, DEG 는 launch 전에 산출돼 그 사실을 모른다.
+# 실측: agy 가 `Error: timeout waiting for response` 로 죽어 codex 단독이 됐는데 degraded 는 빈
+# 문자열이었다 — 표기 의무·dry_streak 규칙이 전부 degraded 를 키로 삼으므로 그대로면 반쪽이
+# '온전한 수렴'으로 집계된다. 그래서 취합 후 실패분을 degraded 에 합류시킨다.
+if [ "$fail" -gt 0 ]; then
+  failed_tools=""
+  for f in "$D/${S}_"*.rc; do
+    [ -e "$f" ] || continue
+    t="$(basename "$f" .rc)"; t="${t#${S}_}"
+    { [ "$(cat "$f")" = "0" ] && [ -s "$D/${S}_${t}.md" ]; } || failed_tools="${failed_tools:+$failed_tools,}$t"
+  done
+  DEG="${DEG:+$DEG; }리뷰어 런타임 실패: ${failed_tools}(1회 재실행 후 재실패면 단일 출처 명시)"
+fi
 write_status "$(printf '{"status":"%s","reviewers":"%s","degraded":"%s","started":%s,"results":{%s}}' \
   "$overall" "$REVIEWERS" "$(json_esc "$DEG")" "$NOW" "$results")"
 echo "DONE: status=$overall ok=$ok fail=$fail${DEG:+ degraded=$DEG}"   # 완료 신호(launch 모드에선 tool result로 회수)
 ```
 - **상태 스키마(통일):** `{"status": running|completed|partial|failed|no-reviewers, "reviewers": "...", "degraded": "" | "<축소 사유>", "results": {"codex":"ok|fail", "agy":"ok|fail"}}`. `partial`=일부 성공(예: codex ok·agy 타임아웃) — `completed`로 뭉뚱그려 부분실패를 숨기지 않는다. Step 3은 이 status + 리뷰어별 출력 *내용*으로 판단.
 - **리스크 등급별 축소 정책(req):** 축소를 일률적으로 "기록만 하고 진행"으로 두면 **중대 변경에서 fail-open**이 된다(중대는 SKILL.md가 단계마다 외부리뷰+승인 사다리를 요구하는데, 리뷰어 1종 상태가 그 요구를 만족하지 못한 채 통과). 등급별로 분기한다 — **경량/표준**: `degraded` 기록 후 진행 가능. **중대**: 그대로 진행 금지. ① 리뷰어 복구(PATH/설치) 후 재실행, ② 복구 불가면 **사용자에게 축소 사유를 보고하고 명시적 승인(override)을 받아야** 다음 단계로 간다. 승인받았으면 그 사실도 `degraded`와 함께 결과서에 남긴다.
-- **축소 리뷰 표기 의무(req):** `degraded`가 비어있지 않으면 그 라운드는 **교차검증이 성립하지 않은 리뷰**다. 결과서·커밋메시지·CHANGELOG에 **"양 엔진 수렴"·"codex+agy"류 표기를 쓰지 말 것** — 실제 실행된 리뷰어와 축소 사유를 그대로 적는다(예: "외부리뷰 agy 단독 — codex PATH 밖 설치로 제외"). `degraded`가 `PATH 밖 설치`를 포함하면 리뷰 재실행 전에 그 도구를 PATH에 올리거나 현재 런타임에 설치한다(자동 PATH 주입은 하지 않는다 — 임의 경로 실행은 공급망 리스크). **`no-high 2연속` 같은 수렴 판정은 degraded 라운드를 카운트에 넣지 않는다.**
+- **축소 리뷰 표기 의무(req):** `degraded`가 비어있지 않으면 그 라운드는 **교차검증이 성립하지 않은 리뷰**다. `degraded`에는 실행 전 사유(리뷰어 부재·PATH 밖 설치)뿐 아니라 **실행 중 실패**(타임아웃·인증·크래시 → `status: partial`)도 취합 단계에서 합류한다 — 붙었다가 죽은 것과 처음부터 없던 것은 결과가 같다. 결과서·커밋메시지·CHANGELOG에 **"양 엔진 수렴"·"codex+agy"류 표기를 쓰지 말 것** — 실제 실행된 리뷰어와 축소 사유를 그대로 적는다(예: "외부리뷰 agy 단독 — codex PATH 밖 설치로 제외"). `degraded`가 `PATH 밖 설치`를 포함하면 리뷰 재실행 전에 그 도구를 PATH에 올리거나 현재 런타임에 설치한다(자동 PATH 주입은 하지 않는다 — 임의 경로 실행은 공급망 리스크). **`no-high 2연속` 같은 수렴 판정은 degraded 라운드를 카운트에 넣지 않는다.**
 - **상황별 모델 선택(req):** 오케스트레이터가 단계 리스크등급(경량/표준/중대)에 맞춰 `AGY_MODEL`·`CODEX_MODEL`을 설정한다. **경량/표준** → 경량·저비용(`AGY_MODEL="Gemini 3.5 Flash (High)"`, codex 기본) — 초대형 산출물·단순 검토·비용 절감. **중대** → 고성능(`AGY_MODEL="Gemini 3.1 Pro (High)"`, `CODEX_MODEL`=고추론 모델) — 정확도 우선. 미설정 시 기본(Gemini 3.1 Pro High / codex 기본). 가용 모델은 `agy models`·`codex --help`로 확인.
   - ⚠️ **엔진 다양성 가드:** `AGY_MODEL`은 **Gemini 계열만**. agy는 Claude/GPT-OSS 모델도 실행 가능하나, agy를 Claude로 돌리면 claude 러너와 같은 엔진 = 자기검증(엔진 다양성 붕괴). 모델은 *엔진 내* 선택일 뿐 — 엔진(codex≠claude≠agy_gemini)은 러너 제외 규칙(§독립성)이 고정.
 - **agy 파일접근 배선(req — 지우지 말 것):** agy는 `--sandbox`라 리뷰 대상이 워크스페이스 밖이면 파일 read가 권한 프롬프트를 띄운다. `-p`(비대화)+`< /dev/null`(TTY 없음)이면 그 프롬프트에 응답 못 해 **무한 hang**(→ speculative fallback 또는 timeout kill, exit 124/144). 따라서 **`--add-dir "$REPO_ROOT"`(리뷰 대상 repo를 워크스페이스에 추가; `git rev-parse --show-toplevel`로 하위 디렉토리 실행서도 루트 보장) + `--dangerously-skip-permissions`(도구권한 자동승인)** 가 필수. 실증: 이 둘 없으면 repo 상대경로 파일(예 `_workspace/…`) 접근이 hang, 있으면 실제 file:line 근거로 정상 판정+종료(exit 0). codex는 `codex exec`가 자체 read-only 파일접근이라 무영향(대조군).
