@@ -201,7 +201,7 @@ cloud-deploy/
 #### 4-6. 외부 리뷰 스킬 생성 (코드/설계 — 도구 연동 확인 후)
 
 코드/설계 도메인이어도 **러너 제외 외부 리뷰어가 있을 때만** 만든다(작동 불가 스킬 방지). 판단 기준은 `AVAILABLE`이 아니라 **`REVIEWERS`**(러너 엔진 제외분) — 러너만 설치된 환경은 `AVAILABLE`은 1개여도 `REVIEWERS: none`이라 외부 리뷰 불가.
-1. **점검:** `bash skills/myharness/scripts/check-review-tools.sh {러너}`(생성 런타임의 claude|codex 명시) → 끝줄 `REVIEWERS:`. **none**=스킬 생성 안 함(내부 QA만, 보고서·CLAUDE.md에 "외부 리뷰어 없음 생략" 명시) / **하나만**=그 도구만 쓰는 저하 모드 생성 / **둘 다**=풀 생성.
+1. **점검:** `bash skills/myharness/scripts/check-review-tools.sh {러너}`(생성 런타임의 claude|codex 명시) → 끝줄 `REVIEWERS:`+`SHADOWED:`. **none**=스킬 생성 안 함(내부 QA만, 보고서·CLAUDE.md에 "외부 리뷰어 없음 생략" 명시) / **하나만**=저하 모드 생성(교차검증 아님 — 결과서에 "양 엔진" 표기 금지) / **둘 다**=풀 생성. **`SHADOWED`≠none**(설치돼 있으나 PATH 밖 — 예: nvm 다른 node 버전)이면 저하로 굳히기 전에 사용자에게 복구를 먼저 제안한다.
 2. **생성:** `references/external-review-loop.md`(방법론 겸 템플릿)를 타겟 `.claude/skills/external-review-loop/SKILL.md`(듀얼 런타임이면 `.agents/skills/external-review-loop/`에도)로 생성(frontmatter 포함). `check-review-tools.sh`·`build-scorecard.sh`·`emit-loop-scorecard.sh`를 그 스킬 `scripts/`로 복사(런타임 폴백·scorecard 측정 꼬리·raw 감사 우회 시에도 통계 발행).
 3. 오케스트레이터가 단계 마감 시 호출(5-6). 스킬 없으면 게이트는 내부 QA로 축소. 비코드 도메인은 점검 없이 생략.
 

@@ -63,7 +63,7 @@ agy(성능 리뷰어)는 동일 틀 + "성능/속도·안정성 중심으로" �
 2. **await** — 하네스의 **완료 알림(task-notification)으로 재진입**한다. 30초 폴링 루프 금지 — 600s/30s=20턴 컨텍스트 팽창·비용 낭비. **단, launch 직후 반드시 단일 장주기 fallback wakeup(`ScheduleWakeup`/`schedule`, ~12–15분)을 건다(req).** `timeout`/`gtimeout` 부재 + 리뷰어 hang이면 `wait`가 안 풀려 **완료 알림이 영영 안 와 오케스트레이터가 무한 대기(좀비)**한다 — fallback이 그 유일한 탈출구다. fallback 발화 시 `_review_status.json`이 아직 `running`이고 `started` 이후 deadline 초과면 **stale로 간주**, rc/출력 유무로 `partial|failed` 확정하고 hang 프로세스는 사용자에게 보고 후 중단/계속 판정.
 3. **poll** — 재진입 후 `_review_status.json` + 리뷰어별 `_{tool}.rc`를 읽어 `completed|partial|failed`를 도출, **결과를 텍스트로 보고**한 뒤 Step 3으로.
 
-먼저 `bash {스킬scripts}/check-review-tools.sh {러너}`로 **러너 제외 리뷰어 재확인**(끝줄 `REVIEWERS:`). 두 플레이스홀더는 **스킬 생성 시 런타임별로 치환**한다(아래 "생성 시 치환"). `REVIEWERS:`에 든 도구만 실행. 프롬프트·출력 모두 `_workspace/reviews/`에 보존(감사 — /tmp 금지).
+먼저 `bash {스킬scripts}/check-review-tools.sh {러너}`로 **러너 제외 리뷰어 재확인**(끝줄 `REVIEWERS:`·`SHADOWED:`). 두 플레이스홀더는 **스킬 생성 시 런타임별로 치환**한다(아래 "생성 시 치환"). `REVIEWERS:`에 든 도구만 실행. 프롬프트·출력 모두 `_workspace/reviews/`에 보존(감사 — /tmp 금지).
 
 > **생성 시 치환(req):** 팩토리는 생성 런타임을 알므로 명시 주입한다 — Claude Code면 `{스킬scripts}`=`.claude/skills/external-review-loop/scripts`·`{러너}`=`claude`, Codex면 `{스킬scripts}`=`.agents/skills/external-review-loop/scripts`·`{러너}`=`codex`. (자동감지는 보조 폴백.)
 
@@ -86,20 +86,46 @@ CODEX_MODEL="${CODEX_MODEL:-}"                     # 비우면 codex 기본. 중
 case "$AGY_MODEL" in *[Cc]laude*|*GPT*|*[Gg]pt*) echo "ERROR: AGY_MODEL must be Gemini (engine diversity)." >&2; exit 1 ;; esac
 # 리뷰 대상 루트 — 하위 디렉토리서 실행돼도 repo 루트 보장(agy --add-dir용). git 밖이면 pwd 폴백.
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-# 러너 제외 리뷰어 목록(스크립트가 산출). REVIEWERS: 줄만 신뢰. {러너}=생성 시 claude|codex로 치환.
-REVIEWERS="$(bash {스킬scripts}/check-review-tools.sh {러너} | sed -n 's/^REVIEWERS: //p')"
+# 러너 제외 리뷰어 목록(스크립트가 산출). REVIEWERS:/SHADOWED: 줄만 신뢰. 스크립트 호출은 1회.
+# {러너}=생성 시 claude|codex로 치환.
+RT="$(bash {스킬scripts}/check-review-tools.sh {러너})"
+REVIEWERS="$(printf '%s\n' "$RT" | sed -n 's/^REVIEWERS: //p')"
+SHADOWED="$(printf '%s\n' "$RT" | sed -n 's/^SHADOWED: //p')"
 
 ST="$D/${S}_review_status.json"
 NOW="$(date +%s)"
 # 원자적 상태쓰기: temp에 쓰고 mv(rename)로 교체 — poll이 write 중간을 읽어 깨진 JSON 보는 것 방지.
 write_status() { printf '%s\n' "$1" > "$ST.tmp.$$" && mv "$ST.tmp.$$" "$ST"; }
 
+# JSON 문자열 이스케이프(경로·사유에 " \ 가 섞여 상태파일이 깨지는 것 방지).
+json_esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
 # 도구 전무 폴백: 통일 스키마로 상태파일 남기고 종료(Step 3 파서 단일화).
 if [ -z "$REVIEWERS" ] || [ "$REVIEWERS" = "none" ]; then
-  write_status '{"status":"no-reviewers","reviewers":"","results":{}}'
+  write_status "$(printf '{"status":"no-reviewers","reviewers":"","degraded":"리뷰어 0종%s","results":{}}' \
+    "$([ -n "$SHADOWED" ] && [ "$SHADOWED" != "none" ] && printf ' (PATH 밖 설치: %s)' "$(json_esc "$SHADOWED")")")"
   echo "WARN: REVIEWERS none → 외부 리뷰 생략, 내부 QA만." >&2
   exit 0
 fi
+
+# 축소 감지(req) — '조용한 반쪽 리뷰' 차단. 기존 게이트는 REVIEWERS 가 **완전히 빌 때만** 경고해서,
+# 리뷰어가 1종만 남거나 일반/정합성 축이 통째로 빠진 상태가 무경고로 통과했다.
+# 실측 사례: codex 가 다른 node 버전에만 설치돼 REVIEWERS 가 agy 단독이 됐는데도 루프는 정상 진행,
+# 결과서엔 "codex+agy 양 엔진 no-high 수렴"으로 기록 — 교차검증이 반쪽이었다는 사실이 소실됐다.
+# 두 리뷰어는 축이 다르다(일반/정합성 = codex|claude, 성능/안정성 = agy). 한 축만 남으면
+# '2종 교차검증'이 아니라 '단일 관점'이다. 축소는 중단 사유가 아니라 **기록 의무** 사유다 —
+# degraded 를 상태파일에 실어 Step 3 판정·결과서까지 전파한다.
+DEG=""
+n_rev=0; for _t in $REVIEWERS; do n_rev=$((n_rev+1)); done
+case " $REVIEWERS " in
+  *" codex "*|*" claude "*) ;;
+  *) DEG="일반/정합성 리뷰어(codex|claude) 부재 — 성능축만" ;;
+esac
+[ "$n_rev" -le 1 ] && DEG="${DEG:+$DEG; }리뷰어 ${n_rev}종(교차검증 불가)"
+if [ -n "$SHADOWED" ] && [ "$SHADOWED" != "none" ]; then
+  DEG="${DEG:+$DEG; }PATH 밖 설치 감지: $SHADOWED"
+fi
+[ -n "$DEG" ] && echo "WARN(외부 리뷰 축소): $DEG" >&2
 
 # 리뷰어 1종 실행 헬퍼: 출력 _{tool}.md + 종료코드 _{tool}.rc(리뷰어별 개별 파일 = 경합 없음).
 #   ${TOFLAG} 미인용 = "gtimeout 600s" 단어분리 의도.
@@ -131,7 +157,8 @@ run_reviewer_argv() {   # $1=파일라벨  $2..=커맨드(프롬프트가 인자
   echo "$?" > "$D/${S}_${tool}.rc"
 }
 
-write_status "$(printf '{"status":"running","reviewers":"%s","started":%s,"results":{}}' "$REVIEWERS" "$NOW")"
+write_status "$(printf '{"status":"running","reviewers":"%s","degraded":"%s","started":%s,"results":{}}' \
+  "$REVIEWERS" "$(json_esc "$DEG")" "$NOW")"
 
 # 일반/정합성 리뷰어 = REVIEWERS 중 러너 아닌 쪽(codex|claude). 든 것만 실행.
 # 둘 다 stdin 규약 — 프롬프트 인자를 주지 않고 파일을 stdin 으로 흘린다.
@@ -167,10 +194,12 @@ if [ "$ok" = 0 ] && [ "$fail" = 0 ]; then overall=failed; results='"_none":"no-r
 elif [ "$fail" = 0 ]; then overall=completed
 elif [ "$ok" = 0 ]; then overall=failed
 else overall=partial; fi
-write_status "$(printf '{"status":"%s","reviewers":"%s","started":%s,"results":{%s}}' "$overall" "$REVIEWERS" "$NOW" "$results")"
-echo "DONE: status=$overall ok=$ok fail=$fail"   # 완료 신호(launch 모드에선 tool result로 회수)
+write_status "$(printf '{"status":"%s","reviewers":"%s","degraded":"%s","started":%s,"results":{%s}}' \
+  "$overall" "$REVIEWERS" "$(json_esc "$DEG")" "$NOW" "$results")"
+echo "DONE: status=$overall ok=$ok fail=$fail${DEG:+ degraded=$DEG}"   # 완료 신호(launch 모드에선 tool result로 회수)
 ```
-- **상태 스키마(통일):** `{"status": running|completed|partial|failed|no-reviewers, "reviewers": "...", "results": {"codex":"ok|fail", "agy":"ok|fail"}}`. `partial`=일부 성공(예: codex ok·agy 타임아웃) — `completed`로 뭉뚱그려 부분실패를 숨기지 않는다. Step 3은 이 status + 리뷰어별 출력 *내용*으로 판단.
+- **상태 스키마(통일):** `{"status": running|completed|partial|failed|no-reviewers, "reviewers": "...", "degraded": "" | "<축소 사유>", "results": {"codex":"ok|fail", "agy":"ok|fail"}}`. `partial`=일부 성공(예: codex ok·agy 타임아웃) — `completed`로 뭉뚱그려 부분실패를 숨기지 않는다. Step 3은 이 status + 리뷰어별 출력 *내용*으로 판단.
+- **축소 리뷰 표기 의무(req):** `degraded`가 비어있지 않으면 그 라운드는 **교차검증이 성립하지 않은 리뷰**다. 결과서·커밋메시지·CHANGELOG에 **"양 엔진 수렴"·"codex+agy"류 표기를 쓰지 말 것** — 실제 실행된 리뷰어와 축소 사유를 그대로 적는다(예: "외부리뷰 agy 단독 — codex PATH 밖 설치로 제외"). `degraded`가 `PATH 밖 설치`를 포함하면 리뷰 재실행 전에 그 도구를 PATH에 올리거나 현재 런타임에 설치한다(자동 PATH 주입은 하지 않는다 — 임의 경로 실행은 공급망 리스크). **`no-high 2연속` 같은 수렴 판정은 degraded 라운드를 카운트에 넣지 않는다.**
 - **상황별 모델 선택(req):** 오케스트레이터가 단계 리스크등급(경량/표준/중대)에 맞춰 `AGY_MODEL`·`CODEX_MODEL`을 설정한다. **경량/표준** → 경량·저비용(`AGY_MODEL="Gemini 3.5 Flash (High)"`, codex 기본) — 초대형 산출물·단순 검토·비용 절감. **중대** → 고성능(`AGY_MODEL="Gemini 3.1 Pro (High)"`, `CODEX_MODEL`=고추론 모델) — 정확도 우선. 미설정 시 기본(Gemini 3.1 Pro High / codex 기본). 가용 모델은 `agy models`·`codex --help`로 확인.
   - ⚠️ **엔진 다양성 가드:** `AGY_MODEL`은 **Gemini 계열만**. agy는 Claude/GPT-OSS 모델도 실행 가능하나, agy를 Claude로 돌리면 claude 러너와 같은 엔진 = 자기검증(엔진 다양성 붕괴). 모델은 *엔진 내* 선택일 뿐 — 엔진(codex≠claude≠agy_gemini)은 러너 제외 규칙(§독립성)이 고정.
 - **agy 파일접근 배선(req — 지우지 말 것):** agy는 `--sandbox`라 리뷰 대상이 워크스페이스 밖이면 파일 read가 권한 프롬프트를 띄운다. `-p`(비대화)+`< /dev/null`(TTY 없음)이면 그 프롬프트에 응답 못 해 **무한 hang**(→ speculative fallback 또는 timeout kill, exit 124/144). 따라서 **`--add-dir "$REPO_ROOT"`(리뷰 대상 repo를 워크스페이스에 추가; `git rev-parse --show-toplevel`로 하위 디렉토리 실행서도 루트 보장) + `--dangerously-skip-permissions`(도구권한 자동승인)** 가 필수. 실증: 이 둘 없으면 repo 상대경로 파일(예 `_workspace/…`) 접근이 hang, 있으면 실제 file:line 근거로 정상 판정+종료(exit 0). codex는 `codex exec`가 자체 read-only 파일접근이라 무영향(대조군).
@@ -180,7 +209,8 @@ echo "DONE: status=$overall ok=$ok fail=$fail"   # 완료 신호(launch 모드�
 - 타임아웃·실패(`_{tool}.rc`≠0 또는 출력 빔) 시 **오케스트레이터가 1회 수동 재실행** → 재실패 시 도구 누락 명시 후 단일 출처로 진행(**루프 차단 금지**). Step 3은 파일 유무가 아니라 rc+내용으로 판단.
 - 모델은 `agy models`로 확인(Gemini 3.1 Pro / 3.5 Flash 등). 가용 모델명으로 치환.
 - **자원·비용:** 리뷰어 2종 병렬 = 토큰 2배·로컬 자원 경합. 초대형 산출물이면 순차 실행 또는 성능 리뷰어를 경량 모델(`Gemini 3.5 Flash`)로.
-- **도구 부재 폴백:** `REVIEWERS: none`이면 통일 스키마 상태파일만 남기고 외부 리뷰 생략 — 결과서 명시·내부 QA만. 일반 리뷰어 1종만 살아도 단일 출처로 진행.
+- **도구 부재 폴백:** `REVIEWERS: none`이면 통일 스키마 상태파일만 남기고 외부 리뷰 생략 — 결과서 명시·내부 QA만. 일반 리뷰어 1종만 살아도 단일 출처로 진행하되 **`degraded`에 사유가 실리므로 위 "축소 리뷰 표기 의무"를 따른다**(진행은 하되 교차검증으로 기록 금지).
+- **`SHADOWED` 확인(req):** `check-review-tools.sh`는 도구가 *설치돼 있으나 현재 PATH 밖*이면 `SHADOWED:` 줄로 보고한다(예: nvm의 다른 node 버전 전역 설치). `command -v` 실패를 "미설치"로만 처리하면 리뷰어가 조용히 한 축 빠진 채 루프가 정상 완료된다 — 실측된 회귀다. 오케스트레이터는 `SHADOWED`가 `none`이 아니면 사용자에게 보고하고 복구(PATH 추가/재설치)를 먼저 제안한다.
 
 ## Step 3 — 이슈 통합 + 원장 대조
 **먼저 산출물 유무 확인:** `_review_status.json`(no-reviewers)만 있고 `_codex.md`/`_claude.md`/`_agy.md`가 없으면 외부 리뷰 생략 상태 → 내부 QA로 진행(결과서 명시). 출력 파일은 있으나 비었거나 에러면 해당 도구 누락으로 간주. 두 출력에서 이슈 추출 → 중복 병합(동일 대상·동일 결함=1건, 출처 병기) → 번호 재부여. **`verdicts.json` 원장과 대조해 이미 판정된(기각/이월/기수정) 이슈는 제외하고 신규만 Step 4로** (dedup vs seen). 리뷰 보고 0건이면 "외부 리뷰 — 이슈 0건" 기록, dry_streak +1.

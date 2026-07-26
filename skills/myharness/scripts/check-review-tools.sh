@@ -6,21 +6,48 @@
 # agy는 Gemini 모델을 제공한다(gemini CLI 후속 — gemini는 legacy 폴백).
 # 용도: 하네스 생성 시 external-review-loop 스킬을 만들지 결정 + 생성 스킬의 런타임 폴백.
 # 사용: bash check-review-tools.sh [runner]    # runner ∈ claude|codex (생략 시 자동 감지)
-# 출력 끝 3줄:
+# 출력 끝 4줄:
 #   AVAILABLE: <설치된 도구 공백구분 | none>
 #   RUNNER:    <claude|codex>
 #   REVIEWERS: <러너 제외한 사용가능 리뷰어 공백구분 | none>
+#   SHADOWED:  <설치돼 있으나 PATH 밖인 도구 "이름=경로" 공백구분 | none>
 # 종료코드: 항상 0 (none도 정상 신호). 상태는 끝줄들로만 신뢰할 것
 #   — set -e/자동화 파이프라인이 파싱 전 중단되는 것을 막기 위함.
 set -uo pipefail
 
+# PATH 밖 설치 탐지(req). `command -v` 는 '지금 이 셸에서 실행 가능한가'만 본다 — 도구가
+# 설치돼 있어도 다른 버전 관리자 프리픽스에 있으면 '미설치'로 떨어진다.
+# 실측 사례: codex 가 nvm node v22.11.0 전역에만 설치돼 있고 세션 node 가 v24.18.0 이라
+# `command -v codex` 실패 → REVIEWERS 가 agy 단독이 됐는데도 게이트는 무경고 통과했다
+# (기존 게이트는 REVIEWERS 가 완전히 빌 때만 경고). 결과서엔 "codex+agy 양 엔진 수렴"으로
+# 기록되어 교차검증이 실제로는 반쪽이었다는 사실이 남지 않았다.
+# → '없는 것'과 '가려진 것'을 구분해 SHADOWED 로 별도 보고한다. 자동 PATH 주입은 하지 않는다
+#   (임의 경로 실행은 공급망 리스크 — 사용자가 명시적으로 PATH/설치를 고치게 한다).
+probe_shadow() {  # $1=도구명 → 첫 히트 경로를 출력하고 0, 없으면 1
+  local t="$1" p
+  for p in "$HOME"/.nvm/versions/node/*/bin/"$t" \
+           "$HOME"/.fnm/node-versions/*/installation/bin/"$t" \
+           "$HOME"/.asdf/installs/nodejs/*/bin/"$t" \
+           "$HOME"/.volta/tools/image/packages/*/bin/"$t" \
+           "$HOME"/.local/share/mise/installs/node/*/bin/"$t" \
+           "$HOME"/.bun/bin/"$t" "$HOME"/.local/bin/"$t" \
+           /opt/homebrew/bin/"$t" /usr/local/bin/"$t"; do
+    [ -x "$p" ] && { printf '%s' "$p"; return 0; }   # 글롭 미매치는 리터럴로 남아 -x 가 false
+  done
+  return 1
+}
+
 avail=()
+shadow=()
 # codex/claude = 일반/정합성 리뷰어(대형 모델). agy = 성능/안정성(Gemini). gemini = agy 없을 때 legacy.
 # 주의: command -v는 '존재'만 확인 — 버전/인증/모델명 유효까지 보장 못 함(Step 2 실행 실패→폴백에 의존).
 for t in codex claude agy gemini; do
   if command -v "$t" >/dev/null 2>&1; then
     echo "$t: ✓ 연동됨 ($(command -v "$t"))"
     avail+=("$t")
+  elif p="$(probe_shadow "$t")"; then
+    echo "$t: ⚠ PATH 밖 설치 ($p) — 이 셸에서 실행 불가, 리뷰어에서 제외됨"
+    shadow+=("$t=$p")
   else
     echo "$t: ✗ 미설치"
   fi
@@ -69,4 +96,5 @@ fi
 if [ "${#avail[@]}" -eq 0 ]; then echo "AVAILABLE: none"; else echo "AVAILABLE: ${avail[*]}"; fi
 echo "RUNNER: $runner"
 if [ "${#reviewers[@]}" -eq 0 ] || [ -z "${reviewers[*]:-}" ]; then echo "REVIEWERS: none"; else echo "REVIEWERS: ${reviewers[*]}"; fi
+if [ "${#shadow[@]}" -eq 0 ]; then echo "SHADOWED: none"; else echo "SHADOWED: ${shadow[*]}"; fi
 exit 0
