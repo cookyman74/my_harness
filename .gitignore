@@ -1,4 +1,13 @@
 .DS_Store
-.claude/
+# `.claude/` 는 통짜 무시하지 않는다(#7). 이 레포는 하네스 팩토리이고 CLAUDE.md 가
+# `.claude/agents/*`·`.claude/skills/*` 를 하네스 정의의 단일 출처로 가리킨다 — 통짜 무시하면
+# 클론 환경에서 문서가 가리키는 파일이 실재하지 않아 트리거를 따라도 실행되지 않는다.
+# 하네스 정의만 추적하고, 개인 설정·런타임 산출물은 계속 무시한다.
+.claude/*
+!.claude/agents/
+!.claude/skills/
+.claude/settings.local.json
+.claude/settings.json
+.claude/commands/
 _workspace/
 .playwright*
