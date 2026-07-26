@@ -286,7 +286,7 @@ echo "DONE: status=$overall ok=$ok fail=$fail${DEG:+ degraded=$DEG}"   # 완료 
 - **간편(권장):** **`bash {스킬scripts}/emit-loop-scorecard.sh _workspace/reviews/{단계ID}_verdicts.json [run_id]`** — 경로 조립·`build-scorecard.sh` 호출·summary append 를 한 명령으로. **raw codex/agy 로 감사해도 이 한 줄만 돌리면 #/eval 루프 통계가 채워진다**(측정 꼬리 스킵이 "루프 0"의 근본원인 — 자동감사 우회 시 반드시 실행).
 - **수동(동등):** `bash {스킬scripts}/build-scorecard.sh _workspace/reviews/{단계ID}_verdicts.json _workspace/evals/external-review/{단계ID}/{run_id}/scorecard.json [timing.json]` — verdicts 는 **전체 경로 전달**(파일명만 주면 CWD 불일치 Not Found).
 - 산출: verdict_counts·rounds·`alignment_score`(정밀도 아님)·`*_rate`·cost·**`regression_catch_rate`**(round>1 재리뷰가 잡은 회귀/누출 — 전체 recall 아님)를 **스크립트가 verdicts.json에서 기계 계산**(LLM 자기보고 아님). 라벨(`converged-good`/…)만 오케스트레이터 해석. **측정·기록만**, 자동 흐름 변경 없음. (`{스킬scripts}`는 Step 2와 동일·런타임별 치환.)
-- `verdicts.json` 각 이슈에 `round`·`source` 기록(round>1 재리뷰분은 `source:"re-review"`)해야 regression_catch_rate 계산됨. 이슈의 `source` 는 **재리뷰 표식**이지 리뷰어 식별자가 아니다 — 리뷰어별 검토 이력은 별도 `reviewer_coverage` 배열에 남긴다(§수정본 재리뷰).
+- `verdicts.json` 각 이슈에 `round`·`source` 기록. **round>1 은 `source:"re-review"` 로 고정한다(req)** — `build-scorecard.sh` 의 `regression_catch_rate` 는 `source=="re-review"` 만 분자로 세므로, 여기에 엔진명(`"codex"`·`"agy"`)을 넣으면 **화이트리스트에 있어 경고도 안 뜨는 채로 0 으로 과소측정**된다(실측: 재태깅 전 0 → 후 1.75). 발견 엔진을 남기려면 **별도 `reviewer` 필드**를 쓴다(스크립트는 무시하는 추가 키). 이슈의 `source` 는 **재리뷰 표식**이지 리뷰어 식별자가 아니며, 리뷰어별 검토 이력은 `reviewer_coverage` 배열에 남긴다(§수정본 재리뷰).
 - 스크립트가 `summary.jsonl`에 집계 append → Phase 0/7 진입 시 **요약만** 읽음(읽기 경로, Lean). 스키마·졸업 기준·단계적 도입은 `loop-self-eval.md`. (jq 필요)
 
 ## 재진입 (루프 라운드 = 재진입)
