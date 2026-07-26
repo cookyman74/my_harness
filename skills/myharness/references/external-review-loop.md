@@ -40,9 +40,12 @@ while True:
       # 반복한 뒤 'max-rounds 미수렴'으로 오표기되므로 여기서 등급별로 분기한다.
       # 복구 시도가 **맨 앞**이다 — 등급을 먼저 보면 경량/표준은 복구 가능한데도 시도 없이
       # 축소 통과해버린다(쉽게 온전한 교차검증으로 돌아갈 수 있는데 검증을 조기 포기).
-      if 리뷰어 복구 성공:              # 재실행 — 단, 상한을 우회하지 않는다(bare continue 금지:
-          if round >= MAX_ROUNDS: break # 아래 round += 1·MAX_ROUNDS 검사를 건너뛰어 무한 루프).
-          round += 1; continue          # 복구 리뷰어는 아래 "복구된 리뷰어는 예외" 규칙 적용
+      if 리뷰어 복구 성공 and round < MAX_ROUNDS:  # 재실행 — 상한을 우회하지 않는다
+          round += 1; continue          # (bare continue 금지: 아래 round += 1·MAX_ROUNDS 검사를
+                                        #  건너뛰어 무한 루프). 복구 리뷰어는 아래 "복구된
+                                        #  리뷰어는 예외" 규칙 적용.
+      # 복구했어도 이미 마지막 라운드면 재실행할 여지가 없다 → 아래 등급 분기로 내려가
+      # 반드시 라벨을 남긴다. 라벨 없는 loop exit 금지(break 는 "단계 통과"로 읽힌다).
       elif 리스크 in {경량, 표준}: break  # label=degraded-accepted (사유 기록 후 진행 허용)
       elif 사용자 override 승인: break    # label=degraded-override
       else: halt(label=degraded-blocked)  # 루프 탈출 + **다음 단계 진행 금지**.
@@ -52,7 +55,7 @@ while True:
   if round >= MAX_ROUNDS(기본 3): break + 잔여 미수렴 보고
   round += 1
 ```
-- **K회 연속 신규 확인 0건**이면 수렴 종료. **MAX_ROUNDS 도달 시 강제 종료 + 미수렴 이슈 보고**(무한 루프 차단). **품질 θ 미달이 명백하면 `failed-quality-gate`로 즉시 중단**(MAX_ROUNDS 헛돌지 않게). 종료 사유는 `converged-good`/`exhausted`/`max-rounds`/`failed-quality-gate`/`degraded-accepted`(경량·표준 축소 허용)/`degraded-override`(중대 축소 + 사용자 승인)/`degraded-blocked`(중대 축소 + 미승인 → 진행 금지) 라벨로 기록. (gate/assertion은 코드 단계 전용 — 설계·문서는 `verdicts.json` 완료+정본 대조로 종료. 상세: `loop-self-eval.md`)
+- **K회 연속 신규 확인 0건**이면 수렴 종료. **MAX_ROUNDS 도달 시 강제 종료 + 미수렴 이슈 보고**(무한 루프 차단). **축소 상태로 상한에 닿으면 `max-rounds` 가 아니라 등급 분기의 `degraded-*` 라벨이 우선**한다 — 중대 + 미승인이면 `degraded-blocked`(진행 금지)가 `max-rounds`(보고 후 통과)를 이긴다. 어느 경로로 끝나든 **라벨 없는 종료는 금지**. **품질 θ 미달이 명백하면 `failed-quality-gate`로 즉시 중단**(MAX_ROUNDS 헛돌지 않게). 종료 사유는 `converged-good`/`exhausted`/`max-rounds`/`failed-quality-gate`/`degraded-accepted`(경량·표준 축소 허용)/`degraded-override`(중대 축소 + 사용자 승인)/`degraded-blocked`(중대 축소 + 미승인 → 진행 금지) 라벨로 기록. (gate/assertion은 코드 단계 전용 — 설계·문서는 `verdicts.json` 완료+정본 대조로 종료. 상세: `loop-self-eval.md`)
 - **수정본 재리뷰(req)**: round>1은 이전 라운드 수정 diff만 좁게 재리뷰 → 수정이 새 결함을 만들지 검증(같은 맹점 회피 전제가 수정에도 적용).
   - **복구된 리뷰어는 예외(req)**: 축소 라운드 뒤 새로 붙은 리뷰어는 **원 산출물을 한 번도 본 적이 없다**. 그 상태로 "직전 수정분 diff만" 주면 그 리뷰어의 관점으로는 산출물 전체가 영원히 미검토로 남는다(축소가 만든 맹점이 복구 후에도 존속). 복구 리뷰어에게는 **`round==1` 과 동일하게 산출물 전체를 준다** — 이미 검토한 리뷰어만 좁은 diff 재리뷰. 판별은 **이슈의 `source` 로 하지 않는다**(그 필드는 `re-review` 표식 용도이고, 0건 보고한 리뷰어는 이슈 자체가 없어 이력이 안 남는다). `verdicts.json` 에 **라운드별 커버리지 원장**을 따로 둔다: `"reviewer_coverage": [{"reviewer":"codex","round":1,"scope":"full","status":"ok"}, …]`. **판별이 불확실하면 "본 적 없음"으로 간주해 전체를 준다(보수적 기본값)** — 잘못 좁히면 맹점이 남고, 잘못 넓히면 토큰만 더 쓴다.
 - **판정 원장(req)**: `_workspace/reviews/{단계ID}_verdicts.json` — 이슈지문(파일+결함요지 해시)→ 판정·라운드·근거. 매 라운드 **seen 대조로 신규만 판정**(기각 이슈 재부상 방지, dedup vs seen).
@@ -286,7 +289,11 @@ echo "DONE: status=$overall ok=$ok fail=$fail${DEG:+ degraded=$DEG}"   # 완료 
 - **간편(권장):** **`bash {스킬scripts}/emit-loop-scorecard.sh _workspace/reviews/{단계ID}_verdicts.json [run_id]`** — 경로 조립·`build-scorecard.sh` 호출·summary append 를 한 명령으로. **raw codex/agy 로 감사해도 이 한 줄만 돌리면 #/eval 루프 통계가 채워진다**(측정 꼬리 스킵이 "루프 0"의 근본원인 — 자동감사 우회 시 반드시 실행).
 - **수동(동등):** `bash {스킬scripts}/build-scorecard.sh _workspace/reviews/{단계ID}_verdicts.json _workspace/evals/external-review/{단계ID}/{run_id}/scorecard.json [timing.json]` — verdicts 는 **전체 경로 전달**(파일명만 주면 CWD 불일치 Not Found).
 - 산출: verdict_counts·rounds·`alignment_score`(정밀도 아님)·`*_rate`·cost·**`regression_catch_rate`**(round>1 재리뷰가 잡은 회귀/누출 — 전체 recall 아님)를 **스크립트가 verdicts.json에서 기계 계산**(LLM 자기보고 아님). 라벨(`converged-good`/…)만 오케스트레이터 해석. **측정·기록만**, 자동 흐름 변경 없음. (`{스킬scripts}`는 Step 2와 동일·런타임별 치환.)
-- `verdicts.json` 각 이슈에 `round`·`source` 기록. **round>1 은 `source:"re-review"` 로 고정한다(req)** — `build-scorecard.sh` 의 `regression_catch_rate` 는 `source=="re-review"` 만 분자로 세므로, 여기에 엔진명(`"codex"`·`"agy"`)을 넣으면 **화이트리스트에 있어 경고도 안 뜨는 채로 0 으로 과소측정**된다(실측: 재태깅 전 0 → 후 1.75). 발견 엔진을 남기려면 **별도 `reviewer` 필드**를 쓴다(스크립트는 무시하는 추가 키). 이슈의 `source` 는 **재리뷰 표식**이지 리뷰어 식별자가 아니며, 리뷰어별 검토 이력은 `reviewer_coverage` 배열에 남긴다(§수정본 재리뷰).
+- `verdicts.json` 각 이슈에 `round`·`source` 기록. `source` 는 **무엇을 봐서 찾았나**를 뜻한다(누가 찾았나가 아니다) — `regression_catch_rate` 의 의미를 지키는 것이 이 필드의 목적이다.
+  - **좁은 수정 diff 재리뷰에서 잡은 회귀/누출 → `source:"re-review"`(req).** 여기에 엔진명(`"codex"`·`"agy"`)을 넣으면 `build-scorecard.sh` 가 분자로 세지 않는데 **화이트리스트에 있어 경고도 안 뜬 채 과소측정**된다(실측: 재태깅 전 0 → 후 1.75).
+  - **복구된 리뷰어가 전체 리뷰로 뒤늦게 찾은 기존 결함 → 엔진명(`"codex"` 등).** 이건 수정이 만든 회귀가 아니라 원래 있던 결함이므로 `"re-review"` 로 적으면 회귀율이 부풀려진다.
+  - 발견 엔진을 항상 남기고 싶으면 **별도 `reviewer` 필드**를 쓴다(스크립트가 무시하는 추가 키).
+  - **검토 이력(커버리지) 판별은 `source` 에 의존하지 않는다** — `reviewer_coverage` 배열이 단일 출처다(§수정본 재리뷰).
 - 스크립트가 `summary.jsonl`에 집계 append → Phase 0/7 진입 시 **요약만** 읽음(읽기 경로, Lean). 스키마·졸업 기준·단계적 도입은 `loop-self-eval.md`. (jq 필요)
 
 ## 재진입 (루프 라운드 = 재진입)
