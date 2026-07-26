@@ -319,7 +319,7 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 | 표준 | 다파일·기능 추가 | 내부 QA + 외부리뷰 **1회**(단계 끝) |
 | 중대 | 계약 변경·비가역·다도메인 | **단계마다** 외부리뷰 + 승인 사다리(PRD→계획서→실행: 각 관문마다 사용자 승인+외부리뷰, 반려 시 해당 단계 재작업; 승인 관문 절차는 external-review-loop Step 7 준용) |
 
-**단계 마감 게이트(표준·중대):** 오케스트레이터가 `external-review-loop` 스킬 호출 — **라운드 반복 루프**(러너 제외 리뷰어 병렬 — Claude면 codex+agy, Codex면 claude+agy → 판정 → 확인분만 TDD 수정·게이트 → 수정 diff 재리뷰). **loop-until-dry**(신규 확인 0건 K회 연속) 또는 MAX_ROUNDS에서 종료. 판정 원장(`verdicts.json`)으로 신규만 판정. 근거 수집은 위임 가능하나 **최종 확정은 오케스트레이터 비위임**. 상세: `references/external-review-loop.md`.
+**단계 마감 게이트(표준·중대):** 오케스트레이터가 `external-review-loop` 스킬 호출 — **라운드 반복 루프**(러너 제외 리뷰어 병렬 — Claude면 codex+agy, Codex면 claude+agy → 판정 → 확인분만 TDD 수정·게이트 → 수정 diff 재리뷰). **loop-until-dry**(신규 확인 0건 K회 연속) 또는 MAX_ROUNDS에서 종료. **게이트가 `BLOCKED` 를 반환하면**(리뷰어 축소 + 중대 + 사용자 미승인) 그 단계를 terminal blocked 로 기록하고 **check-artifacts·승인·커밋·후속 단계에 진입하지 않는다** — 승인/복구 후 같은 단계에서 재개. 판정 원장(`verdicts.json`)으로 신규만 판정. 근거 수집은 위임 가능하나 **최종 확정은 오케스트레이터 비위임**. 상세: `references/external-review-loop.md`.
 
 **커밋 순서(순환 제거):** 리뷰→판정→수정→게이트 PASS → **`check-artifacts.sh`(결과서 docs/ 기록 검증 — missing이면 차단)** → **승인 관문** → 단일 커밋. (리뷰는 커밋 *전* 작업트리/스테이지 대상.) 결과서 방치는 프롬프트로 못 막음(스킵·할루시) → 생성 하네스는 이 검증을 **git `pre-commit` hook**에 배선(런타임 물리 차단). 상세: `references/orchestrator-template.md` 문서 체계.
 - 승인 관문 기본: 사용자 승인 대기.

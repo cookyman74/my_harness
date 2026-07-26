@@ -370,6 +370,7 @@ wait   # 여러 개 띄운 뒤
 
 **promote = git staging (커스텀 mv 금지)**
 - 산출물을 처음부터 `docs/{project}/`에 쓰되, **게이트 통과분만 `git add`/commit.** 여기서 "게이트" = 적용되는 검증 — 외부 리뷰어 있으면 external-review-loop, **없으면 내부 QA**(외부 도구 강제 아님). 미검증·실패분은 워킹트리에 남되 commit 안 함(원장 미오염). 순서: 기록→게이트→**check-artifacts**→승인→커밋(external-review-loop Step 7).
+- **⚠ 외부 리뷰 게이트가 `BLOCKED` 를 돌려주면(req):** `external-review-loop` 는 리뷰어 축소(부재·PATH 밖 설치·런타임 실패)가 **중대 등급 + 사용자 미승인**일 때 `BLOCKED` 를 반환한다. 이때 오케스트레이터는 **그 단계를 terminal blocked 로 기록하고 `check-artifacts`·승인·커밋·후속 단계에 진입하지 않는다.** 사용자에게 축소 사유(`_review_status.json` 의 `degraded`)를 보고하고, 승인을 받거나 리뷰어를 복구한 뒤 **같은 단계에서 재개**한다. 게이트를 "호출하고 다음 순서 계속"으로 배선하면 진행 금지가 무력화된다.
 - **⚠ 자기평가(loop_scorecard) 배선 — 오케스트레이터가 놓치기 쉬운 측정 꼬리:** 외부 리뷰를 돌릴 때 판정을 **산문(메시지)으로만 적지 말고** `_workspace/reviews/{stageID}_verdicts.json` 원장에 기록하고, **루프 종료 시 반드시 `bash {스킬scripts}/emit-loop-scorecard.sh _workspace/reviews/{stageID}_verdicts.json [run_id]` 실행**(external-review-loop **Step 8**·정본 §루프 종료 — 경로 조립·`build-scorecard.sh` 호출·summary append 를 한 명령으로. `build-scorecard.sh`를 직접 쓸 땐 verdicts 를 **전체 경로**로 넘길 것 — 파일명만 주면 CWD 불일치로 Not Found). 이걸 건너뛰면 `loop_scorecard`·`summary.jsonl`이 0건이 되어 **Phase 7 자기개선 추세·자기평가 UI가 공백**이 된다(측정·기록만·자동 흐름 변경 없음·jq 없으면 graceful skip). scorecard digest(verdict_counts·alignment_score·regression_catch_rate)는 **Step 8 실행 후에야 존재**하므로, 결과서 "외부리뷰 반영" 절에는 루프 종료 후 **append** 한다(Step 7 작성 시점엔 아직 계산 전 — 없는 값을 적으라는 요구가 되지 않게).
 
 **강제장치 = check-artifacts + pre-commit hook (프롬프트 강제 금지)**
