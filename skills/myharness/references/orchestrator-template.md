@@ -299,10 +299,14 @@ subagents 병렬 또는 순차. 각 산출물 `_workspace/{phase}_{agent}_{artif
 mkdir -p _workspace
 trap 'pkill -P $$ 2>/dev/null' EXIT      # 좀비 방지
 TO="$(command -v timeout || command -v gtimeout || true)"   # macOS 이식성
-# stdin 폐쇄 필수(< /dev/null) — 안 하면 codex exec 무한 대기
+# 프롬프트는 argv 가 아니라 **stdin** 으로 넘긴다(req). codex exec 는 PROMPT 인자가 없으면
+# stdin 에서 지시를 읽는다(`codex exec --help`). Windows/Git Bash 에서 argv 다중행이 첫 줄만
+# 도달한 실측 보고가 있고(npm .cmd shim 의심), 잘려도 rc=0 + 그럴듯한 답이 나와 조용히 실패한다.
+# stdin 을 프롬프트로 쓰므로 `< /dev/null` 은 쓰지 않는다 — 파일이 EOF 를 주니 무한 대기도 없다.
+# (프롬프트를 굳이 argv 로 준다면 그때는 `< /dev/null` 이 필수.)
 # 동시 실행 cap을 지켜라(아래 동시성 정책). 초과분은 큐잉.
 ${TO:+$TO 600s} codex exec --sandbox read-only --json -o _workspace/{phase}_{agent}.md \
-  "$(cat _workspace/{agent}_prompt.md)" < /dev/null &
+  < _workspace/{agent}_prompt.md &
 wait   # 여러 개 띄운 뒤
 ```
 - 베스트 프랙티스(검증): 기본 `read-only` / 쓰기만 `--sandbox workspace-write` / 스크립트 소비 `--json` / 최종 메시지만 `-o` / 격리 `--ignore-user-config`.

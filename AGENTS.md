@@ -10,7 +10,7 @@
 팩토리 워크플로우는 기본이 Claude Code 에이전트 팀이다(`Agent` 팀원 spawn + `SendMessage` + 공유 작업 목록 — 구 `TeamCreate`/`TeamDelete`는 v2.1.178에서 제거). **Codex에선 다음으로 매핑한다:**
 - 멀티 에이전트 → Codex 네이티브 subagents(내장 `default`/`worker`/`explorer` 또는 `.codex/agents/*.toml`), `/agent` 전환. 완전 독립 병렬은 `codex exec` subprocess.
 - 팀원 통신/태스크 → `_workspace/` 파일 기반 전달(다음 단계가 Read).
-- 에이전트 정의 → Claude는 `.claude/agents/*.md`, Codex는 `.codex/agents/*.toml`.
+- 에이전트 정의 → Claude는 `.claude/agents/*.md`, Codex는 `.codex/agents/*.toml`. ⚠️ 단 `.codex/agents/*.toml` 은 **대화형 세션에서만 이름 호출**된다 — `codex exec` 등 tool-backed 세션에선 로드되지 않는다(upstream openai/codex#15250, open). 그 경로에선 오케스트레이터 스킬 단독으로 동작한다.
 - 스킬 → Claude `.claude/skills/`, Codex `.agents/skills/` (SKILL.md 포맷 동일).
 - 상세: `skills/myharness/references/runtime-adapters.md`, 오케스트레이션은 `references/orchestrator-template.md` 템플릿 D.
 

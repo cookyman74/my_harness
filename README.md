@@ -161,11 +161,13 @@ The source of truth (skill body · references · scripts) is **runtime-agnostic 
 |---------|-------------|-----------|
 | Entry point | `.claude-plugin/plugin.json` + `CLAUDE.md` | `AGENTS.md` (auto-loaded) |
 | Skills | `.claude/skills/` | `.agents/skills/` (same format) |
-| Agents | `.claude/agents/*.md` | `.codex/agents/*.toml` + built-in worker/explorer |
+| Agents | `.claude/agents/*.md` | `.codex/agents/*.toml`&nbsp;⚠️ + built-in worker/explorer |
 | Orchestration | `Agent` teammate spawn + `SendMessage` + `TaskCreate` | native subagents / `codex exec` subprocess |
 | External reviewers | codex + agy (runner claude excluded) | claude + agy (runner codex excluded) |
 
 > `agy` (antigravity, a Gemini model) is not a host runtime — it's dedicated to external review only. Details: `skills/myharness/references/runtime-adapters.md`.
+
+> ⚠️ **Codex custom agents load in interactive sessions only.** `.codex/agents/*.toml` is not name-invocable from tool-backed sessions such as `codex exec` (upstream [openai/codex#15250](https://github.com/openai/codex/issues/15250), still open). Skills and `AGENTS.md` do load. So a harness driven through `codex exec` runs the orchestrator skill alone, without the agent-team layer.
 
 ## Example Prompts
 

@@ -161,11 +161,13 @@ your-project/
 |--------|-------------|-----------|
 | 진입점 | `.claude-plugin/plugin.json` + `CLAUDE.md` | `AGENTS.md` (자동 로드) |
 | 스킬 | `.claude/skills/` | `.agents/skills/` (포맷 동일) |
-| 에이전트 | `.claude/agents/*.md` | `.codex/agents/*.toml` + 내장 worker/explorer |
+| 에이전트 | `.claude/agents/*.md` | `.codex/agents/*.toml`&nbsp;⚠️ + 내장 worker/explorer |
 | 오케스트레이션 | `Agent` 팀원 spawn + `SendMessage` + `TaskCreate` | 네이티브 subagents / `codex exec` subprocess |
 | 외부 리뷰어 | codex + agy (러너 claude 제외) | claude + agy (러너 codex 제외) |
 
 > `agy`(antigravity, Gemini 모델)는 호스트 런타임이 아니라 외부 리뷰 전용입니다. 상세: `skills/myharness/references/runtime-adapters.md`.
+
+> ⚠️ **Codex 커스텀 에이전트는 대화형 세션에서만 로드됩니다.** `.codex/agents/*.toml` 은 `codex exec` 같은 tool-backed 세션에서 이름으로 호출되지 않습니다(upstream [openai/codex#15250](https://github.com/openai/codex/issues/15250), open 상태). 스킬과 `AGENTS.md` 는 정상 로드됩니다. 따라서 `codex exec` 로 구동하는 하네스는 에이전트 팀 층 없이 오케스트레이터 스킬 단독으로 동작합니다.
 
 ## 사용 예시 프롬프트
 

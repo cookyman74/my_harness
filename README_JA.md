@@ -161,11 +161,13 @@ your-project/
 |--------|-------------|-----------|
 | エントリポイント | `.claude-plugin/plugin.json` + `CLAUDE.md` | `AGENTS.md`（自動ロード） |
 | スキル | `.claude/skills/` | `.agents/skills/`（フォーマット同一） |
-| エージェント | `.claude/agents/*.md` | `.codex/agents/*.toml` + 内蔵 worker/explorer |
+| エージェント | `.claude/agents/*.md` | `.codex/agents/*.toml`&nbsp;⚠️ + 内蔵 worker/explorer |
 | オーケストレーション | `Agent` チームメンバー spawn + `SendMessage` + `TaskCreate` | ネイティブ subagents / `codex exec` subprocess |
 | 外部レビュアー | codex + agy（ランナー claude を除外） | claude + agy（ランナー codex を除外） |
 
 > `agy`（antigravity、Gemini モデル）はホストランタイムではなく、外部レビュー専用です。詳細：`skills/myharness/references/runtime-adapters.md`。
+
+> ⚠️ **Codex のカスタムエージェントは対話型セッションでのみロードされます。** `.codex/agents/*.toml` は `codex exec` のような tool-backed セッションから名前で呼び出せません（upstream [openai/codex#15250](https://github.com/openai/codex/issues/15250)、オープン中）。スキルと `AGENTS.md` は正常にロードされます。したがって `codex exec` で駆動するハーネスは、エージェントチーム層なしにオーケストレータースキル単独で動作します。
 
 ## 使用例のプロンプト
 
