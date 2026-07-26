@@ -41,7 +41,7 @@ description: 작업 단계 산출물(설계서·코드·문서)마다 외부 독
     그 외(중대·미승인)    -> (degraded-blocked,  BLOCK)     # 다음 단계 **진행 금지**
                           # 재시도 루프가 아니라 사용자 승인/리뷰어 복구를 기다리는 정지 상태.
 
-round = 1; dry_streak = 0
+round = 1; dry_streak = 0; action = PROCEED   # action 초기화 — 축소 없이 끝나는 경로도 아래 소비를 탄다
 while True:
   Step 1~4 (round==1: {산출물} 전체 / round>1: 직전 수정분 diff만 좁게 재리뷰)
   신규_확인 = 이번 라운드 '확인/부분' 중 verdicts 원장에 없던 것
@@ -67,6 +67,12 @@ while True:
           label, action = 축소종결판정(리스크); 기록(label); break   # BLOCK 이면 진행 금지
       break + 잔여 미수렴 보고 (label=max-rounds)
   round += 1
+
+# 루프 종료 후 — **action 을 반드시 소비한다(req).** 여기가 없으면 BLOCK 의 효과가 주석에만
+# 남아, 구현자가 break 후 그대로 다음 단계로 진행한다(R7~R9 에서 두 번 재발한 계열).
+if action == BLOCK:
+    Step 8(측정 꼬리)만 수행하고 **후속 단계 진입 금지** — 사용자 승인 또는 리뷰어 복구 후 재개.
+    return BLOCKED   # 호출한 오케스트레이터가 다음 단계를 시작하지 않도록 신호를 올린다
 ```
 - **K회 연속 신규 확인 0건**이면 수렴 종료. **MAX_ROUNDS 도달 시 강제 종료 + 미수렴 이슈 보고**(무한 루프 차단). **축소 상태로 상한에 닿으면 `max-rounds` 가 아니라 등급 분기의 `degraded-*` 라벨이 우선**한다 — 중대 + 미승인이면 `degraded-blocked`(진행 금지)가 `max-rounds`(보고 후 통과)를 이긴다. 어느 경로로 끝나든 **라벨 없는 종료는 금지**. **품질 θ 미달이 명백하면 `failed-quality-gate`로 즉시 중단**(MAX_ROUNDS 헛돌지 않게). 종료 사유는 `converged-good`/`exhausted`/`max-rounds`/`failed-quality-gate`/`degraded-accepted`(경량·표준 축소 허용)/`degraded-override`(중대 축소 + 사용자 승인)/`degraded-blocked`(중대 축소 + 미승인 → 진행 금지) 라벨로 기록. (gate/assertion은 코드 단계 전용 — 설계·문서는 `verdicts.json` 완료+정본 대조로 종료. 상세: `loop-self-eval.md`)
 - **수정본 재리뷰(req)**: round>1은 이전 라운드 수정 diff만 좁게 재리뷰 → 수정이 새 결함을 만들지 검증(같은 맹점 회피 전제가 수정에도 적용).
