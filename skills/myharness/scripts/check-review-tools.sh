@@ -102,5 +102,8 @@ fi
 if [ "${#avail[@]}" -eq 0 ]; then echo "AVAILABLE: none"; else echo "AVAILABLE: ${avail[*]}"; fi
 echo "RUNNER: $runner"
 if [ "${#reviewers[@]}" -eq 0 ] || [ -z "${reviewers[*]:-}" ]; then echo "REVIEWERS: none"; else echo "REVIEWERS: ${reviewers[*]}"; fi
+# 출력 계약이 줄 기반이라 경로에 개행이 있으면 소비자(sed 추출) 쪽에서 잘린다. 경로 구성요소는
+# 고정 템플릿 + 고정 도구명이라 실제 발생 가능성은 $HOME/PNPM_HOME/버전 디렉토리명 뿐이고,
+# 잘려도 "가려짐" 경고 자체는 그대로 발화하므로 감지 목적은 보전된다(정확한 경로만 손실).
 if [ "${#shadow[@]}" -eq 0 ]; then echo "SHADOWED: none"; else echo "SHADOWED: ${shadow[*]}"; fi
 exit 0

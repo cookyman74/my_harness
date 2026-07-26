@@ -33,8 +33,11 @@ round = 1; dry_streak = 0
 while True:
   Step 1~4 (round==1: {산출물} 전체 / round>1: 직전 수정분 diff만 좁게 재리뷰)
   신규_확인 = 이번 라운드 '확인/부분' 중 verdicts 원장에 없던 것
-  if 신규_확인 == 0 and status.degraded == "": dry_streak += 1   # 축소 라운드는 수렴 근거 아님
-  else: dry_streak = 0; Step 5~7 (신규_확인만 수정·게이트·기록)
+  if 신규_확인 > 0: dry_streak = 0; Step 5~7 (신규_확인만 수정·게이트·기록)
+  elif status.degraded == "": dry_streak += 1                    # 온전한 리뷰의 0건 = 수렴 근거
+  else: pass                                                     # 축소 라운드의 0건 = 관측 부족
+                                                                 #   → 수렴도 수정도 아님(dry_streak 불변).
+                                                                 #   진행 여부는 §축소 정책(등급별)이 정한다.
   if dry_streak >= K(기본 1, 중대 2): break        # loop-until-dry
   if round >= MAX_ROUNDS(기본 3): break + 잔여 미수렴 보고
   round += 1
@@ -99,9 +102,18 @@ NOW="$(date +%s)"
 write_status() { printf '%s\n' "$1" > "$ST.tmp.$$" && mv "$ST.tmp.$$" "$ST"; }
 
 # JSON 문자열 이스케이프(경로·사유에 " \ 가 섞여 상태파일이 깨지는 것 방지).
-# 제어문자(개행·탭·CR)까지 처리한다 — Unix 파일명은 개행을 허용하므로 SHADOWED 경로에 섞이면
-# raw control character 가 JSON 문자열에 들어가 파서가 깨진다(오염·공격 케이스).
-json_esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\r\t' '   '; }
+# 제어문자까지 처리한다 — POSIX 파일명은 NUL 과 `/` 를 뺀 모든 바이트를 허용하므로 SHADOWED
+# 경로에 개행·\b·\f·0x01 등이 섞이면 raw control character 가 JSON 문자열에 들어가 파서가 깨진다.
+# \n\r\t 는 **공백으로 뭉개지 않고 리터럴 이스케이프**한다 — 뭉개면 경로가 조용히 왜곡돼
+# 복구(해당 경로 stat/설치 확인)가 불가능해진다. 나머지 금지 제어문자만 삭제.
+# awk 를 쓰는 이유: BSD sed(macOS)는 패턴의 `\t` 를 탭으로 해석하지 않는다(리터럴 t).
+# LC_ALL=C = 멀티바이트 로케일에서 바이트 범위를 오해석하는 것 방지.
+json_esc() {
+  printf '%s' "$1" | LC_ALL=C awk 'BEGIN{ORS=""}
+    { gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); gsub(/\t/,"\\t"); gsub(/\r/,"\\r")
+      printf "%s%s", (NR>1 ? "\\n" : ""), $0 }' \
+  | LC_ALL=C tr -d '\000-\010\013\014\016-\037\177'
+}
 
 # 도구 전무 폴백: 통일 스키마로 상태파일 남기고 종료(Step 3 파서 단일화).
 if [ -z "$REVIEWERS" ] || [ "$REVIEWERS" = "none" ]; then
@@ -217,7 +229,7 @@ echo "DONE: status=$overall ok=$ok fail=$fail${DEG:+ degraded=$DEG}"   # 완료 
 - **`SHADOWED` 확인(req):** `check-review-tools.sh`는 도구가 *설치돼 있으나 현재 PATH 밖*이면 `SHADOWED:` 줄로 보고한다(예: nvm의 다른 node 버전 전역 설치). `command -v` 실패를 "미설치"로만 처리하면 리뷰어가 조용히 한 축 빠진 채 루프가 정상 완료된다 — 실측된 회귀다. 오케스트레이터는 `SHADOWED`가 `none`이 아니면 사용자에게 보고하고 복구(PATH 추가/재설치)를 먼저 제안한다.
 
 ## Step 3 — 이슈 통합 + 원장 대조
-**먼저 산출물 유무 확인:** `_review_status.json`(no-reviewers)만 있고 `_codex.md`/`_claude.md`/`_agy.md`가 없으면 외부 리뷰 생략 상태 → 내부 QA로 진행(결과서 명시). 출력 파일은 있으나 비었거나 에러면 해당 도구 누락으로 간주. 두 출력에서 이슈 추출 → 중복 병합(동일 대상·동일 결함=1건, 출처 병기) → 번호 재부여. **`verdicts.json` 원장과 대조해 이미 판정된(기각/이월/기수정) 이슈는 제외하고 신규만 Step 4로** (dedup vs seen). 리뷰 보고 0건이면 "외부 리뷰 — 이슈 0건" 기록, dry_streak +1. **단 `_review_status.json`의 `degraded`가 비어있지 않으면 dry_streak을 올리지 않는다(req)** — 축소된 리뷰의 "0건"은 수렴 근거가 아니라 관측 부족이다. 축소 라운드는 사유를 기록하고 리뷰어를 복구한 뒤 재실행한다.
+**먼저 산출물 유무 확인:** `_review_status.json`(no-reviewers)만 있고 `_codex.md`/`_claude.md`/`_agy.md`가 없으면 외부 리뷰 생략 상태 → 내부 QA로 진행(결과서 명시). 출력 파일은 있으나 비었거나 에러면 해당 도구 누락으로 간주. 두 출력에서 이슈 추출 → 중복 병합(동일 대상·동일 결함=1건, 출처 병기) → 번호 재부여. **`verdicts.json` 원장과 대조해 이미 판정된(기각/이월/기수정) 이슈는 제외하고 신규만 Step 4로** (dedup vs seen). 리뷰 보고 0건이면 "외부 리뷰 — 이슈 0건" 기록, dry_streak +1. **단 `_review_status.json`의 `degraded`가 비어있지 않으면 dry_streak을 올리지도 내리지도 않는다(req)** — 축소된 리뷰의 "0건"은 수렴 근거가 아니라 관측 부족이다. 그 다음 처리(복구 후 재실행할지, 기록만 하고 진행할지)는 **§Step 2 "리스크 등급별 축소 정책"이 단일 출처**다 — 경량/표준은 기록 후 진행, 중대는 복구 또는 사용자 명시 승인. 여기서 따로 정하지 않는다.
 
 ## Step 4 — 전건 판정 (근거수집 위임 가능 · 최종 확정 비위임)
 신규 이슈마다 실코드/실문서 대조(grep/Read) 후 판정. **이슈 10+건이면 이슈별/배치로 판정 보조 에이전트에 위임** — 보조는 실코드 대조 근거 + 판정 *초안(draft)*만 반환(쓰기 금지). 오케스트레이터는 초안을 받아 **최종 확정(confirm)**만 직접 수행(권위 비위임). 판정 결과는 `verdicts.json`에 기록(이슈지문·판정·라운드·근거).
@@ -232,7 +244,7 @@ echo "DONE: status=$overall ok=$ok fail=$fail${DEG:+ degraded=$DEG}"   # 완료 
 **기각 사유표:** 동결 계약 위배 · 설계 정본 명시 결정 · 기구현 오판(호출 형태만 보고 오판) · YAGNI/과설계 · 리뷰어 자인 비병목 · 기존 설계와 상충(멱등·격리 등).
 
 ## Step 5 — 확인분 TDD 수정 (확인 0건이면 생략)
-**'확인/부분 확인'이 0건이면 Step 5~7을 생략**하고 판정 기록만 남긴 뒤 dry_streak +1로 루프 제어로 복귀(전부 기각/이월인데 수정·게이트 도는 낭비 방지). 확인분이 있으면: `tdd-doctrine.md` 규율(Red→Green→Refactor, 구조/행위 분리). 다중 에이전트 병렬 시 파일권 명시 분리(병렬 충돌 = 1차 실패 주원인). 에이전트는 커밋·브랜치 금지, status는 `_workspace/status/`.
+**'확인/부분 확인'이 0건이면 Step 5~7을 생략**하고 판정 기록만 남긴 뒤 루프 제어로 복귀(전부 기각/이월인데 수정·게이트 도는 낭비 방지). 이때 dry_streak 은 **`_review_status.json`의 `degraded`가 빈 경우에만 +1**, 축소 라운드면 **불변**(올리지도 내리지도 않는다 — §루프 제어 의사코드와 동일 규칙, 축소의 0건은 관측 부족이지 수렴이 아니다). 축소 라운드의 다음 처리는 §Step 2 "리스크 등급별 축소 정책"을 따른다(경량/표준=기록 후 진행, 중대=복구 또는 사용자 승인). 확인분이 있으면: `tdd-doctrine.md` 규율(Red→Green→Refactor, 구조/행위 분리). 다중 에이전트 병렬 시 파일권 명시 분리(병렬 충돌 = 1차 실패 주원인). 에이전트는 커밋·브랜치 금지, status는 `_workspace/status/`.
 
 ## Step 6 — 통합 게이트
 `{게이트명령}` 실행 → PASS. 게이트 없으면(설계서) 정본 정합성 재확인으로 대체. 테스트 리소스 간섭 게이트는 동시 실행 금지.
