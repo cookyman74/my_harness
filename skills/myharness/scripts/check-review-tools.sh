@@ -30,9 +30,15 @@ probe_shadow() {  # $1=도구명 → 첫 히트 경로를 출력하고 0, 없으
            "$HOME"/.asdf/installs/nodejs/*/bin/"$t" \
            "$HOME"/.volta/tools/image/packages/*/bin/"$t" \
            "$HOME"/.local/share/mise/installs/node/*/bin/"$t" \
+           ${PNPM_HOME:+"$PNPM_HOME/$t"} ${NPM_CONFIG_PREFIX:+"$NPM_CONFIG_PREFIX/bin/$t"} \
+           "$HOME"/Library/pnpm/"$t" "$HOME"/.local/share/pnpm/"$t" \
+           "$HOME"/.npm-global/bin/"$t" "$HOME"/.yarn/bin/"$t" \
            "$HOME"/.bun/bin/"$t" "$HOME"/.local/bin/"$t" \
            /opt/homebrew/bin/"$t" /usr/local/bin/"$t"; do
-    [ -x "$p" ] && { printf '%s' "$p"; return 0; }   # 글롭 미매치는 리터럴로 남아 -x 가 false
+    # -f 필수: 디렉토리도 search bit 로 -x 가 true 라, `-x` 단독이면 `~/.local/bin/codex/` 같은
+    # 디렉토리를 "설치됨"으로 오탐한다. -f 는 심링크를 따라가므로 정상 실행파일은 그대로 통과.
+    # 글롭 미매치는 리터럴로 남아 -f 가 false.
+    [ -f "$p" ] && [ -x "$p" ] && { printf '%s' "$p"; return 0; }
   done
   return 1
 }

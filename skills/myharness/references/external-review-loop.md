@@ -33,7 +33,7 @@ round = 1; dry_streak = 0
 while True:
   Step 1~4 (round==1: {산출물} 전체 / round>1: 직전 수정분 diff만 좁게 재리뷰)
   신규_확인 = 이번 라운드 '확인/부분' 중 verdicts 원장에 없던 것
-  if 신규_확인 == 0: dry_streak += 1
+  if 신규_확인 == 0 and status.degraded == "": dry_streak += 1   # 축소 라운드는 수렴 근거 아님
   else: dry_streak = 0; Step 5~7 (신규_확인만 수정·게이트·기록)
   if dry_streak >= K(기본 1, 중대 2): break        # loop-until-dry
   if round >= MAX_ROUNDS(기본 3): break + 잔여 미수렴 보고
@@ -89,6 +89,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 # 러너 제외 리뷰어 목록(스크립트가 산출). REVIEWERS:/SHADOWED: 줄만 신뢰. 스크립트 호출은 1회.
 # {러너}=생성 시 claude|codex로 치환.
 RT="$(bash {스킬scripts}/check-review-tools.sh {러너})"
+printf '%s\n' "$RT" >&2   # 도구별 연동/가려짐 줄을 로그로 되살린다(캡처하면 사람이 못 본다)
 REVIEWERS="$(printf '%s\n' "$RT" | sed -n 's/^REVIEWERS: //p')"
 SHADOWED="$(printf '%s\n' "$RT" | sed -n 's/^SHADOWED: //p')"
 
@@ -98,7 +99,9 @@ NOW="$(date +%s)"
 write_status() { printf '%s\n' "$1" > "$ST.tmp.$$" && mv "$ST.tmp.$$" "$ST"; }
 
 # JSON 문자열 이스케이프(경로·사유에 " \ 가 섞여 상태파일이 깨지는 것 방지).
-json_esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+# 제어문자(개행·탭·CR)까지 처리한다 — Unix 파일명은 개행을 허용하므로 SHADOWED 경로에 섞이면
+# raw control character 가 JSON 문자열에 들어가 파서가 깨진다(오염·공격 케이스).
+json_esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\r\t' '   '; }
 
 # 도구 전무 폴백: 통일 스키마로 상태파일 남기고 종료(Step 3 파서 단일화).
 if [ -z "$REVIEWERS" ] || [ "$REVIEWERS" = "none" ]; then
@@ -199,6 +202,7 @@ write_status "$(printf '{"status":"%s","reviewers":"%s","degraded":"%s","started
 echo "DONE: status=$overall ok=$ok fail=$fail${DEG:+ degraded=$DEG}"   # 완료 신호(launch 모드에선 tool result로 회수)
 ```
 - **상태 스키마(통일):** `{"status": running|completed|partial|failed|no-reviewers, "reviewers": "...", "degraded": "" | "<축소 사유>", "results": {"codex":"ok|fail", "agy":"ok|fail"}}`. `partial`=일부 성공(예: codex ok·agy 타임아웃) — `completed`로 뭉뚱그려 부분실패를 숨기지 않는다. Step 3은 이 status + 리뷰어별 출력 *내용*으로 판단.
+- **리스크 등급별 축소 정책(req):** 축소를 일률적으로 "기록만 하고 진행"으로 두면 **중대 변경에서 fail-open**이 된다(중대는 SKILL.md가 단계마다 외부리뷰+승인 사다리를 요구하는데, 리뷰어 1종 상태가 그 요구를 만족하지 못한 채 통과). 등급별로 분기한다 — **경량/표준**: `degraded` 기록 후 진행 가능. **중대**: 그대로 진행 금지. ① 리뷰어 복구(PATH/설치) 후 재실행, ② 복구 불가면 **사용자에게 축소 사유를 보고하고 명시적 승인(override)을 받아야** 다음 단계로 간다. 승인받았으면 그 사실도 `degraded`와 함께 결과서에 남긴다.
 - **축소 리뷰 표기 의무(req):** `degraded`가 비어있지 않으면 그 라운드는 **교차검증이 성립하지 않은 리뷰**다. 결과서·커밋메시지·CHANGELOG에 **"양 엔진 수렴"·"codex+agy"류 표기를 쓰지 말 것** — 실제 실행된 리뷰어와 축소 사유를 그대로 적는다(예: "외부리뷰 agy 단독 — codex PATH 밖 설치로 제외"). `degraded`가 `PATH 밖 설치`를 포함하면 리뷰 재실행 전에 그 도구를 PATH에 올리거나 현재 런타임에 설치한다(자동 PATH 주입은 하지 않는다 — 임의 경로 실행은 공급망 리스크). **`no-high 2연속` 같은 수렴 판정은 degraded 라운드를 카운트에 넣지 않는다.**
 - **상황별 모델 선택(req):** 오케스트레이터가 단계 리스크등급(경량/표준/중대)에 맞춰 `AGY_MODEL`·`CODEX_MODEL`을 설정한다. **경량/표준** → 경량·저비용(`AGY_MODEL="Gemini 3.5 Flash (High)"`, codex 기본) — 초대형 산출물·단순 검토·비용 절감. **중대** → 고성능(`AGY_MODEL="Gemini 3.1 Pro (High)"`, `CODEX_MODEL`=고추론 모델) — 정확도 우선. 미설정 시 기본(Gemini 3.1 Pro High / codex 기본). 가용 모델은 `agy models`·`codex --help`로 확인.
   - ⚠️ **엔진 다양성 가드:** `AGY_MODEL`은 **Gemini 계열만**. agy는 Claude/GPT-OSS 모델도 실행 가능하나, agy를 Claude로 돌리면 claude 러너와 같은 엔진 = 자기검증(엔진 다양성 붕괴). 모델은 *엔진 내* 선택일 뿐 — 엔진(codex≠claude≠agy_gemini)은 러너 제외 규칙(§독립성)이 고정.
@@ -213,7 +217,7 @@ echo "DONE: status=$overall ok=$ok fail=$fail${DEG:+ degraded=$DEG}"   # 완료 
 - **`SHADOWED` 확인(req):** `check-review-tools.sh`는 도구가 *설치돼 있으나 현재 PATH 밖*이면 `SHADOWED:` 줄로 보고한다(예: nvm의 다른 node 버전 전역 설치). `command -v` 실패를 "미설치"로만 처리하면 리뷰어가 조용히 한 축 빠진 채 루프가 정상 완료된다 — 실측된 회귀다. 오케스트레이터는 `SHADOWED`가 `none`이 아니면 사용자에게 보고하고 복구(PATH 추가/재설치)를 먼저 제안한다.
 
 ## Step 3 — 이슈 통합 + 원장 대조
-**먼저 산출물 유무 확인:** `_review_status.json`(no-reviewers)만 있고 `_codex.md`/`_claude.md`/`_agy.md`가 없으면 외부 리뷰 생략 상태 → 내부 QA로 진행(결과서 명시). 출력 파일은 있으나 비었거나 에러면 해당 도구 누락으로 간주. 두 출력에서 이슈 추출 → 중복 병합(동일 대상·동일 결함=1건, 출처 병기) → 번호 재부여. **`verdicts.json` 원장과 대조해 이미 판정된(기각/이월/기수정) 이슈는 제외하고 신규만 Step 4로** (dedup vs seen). 리뷰 보고 0건이면 "외부 리뷰 — 이슈 0건" 기록, dry_streak +1.
+**먼저 산출물 유무 확인:** `_review_status.json`(no-reviewers)만 있고 `_codex.md`/`_claude.md`/`_agy.md`가 없으면 외부 리뷰 생략 상태 → 내부 QA로 진행(결과서 명시). 출력 파일은 있으나 비었거나 에러면 해당 도구 누락으로 간주. 두 출력에서 이슈 추출 → 중복 병합(동일 대상·동일 결함=1건, 출처 병기) → 번호 재부여. **`verdicts.json` 원장과 대조해 이미 판정된(기각/이월/기수정) 이슈는 제외하고 신규만 Step 4로** (dedup vs seen). 리뷰 보고 0건이면 "외부 리뷰 — 이슈 0건" 기록, dry_streak +1. **단 `_review_status.json`의 `degraded`가 비어있지 않으면 dry_streak을 올리지 않는다(req)** — 축소된 리뷰의 "0건"은 수렴 근거가 아니라 관측 부족이다. 축소 라운드는 사유를 기록하고 리뷰어를 복구한 뒤 재실행한다.
 
 ## Step 4 — 전건 판정 (근거수집 위임 가능 · 최종 확정 비위임)
 신규 이슈마다 실코드/실문서 대조(grep/Read) 후 판정. **이슈 10+건이면 이슈별/배치로 판정 보조 에이전트에 위임** — 보조는 실코드 대조 근거 + 판정 *초안(draft)*만 반환(쓰기 금지). 오케스트레이터는 초안을 받아 **최종 확정(confirm)**만 직접 수행(권위 비위임). 판정 결과는 `verdicts.json`에 기록(이슈지문·판정·라운드·근거).
