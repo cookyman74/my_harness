@@ -102,8 +102,30 @@ if [ -z "$REVIEWERS" ] || [ "$REVIEWERS" = "none" ]; then
 fi
 
 # 리뷰어 1종 실행 헬퍼: 출력 _{tool}.md + 종료코드 _{tool}.rc(리뷰어별 개별 파일 = 경합 없음).
-#   ${TOFLAG} 미인용 = "gtimeout 600s" 단어분리 의도. stdin 미닫으면 무한대기 → 반드시 < /dev/null.
-run_reviewer() {  # $1=파일라벨  $2..=실행 커맨드
+#   ${TOFLAG} 미인용 = "gtimeout 600s" 단어분리 의도.
+#
+# **프롬프트 전달 방식은 CLI 마다 다르다(req — 통일하지 말 것).** 실측 결과:
+#
+# | CLI    | argv 다중행      | stdin        | 이 템플릿이 쓰는 방식 |
+# |--------|------------------|--------------|----------------------|
+# | codex  | **첫 줄에서 절단** | 전문 도달    | stdin                |
+# | claude | 정상             | 전문 도달    | stdin                |
+# | agy    | 정상             | **무시**     | argv                 |
+#
+# 어느 쪽이든 잘못 고르면 **조용히 실패한다.** 리뷰어는 빈(또는 잘린) 프롬프트로도
+# 그럴듯한 답을 내놓고 rc=0 으로 끝나므로, 아래 rc 취합이 `ok` 로 집계한다.
+# 실측 사례: codex 를 argv 로 주면 첫 줄("리뷰 대상: …")만 받고 저장소를 뒤져 답한다
+# (같은 과제에서 발견 3건 → stdin 전환 후 6건). agy 를 stdin 으로 주면 프롬프트를
+# 통째로 무시하고 "현재 사용 중인 모델은 …" 같은 무관한 답을 반환한다.
+#
+# 그래서 헬퍼를 둘로 나눈다. 새 리뷰어를 추가할 때는 **마지막 줄에만 있는 마커를 되돌려
+# 받는 프롬프트로 전달 방식을 먼저 실측하고** 맞는 헬퍼를 고를 것.
+run_reviewer_stdin() {  # $1=파일라벨  $2=프롬프트파일  $3..=커맨드(프롬프트 인자 없이)
+  tool="$1"; prompt_file="$2"; shift 2
+  ${TOFLAG} "$@" < "$prompt_file" > "$D/${S}_${tool}.md" 2>&1
+  echo "$?" > "$D/${S}_${tool}.rc"
+}
+run_reviewer_argv() {   # $1=파일라벨  $2..=커맨드(프롬프트가 인자로 이미 포함됨)
   tool="$1"; shift
   ${TOFLAG} "$@" < /dev/null > "$D/${S}_${tool}.md" 2>&1
   echo "$?" > "$D/${S}_${tool}.rc"
@@ -112,20 +134,23 @@ run_reviewer() {  # $1=파일라벨  $2..=실행 커맨드
 write_status "$(printf '{"status":"running","reviewers":"%s","started":%s,"results":{}}' "$REVIEWERS" "$NOW")"
 
 # 일반/정합성 리뷰어 = REVIEWERS 중 러너 아닌 쪽(codex|claude). 든 것만 실행.
+# 둘 다 stdin 규약 — 프롬프트 인자를 주지 않고 파일을 stdin 으로 흘린다.
+GEN="$D/${S}_prompt_general.md"; PERF="$D/${S}_prompt_perf.md"
 case " $REVIEWERS " in
-  *" codex "*)  run_reviewer codex codex exec ${CODEX_MODEL:+-m "$CODEX_MODEL"} --sandbox read-only "$(cat $D/${S}_prompt_general.md)" & ;;
-  *" claude "*) run_reviewer claude claude -p "$(cat $D/${S}_prompt_general.md)" \
+  *" codex "*)  run_reviewer_stdin codex "$GEN" codex exec ${CODEX_MODEL:+-m "$CODEX_MODEL"} --sandbox read-only & ;;
+  *" claude "*) run_reviewer_stdin claude "$GEN" claude -p \
       --permission-mode plan --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(rg:*)" & ;;
 esac
 # 성능/안정성 리뷰어 = agy(Gemini). agy 없고 gemini(legacy)만 있으면 gemini로 대체.
+# **agy 는 argv 규약** — `-p` 가 stdin 을 읽지 않는다(실측: 프롬프트를 무시하고 무관한 답 반환).
 case " $REVIEWERS " in
   # agy: --add-dir(리뷰대상 repo를 워크스페이스에)+--dangerously-skip-permissions(TTY 없는 -p서 권한 자동승인)
   # 필수 — 없으면 sandbox 파일 read가 권한 프롬프트→응답 불가→hang. 상세는 아래 "agy 파일접근 배선".
-  *" agy "*)    run_reviewer agy agy -p "$(cat $D/${S}_prompt_perf.md)" \
+  *" agy "*)    run_reviewer_argv agy agy -p "$(cat "$PERF")" \
       --model "$AGY_MODEL" --add-dir "$REPO_ROOT" --dangerously-skip-permissions \
       --sandbox --print-timeout 300s & ;;
   # gemini(legacy)는 --add-dir/--dangerously-skip-permissions 미지원(-s만) → plain 호출(붙이면 unknown flag로 폴백 고장).
-  *" gemini "*) run_reviewer gemini gemini -p "$(cat $D/${S}_prompt_perf.md)" & ;;
+  *" gemini "*) run_reviewer_argv gemini gemini -p "$(cat "$PERF")" & ;;
 esac
 wait
 
