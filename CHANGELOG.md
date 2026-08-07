@@ -4,6 +4,42 @@
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-08-07
+
+**외부 리뷰 게이트가 조용히 실패하던 계열을 걷어냈다.** 외부 기여자 제보 3건(PR #6 · 이슈 #7 · #8)과 fork 운영자 handoff 4건이 모두 같은 주제였다 — *검사가 도는 것처럼 보이지만 실제로는 돌지 않는다.* 게이트 자체를 15라운드 외부감사(codex+agy)로 되짚어 수정했다.
+
+### Added
+
+- **`SHADOWED:` 감지 (`check-review-tools.sh`)** — 출력 계약을 끝 3줄 → 4줄로 확장. 도구가 **설치돼 있으나 PATH 밖**인 경우(nvm/fnm/asdf/volta/mise/pnpm/yarn/npm-global/bun/homebrew 프리픽스)를 '미설치'와 구분해 보고한다. 실측 사례: `codex` 가 nvm node v22 전역에만 있고 세션 node 가 v24 라 `command -v` 가 실패 → 리뷰어에서 조용히 탈락했는데 게이트는 무경고 통과하고 결과서엔 "codex+agy 양 엔진 수렴"으로 기록됐다. 자동 PATH 주입은 하지 않는다(임의 경로 실행 = 공급망 리스크).
+- **축소 리뷰 게이트(`degraded`)** — 상태 스키마에 `degraded` 필드 신설. 리뷰어 1종 이하 / 일반·정합성 축 부재 / PATH 밖 설치 / **런타임 실패**(타임아웃·크래시)를 사유로 기록해 Step 3 판정·결과서까지 전파한다. 기존 게이트는 리뷰어가 **완전히 0명일 때만** 경고했다. 표기 의무: `degraded` 라운드에 "양 엔진" 표기 금지, no-high 연속 카운트에서 제외.
+- **종료 라벨 3종** — `degraded-accepted`(경량·표준 축소 허용) / `degraded-override`(중대 + 사용자 승인) / `degraded-blocked`(중대 + 미승인 → 다음 단계 진행 금지). 리스크 등급별 fail-closed 분기와 승인 전달 규약(`{단계ID}_override.json`)·라운드 이어받기 포함.
+- **`scripts/run-review.sh`** — 외부 리뷰 launcher 를 스크립트 파일로 분리(셰뱅 `#!/usr/bin/env bash`). 생성 하네스에 번들된다.
+- **팩토리 CI (`.github/workflows/factory-ci.yml`)** — `skills/myharness` 변경이 어떤 CI 도 거치지 않던 상태를 해소. Linux/Windows 양쪽에서 정책 감사 + 업데이트 회귀 테스트. `.gitattributes` 로 셸 스크립트 LF 고정.
+- **하네스 정의 버전관리** — `.gitignore` 를 통짜 무시에서 allowlist 로 전환해 `.claude/agents`·`.claude/skills` 15파일을 추적. 개인 설정·`commands/`·`.DS_Store` 는 계속 무시.
+
+### Fixed
+
+- **`${TOFLAG}` 비인용 확장이 zsh 에서 단어분리되지 않아 리뷰어 전원 `rc=127`** — 정본이 launcher 를 인라인 bash 블록으로 두고 `Bash(run_in_background)` 실행을 지시했는데, 그 도구의 셸은 macOS 에서 zsh 다. 역설적으로 `timeout`/`gtimeout` 이 **설치돼 있을 때만** 터져, 정본이 권장한 GNU coreutils 설치를 따른 사용자가 오히려 깨졌다. 런처를 스크립트 파일로 이관하고 타임아웃을 **함수 래퍼**로 바꿔 셸 의존을 구조적으로 제거.
+- **판정 어휘 불일치로 스코어카드 집계 전부 0** — Step 4 판정표는 한글(확인/부분 확인/이월/기각), `build-scorecard.sh` enum 은 영문인데 매핑이 어디에도 없었다. 스크립트에 한글 동의어 정규화(기존 영문 원장은 폴백 보존) + 판정표에 enum 병기 + 최소 스키마 예시 추가.
+- **그 불일치가 경고 없이 통과** — 측정 꼬리를 *실행했는데도* 통계가 0으로 채워지고 아무도 모르는 상태. 스킵보다 나쁘다(스킵은 부재가 드러나지만 이건 "측정했다"는 거짓 신호를 남긴다). enum 일치 건수 < 전체 건수면 **발견된 실제 값과 함께** 경고한다.
+- **`verdict` 누락/null 이 jq 크래시로 0바이트 scorecard 생성** — null-safe 인덱싱 + 산출물 검증 실패 시 `eval-failed` 기록 및 summary append 차단. `emit-loop-scorecard.sh` 도 산출물의 `eval_status` 확인 후에만 성공을 보고한다(실패 직후 "발행됨"을 찍던 기만 신호 제거).
+- **`regression_catch_rate` 경고 없는 과소측정** — 분자가 `source=="re-review"` 만 세는데 원장에 엔진명을 넣으면 허용 화이트리스트에 있어 경고조차 없이 0이 된다. round>1 은 `source:"re-review"` 고정을 규약화(실측: 재태깅 전 0 → 후 1.75).
+- **fallback 수단이 실행 맥락에 없는 도구** — `ScheduleWakeup` 은 `/loop` dynamic mode 전용이라 일반 스킬 실행에서 적용 불가였다. "유일한 탈출구"라 규정한 안전장치가 실제로는 부재. 런타임 비의존 백그라운드 감시 프로세스로 일반화.
+- **`| grep -q` 가 pipefail 하에서 SIGPIPE 미탐** — 위반이 실재하는데 정상으로 빠지는 미탐(재현: 20만 줄 입력에서 파이프라인 rc=141). grep 종료코드 2+(실제 오류)는 판정 보류로 분리.
+- **정책 감사 JSON 검사가 정상 파일을 오탐** — 인코딩 미지정이라 Windows 기본 코드페이지(cp949·cp932·cp1252)에서 `UnicodeDecodeError`. 이 저장소를 클론해 감사를 돌리면 실패했다. jq 우선 + python3 폴백에 UTF-8 명시, 도구 부재 시 조용히 건너뛰지 않고 warn.
+- **외부 리뷰 프롬프트가 첫 줄만 전달되던 문제(Windows)** — `codex exec` 에 argv 다중행을 넘기면 Windows/Git Bash 에서 첫 줄만 도달한다(npm `.cmd` shim 추정 — macOS/codex-cli 0.144.1 에서는 재현되지 않아 플랫폼 한정으로 기록). codex·claude 는 stdin, agy 는 argv 로 CLI 별 규약 분리(agy 는 stdin 을 읽지 않는다).
+- **`emit-loop-scorecard.sh` 가 업데이트 화이트리스트에 없어** 생성 하네스에서 영영 갱신되지 않던 문제 — `run-review.sh` 와 함께 `harness-update.sh` MANAGED_RELS 에 등록.
+
+### Changed
+
+- **Codex 커스텀 에이전트 대칭성 한계 명시** — `.codex/agents/*.toml` 은 대화형 세션에서만 이름 호출되고 `codex exec` 같은 tool-backed 세션에는 노출되지 않는다(upstream [openai/codex#15250](https://github.com/openai/codex/issues/15250), open). 정본 8곳이 단서 없이 대칭을 선언하고 있었다. `runtime-adapters.md` §3 에 한계·원인·워크어라운드를 적고 README 3종·`AGENTS.md` 에 전파.
+- **`orchestrator-template.md` 의 `codex exec` 프롬프트 전달을 argv → stdin** — 생성되는 모든 하네스에 전파되는 자리라 Windows 사용자 전건에 영향.
+- **CLAUDE.md 하네스 3(harness-ui-dev) 정의 부재 명시** — 선언된 에이전트 5·스킬 4가 클론뿐 아니라 작업트리에도 실재하지 않는다. 재생성 경로 안내.
+
+### 감사
+
+외부 기여자 [@hang-in](https://github.com/hang-in)(PR #6 · 이슈 #7 · #8)과 skillhub fork 운영자의 handoff 제보. 세 건 모두 실사용 환경(Windows·macOS zsh)에서 재현까지 붙여 보고해 검증이 빨랐다. 특히 zsh 단어분리 결함은 이 저장소 메인테이너가 같은 증상을 겪고도 원인을 오판했던 건이다.
+
 ## [1.6.3] - 2026-07-17
 
 My Harness Web **지적 배치 반영(M-y)** — `#/eval` 지적을 **여러 정의에 AI 초안 배치 생성 → 검토 큐 → 일괄 적용**. 단건 반영(E5-a)을 다건으로 확장하면서 동시 실행을 전역 거버너로 상한. 각 중대 마일스톤 외부감사(codex+agy·러너 제외) no-high 2연속 수렴. vitest 1172 pass. 하네스웹 0.9.0(변동 없음).
