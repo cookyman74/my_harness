@@ -57,8 +57,10 @@ write_status() { printf '%s\n' "$1" > "$ST.tmp.$$" && mv "$ST.tmp.$$" "$ST"; }
 # 없이 exit 1 로 나가면, poll·fallback 이 "아직 도는 중"으로 읽어 hang/stale 로 오판한다.
 # 이 스크립트의 계약은 "종료코드 0, 상태는 JSON 으로만 전달" 이다 — 그 계약을 스스로 지킨다.
 die_launcher() {  # $1=사유
+  # 사유는 환경값(AGY_MODEL)·경로를 담을 수 있으므로 반드시 이스케이프한다 —
+  # 안 하면 " \ 개행이 섞였을 때 상태파일이 깨져 "failed 를 남긴다"는 의도 자체가 무너진다.
   write_status "$(printf '{"status":"failed","reviewers":"","degraded":"launcher 실패: %s","started":%s,"results":{"_launcher":"fail"}}' \
-    "$1" "$NOW")"
+    "$(json_esc "$1")" "$NOW")"
   echo "ERROR: $1" >&2
   exit 0
 }

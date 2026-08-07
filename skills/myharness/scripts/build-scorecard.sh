@@ -40,7 +40,9 @@ jq -n --slurpfile v "$V" --argjson tok "$tok" --arg run_id "$RUN_ID" --argjson n
   ($i | map(select(.verdict=="rejected"))  | length) as $r |
   ($i | map(select(.verdict=="duplicate")) | length) as $dup |
   ($c+$p+$df+$r+$dup) as $enum_hit |
-  ($i | map(.verdict) | unique | join(", ")) as $seen_verdicts |
+  # 경고 표시용만 치환한다(집계 정규화 의미는 건드리지 않음) — 빈 문자열이 그대로 찍히면
+  # "verdict 누락/null" 인지 "출력이 잘린 것" 인지 사람이 구분하지 못한다.
+  ($i | map(.verdict | if . == "" or . == null then "<empty-or-null>" else . end) | unique | join(", ")) as $seen_verdicts |
   (($c+$p+$df+$r)) as $adj |
   (($c+$p+$r)) as $adj_nondef |
   # regression: round>1 & confirmed/partial & source=="re-review"

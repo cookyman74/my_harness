@@ -20,4 +20,12 @@ ROOT="${3:-.}"
 OUT="$ROOT/_workspace/evals/$LOOP/$STAGE/$RUN/scorecard.json"
 mkdir -p "$(dirname "$OUT")"
 bash "$HERE/build-scorecard.sh" "$V" "$OUT"
+# 성공 보고는 **산출물을 확인한 뒤에만** 한다(req). build-scorecard 는 계약상 실패해도 exit 0
+# 이므로(파이프라인을 깨지 않기 위함) 종료코드로는 판별할 수 없다. 확인 없이 찍으면
+# "발행됨" 이라는 기만 신호가 남아, 측정 꼬리를 돌렸는데 실제로는 비어 있는 상태가 반복된다.
+st="$(jq -r '.eval_status // "ok"' "$OUT" 2>/dev/null || echo parse-error)"
+if [ "$st" != "ok" ]; then
+  echo "ERROR: loop_scorecard 미발행 (eval_status=$st) — verdicts.json 확인 필요: $V" >&2
+  exit 0
+fi
 echo "loop_scorecard 발행: $OUT (summary → _workspace/evals/$LOOP/summary.jsonl)"
