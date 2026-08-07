@@ -2,7 +2,7 @@
 
 이 파일은 두 역할을 한다:
 1. **방법론 정본** — 단계 산출물 마감 게이트(외부 독립 AI 리뷰)의 표준 절차.
-2. **생성 템플릿** — 코드/설계 도메인 하네스를 만들 때, 이 내용을 타겟 프로젝트의 `.claude/skills/external-review-loop/SKILL.md`로 생성한다(아래 frontmatter 포함). **단, 생성 전 `check-review-tools.sh {러너}`로 러너 제외 `REVIEWERS:`를 확인**하고, 외부 리뷰어가 없으면(`REVIEWERS: none` — 러너 엔진만 설치된 경우 포함) 스킬을 만들지 않는다(Phase 4-6). 생성 시 `check-review-tools.sh`를 스킬의 `scripts/`로 함께 번들한다.
+2. **생성 템플릿** — 코드/설계 도메인 하네스를 만들 때, 이 내용을 타겟 프로젝트의 `.claude/skills/external-review-loop/SKILL.md`로 생성한다(아래 frontmatter 포함). **단, 생성 전 `check-review-tools.sh {러너}`로 러너 제외 `REVIEWERS:`를 확인**하고, 외부 리뷰어가 없으면(`REVIEWERS: none` — 러너 엔진만 설치된 경우 포함) 스킬을 만들지 않는다(Phase 4-6). 생성 시 `check-review-tools.sh`·`run-review.sh`·`build-scorecard.sh`·`emit-loop-scorecard.sh`를 스킬의 `scripts/`로 함께 번들한다(실행 파일 퍼미션 유지).
 
 **왜 외부 리뷰인가**: 내부 생성-검증/QA는 같은 세션·같은 컨텍스트라 *동일한 맹점*을 공유한다. 외부 독립 AI는 다른 관점으로 결함을 잡는다. 단, **합의=정답이 아니다** — 두 AI가 같은 답을 내도 공유 학습데이터로 인한 상관 오류일 수 있다. 합의는 약한 증거이며, **판정 권위는 오케스트레이터에 있다 — 근거 수집(실코드 대조)은 보조 에이전트에 위임 가능하나, 최종 확정(confirm)은 비위임.**
 
@@ -112,170 +112,50 @@ agy(성능 리뷰어)는 동일 틀 + "성능/속도·안정성 중심으로" �
 **왜 이 구조인가(req):** 리뷰어 블록을 동기 Bash 1콜로 돌리면 `wait`가 끝날 때까지(최대 600s) tool result가 안 나와 **사용자에겐 "끊긴 것처럼" 보인다** — 블록 안의 진행 `echo`는 종료 시점에 한꺼번에 버퍼로 도착할 뿐 라이브로 안 보인다(이 하네스에서 사용자 가시성은 *오케스트레이터 assistant 텍스트*로만 전달됨). 더구나 블록 안에 `(while …; sleep 30) &` heartbeat를 넣고 bare `wait`하면 **그 무한 루프 때문에 `wait`가 영원히 안 풀려 데드락**난다. 따라서 가시성은 *오케스트레이션 계층*에서 해결한다:
 
 1. **launch** — 아래 블록을 **`Bash(run_in_background: true)`로 실행**하고 즉시 반환. 오케스트레이터는 곧바로 **"외부 리뷰 시작: {리뷰어들} (최대 ~10분)"을 텍스트로 보고**(시작 가시성).
-2. **await** — 하네스의 **완료 알림(task-notification)으로 재진입**한다. 30초 폴링 루프 금지 — 600s/30s=20턴 컨텍스트 팽창·비용 낭비. **단, launch 직후 반드시 단일 장주기 fallback wakeup(`ScheduleWakeup`/`schedule`, ~12–15분)을 건다(req).** `timeout`/`gtimeout` 부재 + 리뷰어 hang이면 `wait`가 안 풀려 **완료 알림이 영영 안 와 오케스트레이터가 무한 대기(좀비)**한다 — fallback이 그 유일한 탈출구다. fallback 발화 시 `_review_status.json`이 아직 `running`이고 `started` 이후 deadline 초과면 **stale로 간주**, rc/출력 유무로 `partial|failed` 확정하고 hang 프로세스는 사용자에게 보고 후 중단/계속 판정.
+2. **await** — 하네스의 **완료 알림(task-notification)으로 재진입**한다. 30초 폴링 루프 금지 — 600s/30s=20턴 컨텍스트 팽창·비용 낭비. **단, launch 직후 반드시 단일 장주기 fallback 감시를 건다(req).** `timeout`/`gtimeout` 부재 + 리뷰어 hang이면 `wait`가 안 풀려 **완료 알림이 영영 안 와 오케스트레이터가 무한 대기(좀비)**한다 — fallback이 그 유일한 탈출구다.
+   - **수단은 런타임 비의존이어야 한다(req).** 특정 런타임 전용 도구(`ScheduleWakeup` 등 `/loop` dynamic mode 전용)를 지정하면 **일반 스킬 실행 맥락에서 적용 불가라 "유일한 탈출구"가 실제로는 부재**하게 된다. 기본은 **백그라운드 감시 프로세스** — 어디서나 돈다. 런타임이 지연 재진입 수단(`schedule` 등)을 제공하고 그 맥락에서 유효하면 그걸 써도 된다.
+     ```bash
+     # launch 직후, 별도 백그라운드 호출로. {단계ID}·D 는 launch 와 동일.
+     for i in $(seq 1 78); do            # 78 × 10s ≈ 13분
+       # jq 비의존(req) — scorecard 는 jq 부재를 graceful degradation 으로 다루는데
+       # fallback 만 jq 필수면 새 drift다. POSIX sed 로 status 만 뽑는다.
+       st=$(sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$D/${S}_review_status.json" 2>/dev/null | head -1)
+       [ -n "$st" ] && [ "$st" != "running" ] && { echo "FALLBACK: 종료 status=$st"; exit 0; }
+       sleep 10
+     done
+     echo "FALLBACK STALE: 13분 초과, 여전히 running"
+     ```
+   - fallback 발화 시 `_review_status.json`이 아직 `running`이고 `started` 이후 deadline 초과면 **stale로 간주**, rc/출력 유무로 `partial|failed` 확정하고 hang 프로세스는 사용자에게 보고 후 중단/계속 판정.
 3. **poll** — 재진입 후 `_review_status.json` + 리뷰어별 `_{tool}.rc`를 읽어 `completed|partial|failed`를 도출, **결과를 텍스트로 보고**한 뒤 Step 3으로.
 
-먼저 `bash {스킬scripts}/check-review-tools.sh {러너}`로 **러너 제외 리뷰어 재확인**(끝줄 `REVIEWERS:`·`SHADOWED:`). 두 플레이스홀더는 **스킬 생성 시 런타임별로 치환**한다(아래 "생성 시 치환"). `REVIEWERS:`에 든 도구만 실행. 프롬프트·출력 모두 `_workspace/reviews/`에 보존(감사 — /tmp 금지).
+먼저 `bash "{스킬scripts}/check-review-tools.sh" "{러너}"`로 **러너 제외 리뷰어 재확인**(끝줄 `REVIEWERS:`·`SHADOWED:`). 두 플레이스홀더는 **스킬 생성 시 런타임별로 치환**한다(아래 "생성 시 치환"). `REVIEWERS:`에 든 도구만 실행. 프롬프트·출력 모두 `_workspace/reviews/`에 보존(감사 — /tmp 금지).
 
 > **생성 시 치환(req):** 팩토리는 생성 런타임을 알므로 명시 주입한다 — Claude Code면 `{스킬scripts}`=`.claude/skills/external-review-loop/scripts`·`{러너}`=`claude`, Codex면 `{스킬scripts}`=`.agents/skills/external-review-loop/scripts`·`{러너}`=`codex`. (자동감지는 보조 폴백.)
 
 > **REVIEWERS는 루프 진입 전 1회만 산출**해 재사용한다(라운드마다 재호출 불필요 — 리뷰어 집합은 라운드 간 불변).
 
-> **launcher 스크립트 = 산출물 ↔ 가시성 분리.** 리뷰어별 **개별 rc/출력 파일**(lock-free)만 쓴다 — 단일 status JSON에 여러 리뷰어가 동시 write하면 macOS엔 `flock`이 없어 **JSON 경합으로 깨진다**. 종료 시 launcher가 rc들을 **순차 취합**(동시쓰기 없음)해 상태를 도출한다.
+> **launcher 는 스크립트 파일이다(req — 인라인 실행 금지).** `{스킬scripts}/run-review.sh` 를 호출한다. 인라인 bash 블록으로 두면 **실행 셸이 사용자 환경에 좌우된다** — macOS 기본 셸은 zsh 이고, zsh 는 비인용 파라미터 확장을 단어분리하지 않아 `${TOFLAG}` 류 관용구가 한 단어로 붙어 **리뷰어 전원 `rc=127`**(게이트가 아예 안 돎)이 된다. 셰뱅(`#!/usr/bin/env bash`)으로 셸을 고정하면 이 부류가 구조적으로 사라진다. 실측 재현: `zsh -c 'TO=/usr/bin/env; TOFLAG="$TO echo"; ${TOFLAG} X'` → `no such file or directory`.
+
 ```bash
-mkdir -p _workspace/reviews
-trap 'pkill -P $$ 2>/dev/null' EXIT   # 직속 자식 정리. 손자(리뷰어 내부 spawn)는 못 잡으니 리뷰어 self-timeout에 의존.
-# timeout은 GNU coreutils — macOS엔 없을 수 있다(gtimeout). 이식성 위해 탐지 후 적용.
-TO="$(command -v timeout || command -v gtimeout || true)"
-[ -z "$TO" ] && TOFLAG="" || TOFLAG="$TO 600s"   # 부재 시 무타임아웃(문서화된 한계 — agy만 자체 --print-timeout)
-S={단계ID}
-D=_workspace/reviews
-# 상황별 모델 선택(오케스트레이터가 리스크등급에 맞춰 설정 — 아래 "상황별 모델" 참조). 미설정 시 기본.
-#  ⚠️ AGY_MODEL은 반드시 Gemini 계열만 — agy를 Claude/GPT로 돌리면 러너와 엔진 충돌(자기검증).
-AGY_MODEL="${AGY_MODEL:-Gemini 3.1 Pro (High)}"   # 경량: "Gemini 3.5 Flash (High)" / 중대: "Gemini 3.1 Pro (High)"
-CODEX_MODEL="${CODEX_MODEL:-}"                     # 비우면 codex 기본. 중대 시 고추론 모델명 지정.
-# 엔진 다양성 런타임 강제(주석만으론 휴먼/CI 실수 못 막음) — agy가 Claude/GPT면 러너와 자기검증.
-case "$AGY_MODEL" in *[Cc]laude*|*GPT*|*[Gg]pt*) echo "ERROR: AGY_MODEL must be Gemini (engine diversity)." >&2; exit 1 ;; esac
-# 리뷰 대상 루트 — 하위 디렉토리서 실행돼도 repo 루트 보장(agy --add-dir용). git 밖이면 pwd 폴백.
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-# 러너 제외 리뷰어 목록(스크립트가 산출). REVIEWERS:/SHADOWED: 줄만 신뢰. 스크립트 호출은 1회.
-# {러너}=생성 시 claude|codex로 치환.
-RT="$(bash {스킬scripts}/check-review-tools.sh {러너})"
-printf '%s\n' "$RT" >&2   # 도구별 연동/가려짐 줄을 로그로 되살린다(캡처하면 사람이 못 본다)
-REVIEWERS="$(printf '%s\n' "$RT" | sed -n 's/^REVIEWERS: //p')"
-SHADOWED="$(printf '%s\n' "$RT" | sed -n 's/^SHADOWED: //p')"
-
-ST="$D/${S}_review_status.json"
-NOW="$(date +%s)"
-# 원자적 상태쓰기: temp에 쓰고 mv(rename)로 교체 — poll이 write 중간을 읽어 깨진 JSON 보는 것 방지.
-write_status() { printf '%s\n' "$1" > "$ST.tmp.$$" && mv "$ST.tmp.$$" "$ST"; }
-
-# JSON 문자열 이스케이프(경로·사유에 " \ 가 섞여 상태파일이 깨지는 것 방지).
-# 제어문자까지 처리한다 — POSIX 파일명은 NUL 과 `/` 를 뺀 모든 바이트를 허용하므로 SHADOWED
-# 경로에 개행·\b·\f·0x01 등이 섞이면 raw control character 가 JSON 문자열에 들어가 파서가 깨진다.
-# \n\r\t 는 **공백으로 뭉개지 않고 리터럴 이스케이프**한다 — 뭉개면 경로가 조용히 왜곡돼
-# 복구(해당 경로 stat/설치 확인)가 불가능해진다. 나머지 금지 제어문자만 삭제.
-# awk 를 쓰는 이유: BSD sed(macOS)는 패턴의 `\t` 를 탭으로 해석하지 않는다(리터럴 t).
-# LC_ALL=C = 멀티바이트 로케일에서 바이트 범위를 오해석하는 것 방지.
-json_esc() {
-  printf '%s' "$1" | LC_ALL=C awk 'BEGIN{ORS=""}
-    { gsub(/\\/,"\\\\"); gsub(/"/,"\\\""); gsub(/\t/,"\\t"); gsub(/\r/,"\\r")
-      printf "%s%s", (NR>1 ? "\\n" : ""), $0 }' \
-  | LC_ALL=C tr -d '\000-\010\013\014\016-\037\177'
-}
-
-# 도구 전무 폴백: 통일 스키마로 상태파일 남기고 종료(Step 3 파서 단일화).
-if [ -z "$REVIEWERS" ] || [ "$REVIEWERS" = "none" ]; then
-  write_status "$(printf '{"status":"no-reviewers","reviewers":"","degraded":"리뷰어 0종%s","results":{}}' \
-    "$([ -n "$SHADOWED" ] && [ "$SHADOWED" != "none" ] && printf ' (PATH 밖 설치: %s)' "$(json_esc "$SHADOWED")")")"
-  echo "WARN: REVIEWERS none → 외부 리뷰 생략, 내부 QA만." >&2
-  exit 0
-fi
-
-# 축소 감지(req) — '조용한 반쪽 리뷰' 차단. 기존 게이트는 REVIEWERS 가 **완전히 빌 때만** 경고해서,
-# 리뷰어가 1종만 남거나 일반/정합성 축이 통째로 빠진 상태가 무경고로 통과했다.
-# 실측 사례: codex 가 다른 node 버전에만 설치돼 REVIEWERS 가 agy 단독이 됐는데도 루프는 정상 진행,
-# 결과서엔 "codex+agy 양 엔진 no-high 수렴"으로 기록 — 교차검증이 반쪽이었다는 사실이 소실됐다.
-# 두 리뷰어는 축이 다르다(일반/정합성 = codex|claude, 성능/안정성 = agy). 한 축만 남으면
-# '2종 교차검증'이 아니라 '단일 관점'이다. 축소는 중단 사유가 아니라 **기록 의무** 사유다 —
-# degraded 를 상태파일에 실어 Step 3 판정·결과서까지 전파한다.
-DEG=""
-n_rev=0; for _t in $REVIEWERS; do n_rev=$((n_rev+1)); done
-case " $REVIEWERS " in
-  *" codex "*|*" claude "*) ;;
-  *) DEG="일반/정합성 리뷰어(codex|claude) 부재 — 성능축만" ;;
-esac
-[ "$n_rev" -le 1 ] && DEG="${DEG:+$DEG; }리뷰어 ${n_rev}종(교차검증 불가)"
-if [ -n "$SHADOWED" ] && [ "$SHADOWED" != "none" ]; then
-  DEG="${DEG:+$DEG; }PATH 밖 설치 감지: $SHADOWED"
-fi
-[ -n "$DEG" ] && echo "WARN(외부 리뷰 축소): $DEG" >&2
-
-# 리뷰어 1종 실행 헬퍼: 출력 _{tool}.md + 종료코드 _{tool}.rc(리뷰어별 개별 파일 = 경합 없음).
-#   ${TOFLAG} 미인용 = "gtimeout 600s" 단어분리 의도.
-#
-# **프롬프트 전달 방식은 CLI 마다 다르다(req — 통일하지 말 것).** 실측 결과:
-#
-# | CLI    | argv 다중행      | stdin        | 이 템플릿이 쓰는 방식 |
-# |--------|------------------|--------------|----------------------|
-# | codex  | **첫 줄에서 절단** | 전문 도달    | stdin                |
-# | claude | 정상             | 전문 도달    | stdin                |
-# | agy    | 정상             | **무시**     | argv                 |
-#
-# 어느 쪽이든 잘못 고르면 **조용히 실패한다.** 리뷰어는 빈(또는 잘린) 프롬프트로도
-# 그럴듯한 답을 내놓고 rc=0 으로 끝나므로, 아래 rc 취합이 `ok` 로 집계한다.
-# 실측 사례: codex 를 argv 로 주면 첫 줄("리뷰 대상: …")만 받고 저장소를 뒤져 답한다
-# (같은 과제에서 발견 3건 → stdin 전환 후 6건). agy 를 stdin 으로 주면 프롬프트를
-# 통째로 무시하고 "현재 사용 중인 모델은 …" 같은 무관한 답을 반환한다.
-#
-# 그래서 헬퍼를 둘로 나눈다. 새 리뷰어를 추가할 때는 **마지막 줄에만 있는 마커를 되돌려
-# 받는 프롬프트로 전달 방식을 먼저 실측하고** 맞는 헬퍼를 고를 것.
-run_reviewer_stdin() {  # $1=파일라벨  $2=프롬프트파일  $3..=커맨드(프롬프트 인자 없이)
-  tool="$1"; prompt_file="$2"; shift 2
-  ${TOFLAG} "$@" < "$prompt_file" > "$D/${S}_${tool}.md" 2>&1
-  echo "$?" > "$D/${S}_${tool}.rc"
-}
-run_reviewer_argv() {   # $1=파일라벨  $2..=커맨드(프롬프트가 인자로 이미 포함됨)
-  tool="$1"; shift
-  ${TOFLAG} "$@" < /dev/null > "$D/${S}_${tool}.md" 2>&1
-  echo "$?" > "$D/${S}_${tool}.rc"
-}
-
-write_status "$(printf '{"status":"running","reviewers":"%s","degraded":"%s","started":%s,"results":{}}' \
-  "$REVIEWERS" "$(json_esc "$DEG")" "$NOW")"
-
-# 일반/정합성 리뷰어 = REVIEWERS 중 러너 아닌 쪽(codex|claude). 든 것만 실행.
-# 둘 다 stdin 규약 — 프롬프트 인자를 주지 않고 파일을 stdin 으로 흘린다.
-GEN="$D/${S}_prompt_general.md"; PERF="$D/${S}_prompt_perf.md"
-case " $REVIEWERS " in
-  *" codex "*)  run_reviewer_stdin codex "$GEN" codex exec ${CODEX_MODEL:+-m "$CODEX_MODEL"} --sandbox read-only & ;;
-  *" claude "*) run_reviewer_stdin claude "$GEN" claude -p \
-      --permission-mode plan --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(rg:*)" & ;;
-esac
-# 성능/안정성 리뷰어 = agy(Gemini). agy 없고 gemini(legacy)만 있으면 gemini로 대체.
-# **agy 는 argv 규약** — `-p` 가 stdin 을 읽지 않는다(실측: 프롬프트를 무시하고 무관한 답 반환).
-case " $REVIEWERS " in
-  # agy: --add-dir(리뷰대상 repo를 워크스페이스에)+--dangerously-skip-permissions(TTY 없는 -p서 권한 자동승인)
-  # 필수 — 없으면 sandbox 파일 read가 권한 프롬프트→응답 불가→hang. 상세는 아래 "agy 파일접근 배선".
-  *" agy "*)    run_reviewer_argv agy agy -p "$(cat "$PERF")" \
-      --model "$AGY_MODEL" --add-dir "$REPO_ROOT" --dangerously-skip-permissions \
-      --sandbox --print-timeout 300s & ;;
-  # gemini(legacy)는 --add-dir/--dangerously-skip-permissions 미지원(-s만) → plain 호출(붙이면 unknown flag로 폴백 고장).
-  *" gemini "*) run_reviewer_argv gemini gemini -p "$(cat "$PERF")" & ;;
-esac
-wait
-
-# rc 순차 취합(동시쓰기 없음) → 통일 상태. rc=0 & 출력 비지않음 → ok, 아니면 fail(타임아웃 포함).
-ok=0; fail=0; results=""
-for f in "$D/${S}_"*.rc; do
-  [ -e "$f" ] || continue
-  tool="$(basename "$f" .rc)"; tool="${tool#${S}_}"
-  if [ "$(cat "$f")" = "0" ] && [ -s "$D/${S}_${tool}.md" ]; then st=ok; ok=$((ok+1)); else st=fail; fail=$((fail+1)); fi
-  results="${results}${results:+,}\"${tool}\":\"${st}\""
-done
-# ok=0 & fail=0 = 리뷰어 0건 실행(REVIEWERS에 미지 도구만 들어 case 미매치) → completed로 위장 금지.
-if [ "$ok" = 0 ] && [ "$fail" = 0 ]; then overall=failed; results='"_none":"no-reviewer-matched"'
-elif [ "$fail" = 0 ]; then overall=completed
-elif [ "$ok" = 0 ]; then overall=failed
-else overall=partial; fi
-# 축소는 '실행 전 리뷰어 부재'만이 아니다(req). 리뷰어가 붙었어도 **런타임 실패**(타임아웃·인증·
-# 크래시)하면 결과는 똑같이 반쪽 리뷰인데, DEG 는 launch 전에 산출돼 그 사실을 모른다.
-# 실측: agy 가 `Error: timeout waiting for response` 로 죽어 codex 단독이 됐는데 degraded 는 빈
-# 문자열이었다 — 표기 의무·dry_streak 규칙이 전부 degraded 를 키로 삼으므로 그대로면 반쪽이
-# '온전한 수렴'으로 집계된다. 그래서 취합 후 실패분을 degraded 에 합류시킨다.
-if [ "$fail" -gt 0 ]; then
-  failed_tools=""
-  for f in "$D/${S}_"*.rc; do
-    [ -e "$f" ] || continue
-    t="$(basename "$f" .rc)"; t="${t#${S}_}"
-    { [ "$(cat "$f")" = "0" ] && [ -s "$D/${S}_${t}.md" ]; } || failed_tools="${failed_tools:+$failed_tools,}$t"
-  done
-  DEG="${DEG:+$DEG; }리뷰어 런타임 실패: ${failed_tools}(1회 재실행 후 재실패면 단일 출처 명시)"
-fi
-write_status "$(printf '{"status":"%s","reviewers":"%s","degraded":"%s","started":%s,"results":{%s}}' \
-  "$overall" "$REVIEWERS" "$(json_esc "$DEG")" "$NOW" "$results")"
-echo "DONE: status=$overall ok=$ok fail=$fail${DEG:+ degraded=$DEG}"   # 완료 신호(launch 모드에선 tool result로 회수)
+# Step 1 에서 프롬프트 2종을 _workspace/reviews/ 에 먼저 써 둔 뒤:
+#   {단계ID}_prompt_general.md (일반/정합성 리뷰어)  ·  {단계ID}_prompt_perf.md (성능 리뷰어)
+# 이 한 줄을 Bash(run_in_background: true) 로 실행한다. {러너}=생성 시 claude|codex 치환.
+bash "{스킬scripts}/run-review.sh" "{단계ID}" "{러너}"   # 경로에 공백이 있어도 안전하도록 인용
 ```
+
+스크립트가 하는 일(요약 — 상세는 스크립트 주석이 단일 출처):
+
+| 단계 | 내용 |
+|------|------|
+| 리뷰어 산출 | `check-review-tools.sh {러너}` 1회 호출 → `REVIEWERS:`·`SHADOWED:` |
+| 축소 감지 | 리뷰어 1종 이하 / 일반축 부재 / PATH 밖 설치 → `degraded` 사유 기록 + stderr 경고 |
+| 타임아웃 | `timeout`/`gtimeout` 탐지 후 **함수 래퍼**로 적용(비인용 확장 금지 — 셸 간 단어분리 차이) |
+| 프롬프트 전달 | codex·claude = **stdin** / agy·gemini = **argv** (CLI 별 실측 규약 — 통일 금지) |
+| 산출물 | 리뷰어별 `_{tool}.md` + `_{tool}.rc` (lock-free — 단일 JSON 동시 write 는 macOS 에 `flock` 이 없어 깨진다) |
+| 취합 | rc 순차 취합 → `completed｜partial｜failed`, **런타임 실패도 `degraded` 에 합류** |
+| 상태쓰기 | temp + `mv` 원자적 교체(poll 이 중간 상태를 읽지 않게) |
+
+> **왜 rc/출력 파일을 리뷰어별로 나누는가:** 단일 status JSON에 여러 리뷰어가 동시 write하면 macOS엔 `flock`이 없어 **JSON 경합으로 깨진다**. 종료 시 스크립트가 rc들을 **순차 취합**(동시쓰기 없음)해 상태를 도출한다.
 - **상태 스키마(통일):** `{"status": running|completed|partial|failed|no-reviewers, "reviewers": "...", "degraded": "" | "<축소 사유>", "results": {"codex":"ok|fail", "agy":"ok|fail"}}`. `partial`=일부 성공(예: codex ok·agy 타임아웃) — `completed`로 뭉뚱그려 부분실패를 숨기지 않는다. Step 3은 이 status + 리뷰어별 출력 *내용*으로 판단.
 - **리스크 등급별 축소 정책(req):** 축소를 일률적으로 "기록만 하고 진행"으로 두면 **중대 변경에서 fail-open**이 된다(중대는 SKILL.md가 단계마다 외부리뷰+승인 사다리를 요구하는데, 리뷰어 1종 상태가 그 요구를 만족하지 못한 채 통과). 등급별로 분기한다 — **경량/표준**: `degraded` 기록 후 진행 가능. **중대**: 그대로 진행 금지. ① 리뷰어 복구(PATH/설치) 후 재실행, ② 복구 불가면 **사용자에게 축소 사유를 보고하고 명시적 승인(override)을 받아야** 다음 단계로 간다. 승인받았으면 그 사실도 `degraded`와 함께 결과서에 남긴다.
 - **축소 리뷰 표기 의무(req):** `degraded`가 비어있지 않으면 그 라운드는 **교차검증이 성립하지 않은 리뷰**다. `degraded`에는 실행 전 사유(리뷰어 부재·PATH 밖 설치)뿐 아니라 **실행 중 실패**(타임아웃·인증·크래시 → `status: partial`)도 취합 단계에서 합류한다 — 붙었다가 죽은 것과 처음부터 없던 것은 결과가 같다. 결과서·커밋메시지·CHANGELOG에 **"양 엔진 수렴"·"codex+agy"류 표기를 쓰지 말 것** — 실제 실행된 리뷰어와 축소 사유를 그대로 적는다(예: "외부리뷰 agy 단독 — codex PATH 밖 설치로 제외"). `degraded`가 `PATH 밖 설치`를 포함하면 리뷰 재실행 전에 그 도구를 PATH에 올리거나 현재 런타임에 설치한다(자동 PATH 주입은 하지 않는다 — 임의 경로 실행은 공급망 리스크). **`no-high 2연속` 같은 수렴 판정은 degraded 라운드를 카운트에 넣지 않는다.**
@@ -284,7 +164,7 @@ echo "DONE: status=$overall ok=$ok fail=$fail${DEG:+ degraded=$DEG}"   # 완료 
 - **agy 파일접근 배선(req — 지우지 말 것):** agy는 `--sandbox`라 리뷰 대상이 워크스페이스 밖이면 파일 read가 권한 프롬프트를 띄운다. `-p`(비대화)+`< /dev/null`(TTY 없음)이면 그 프롬프트에 응답 못 해 **무한 hang**(→ speculative fallback 또는 timeout kill, exit 124/144). 따라서 **`--add-dir "$REPO_ROOT"`(리뷰 대상 repo를 워크스페이스에 추가; `git rev-parse --show-toplevel`로 하위 디렉토리 실행서도 루트 보장) + `--dangerously-skip-permissions`(도구권한 자동승인)** 가 필수. 실증: 이 둘 없으면 repo 상대경로 파일(예 `_workspace/…`) 접근이 hang, 있으면 실제 file:line 근거로 정상 판정+종료(exit 0). codex는 `codex exec`가 자체 read-only 파일접근이라 무영향(대조군).
   - ⚠️ **보안 잔여위험(agy read-only 플래그 부재):** agy엔 도구제한/read-only 플래그가 없어 `--dangerously-skip-permissions`가 write/명령까지 자동승인한다(`--sandbox`는 터미널 제한만, 워크스페이스 write는 안 막음). 가드 = ① `--sandbox` ② 프롬프트가 "리뷰만"으로 스코프 ③ **외부 리뷰는 clean checkout/worktree에서 실행 권장**(오동작 write의 blast radius 최소화). agy에 `--allowed-tools` 류 생기면 read-only로 좁힐 것.
   - `--print-timeout 300s`(180s는 대형 리뷰+고추론 모델에 부족, 외곽 gtimeout 600s 안).
-- **타임아웃 무방비 주의:** `timeout`/`gtimeout` 없으면 `TOFLAG` 비어 `codex`·`claude`는 무타임아웃(agy만 자체 `--print-timeout` 180s). hang 시 `wait` 무한 블로킹 → **GNU coreutils(`gtimeout`) 설치 권장**. 자체 `sleep…&kill` 워치독은 오탐 kill 위험이라 미채택 — 대신 launch 모드라 오케스트레이터가 과대 경과 시 중단/계속을 판정할 수 있다.
+- **타임아웃 무방비 주의:** `timeout`/`gtimeout` 없으면 `run-review.sh` 의 `run_with_timeout` 이 그대로 실행(무타임아웃)이라 `codex`·`claude`는 상한이 없다(agy만 자체 `--print-timeout` 300s). hang 시 `wait` 무한 블로킹 → **GNU coreutils(`gtimeout`) 설치 권장**. 자체 `sleep…&kill` 워치독은 오탐 kill 위험이라 미채택 — 대신 launch 모드라 오케스트레이터가 과대 경과 시 중단/계속을 판정할 수 있다.
 - 타임아웃·실패(`_{tool}.rc`≠0 또는 출력 빔) 시 **오케스트레이터가 1회 수동 재실행** → 재실패 시 도구 누락 명시 후 단일 출처로 진행(**루프 차단 금지**). Step 3은 파일 유무가 아니라 rc+내용으로 판단.
 - 모델은 `agy models`로 확인(Gemini 3.1 Pro / 3.5 Flash 등). 가용 모델명으로 치환.
 - **자원·비용:** 리뷰어 2종 병렬 = 토큰 2배·로컬 자원 경합. 초대형 산출물이면 순차 실행 또는 성능 리뷰어를 경량 모델(`Gemini 3.5 Flash`)로.
@@ -297,12 +177,24 @@ echo "DONE: status=$overall ok=$ok fail=$fail${DEG:+ degraded=$DEG}"   # 완료 
 ## Step 4 — 전건 판정 (근거수집 위임 가능 · 최종 확정 비위임)
 신규 이슈마다 실코드/실문서 대조(grep/Read) 후 판정. **이슈 10+건이면 이슈별/배치로 판정 보조 에이전트에 위임** — 보조는 실코드 대조 근거 + 판정 *초안(draft)*만 반환(쓰기 금지). 오케스트레이터는 초안을 받아 **최종 확정(confirm)**만 직접 수행(권위 비위임). 판정 결과는 `verdicts.json`에 기록(이슈지문·판정·라운드·근거).
 
-| 판정 | 기준 | 처리 |
-|------|------|------|
-| **확인** | 결함 재현/실재 | Step 5 수정 |
-| **부분 확인** | 지적 실재하나 권고 과잉/계약 위배 | 비파괴 범위만 + 잔여 기각 근거 |
-| **이월** | 타당하나 본 단계 범위 외 | 백로그 위치 명기 — 기각과 구분 |
-| **기각** | 사유표 | 근거 명시(코드/정본 인용) — 삭제 금지 |
+| 판정 | `verdicts.json` 의 `verdict` 값 | 기준 | 처리 |
+|------|------------------------------|------|------|
+| **확인** | `confirmed` | 결함 재현/실재 | Step 5 수정 |
+| **부분 확인** | `partial` | 지적 실재하나 권고 과잉/계약 위배 | 비파괴 범위만 + 잔여 기각 근거 |
+| **이월** | `deferred` | 타당하나 본 단계 범위 외 | 백로그 위치 명기 — 기각과 구분 |
+| **기각** | `rejected` | 사유표 | 근거 명시(코드/정본 인용) — 삭제 금지 |
+| (중복 병합) | `duplicate` | Step 3 에서 병합된 건 | 기록만 |
+
+**원장에는 반드시 영문 enum 값을 쓴다(req).** `build-scorecard.sh` 는 이 enum 으로만 집계한다 — 한글을 그대로 적으면 예전엔 **집계 전부 0 + 경고 없음**이었다(측정 꼬리를 돌렸는데 "측정했다"는 거짓 신호만 남는, 스킵보다 나쁜 상태). 지금은 스크립트가 한글 동의어를 정규화하고 enum 밖 값이 남으면 `warnings` 에 발견된 값을 찍지만, **원장은 처음부터 enum 으로 적는 것이 정본**이다.
+
+**최소 스키마** — 이대로 쓰면 Step 8 이 그냥 돈다:
+```json
+{ "loop":"external-review", "stage_id":"{단계ID}", "rounds":1,
+  "risk_level":"중대", "diff_lines":120, "termination_reason":"converged",
+  "issues":[ {"fingerprint":"파일+결함요지", "verdict":"confirmed", "round":1, "source":"codex"} ],
+  "reviewer_coverage":[ {"reviewer":"codex","round":1,"scope":"full","status":"ok"} ] }
+```
+`source` 는 **무엇을 봐서 찾았나**다(누가 찾았나가 아니다) — 좁은 수정 diff 재리뷰의 회귀/누출은 `"re-review"`, 복구 리뷰어의 전체 리뷰 발견은 엔진명. 상세는 §Step 8.
 
 **기각 사유표:** 동결 계약 위배 · 설계 정본 명시 결정 · 기구현 오판(호출 형태만 보고 오판) · YAGNI/과설계 · 리뷰어 자인 비병목 · 기존 설계와 상충(멱등·격리 등).
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 빌드된 하네스(생성 산출물)를 팩토리 정본으로 동기화 — 사용자 수정 보존(해시 감지 + propose).
 # 관리 대상 v1(생성 하네스에 실제 번들되는 것만): references/dev-rules.md · references/tdd-doctrine.md
-#   · scripts/check-review-tools.sh · scripts/build-scorecard.sh · scripts/check-artifacts.sh
+#   · scripts/{check-review-tools,run-review,build-scorecard,emit-loop-scorecard,check-artifacts}.sh
 #   (run-policy-audit.sh·harness-update.sh는 팩토리 전용 — 생성 하네스 비번들 → 관리 제외.)
 #   (에이전트/스킬 본문은 사용자 소유 — 주입 1줄만 절차로 갱신. external-review-loop 스킬은 재생성 경로.)
 #   사용자 추가 정책은 *.local.* 파일로 분리 권장 — 관리 대상에서 제외(절대 안 건드림).
@@ -45,7 +45,7 @@ atomic_cp() {
 }
 
 # 관리 대상 화이트리스트(상대경로) — 생성 하네스에 번들되는 것만.
-MANAGED_RELS="references/dev-rules.md references/tdd-doctrine.md scripts/check-review-tools.sh scripts/build-scorecard.sh scripts/check-artifacts.sh"
+MANAGED_RELS="references/dev-rules.md references/tdd-doctrine.md scripts/check-review-tools.sh scripts/run-review.sh scripts/build-scorecard.sh scripts/emit-loop-scorecard.sh scripts/check-artifacts.sh"
 
 # 관리 파일 상대경로 열거(skill_dir에 존재하는 것). .local.* 제외.
 list_managed() {
