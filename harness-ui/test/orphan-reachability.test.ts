@@ -46,32 +46,50 @@ function parse(file: string, text: string): ts.SourceFile {
  */
 export function collectDecls(sf: ts.SourceFile): string[] {
   const out: string[] = [];
-  for (const st of sf.statements) {
-    if (ts.isFunctionDeclaration(st) && st.name && isComponentName(st.name.text)) out.push(st.name.text);
-    else if (ts.isVariableStatement(st)) {
-      for (const d of st.declarationList.declarations) {
-        if (ts.isIdentifier(d.name) && isComponentName(d.name.text) && d.initializer) out.push(d.name.text);
-      }
+  // **재귀 순회한다** — 최상위만 보면 블록·네임스페이스·함수 스코프 안의 선언이
+  // 대장에 애초에 담기지 않아 그 고아를 영영 못 잡는다(R3 agy HIGH).
+  const visit = (node: ts.Node): void => {
+    if (ts.isFunctionDeclaration(node) && node.name && isComponentName(node.name.text)) out.push(node.name.text);
+    else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && isComponentName(node.name.text)) {
+      out.push(node.name.text); // 우변 형태를 보지 않는다 → React.FC 타입주석·memo()·forwardRef() 전부 포함
     }
-  }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sf, visit);
   return out;
 }
 
+/** 이 식별자가 "선언된 이름 자리"인가 — 사용이 아니라 정의다. */
+function isDeclarationName(node: ts.Identifier): boolean {
+  const p = node.parent as ts.Node | undefined;
+  if (!p) return false;
+  if (ts.isVariableDeclaration(p) || ts.isFunctionDeclaration(p) || ts.isFunctionExpression(p) ||
+      ts.isClassDeclaration(p) || ts.isClassExpression(p) || ts.isParameter(p) ||
+      ts.isBindingElement(p) || ts.isPropertyDeclaration(p) || ts.isPropertySignature(p) ||
+      ts.isMethodDeclaration(p) || ts.isMethodSignature(p) || ts.isInterfaceDeclaration(p) ||
+      ts.isTypeAliasDeclaration(p) || ts.isEnumDeclaration(p) || ts.isModuleDeclaration(p)) {
+    return (p as { name?: ts.Node }).name === node;
+  }
+  return false;
+}
+
 /**
- * **사용처로서의** 식별자 참조를 센다. 파서가 걸러 주는 것들:
- * - 주석(전체 줄·인라인 모두) — 주석 텍스트는 애초에 Identifier 노드가 아니다.
- * - 문자열 리터럴 — 이름이 문자열 안에 있어도 참조가 아니다.
- * - import/재export 절 — 이름만 옮길 뿐 사용이 아니다(명시적으로 건너뛴다).
- * - 자기 선언의 이름 자체.
+ * **사용처로서의** 식별자 참조를 센다.
+ * - 선언 이름 자리만 제외하고 **나머지 자식은 전부 순회**한다 — body/initializer 로 좁히면
+ *   매개변수 기본값(`function Page({ fallback = <LoadingCard /> })`)·타입 인자·바인딩 패턴
+ *   안의 실제 참조가 유실돼 멀쩡한 컴포넌트를 고아로 오탐한다(R3 양 엔진).
+ * - `import`·재export·`export default X` 는 이름을 옮길 뿐 사용이 아니므로 통과시킨다.
+ *   특히 `export default MyComp`(ExportAssignment)를 세면 아무도 안 쓰는 컴포넌트가
+ *   **스스로를 참조한 것으로 위장**해 고아 판정을 영구 회피한다(R3 agy HIGH).
+ * - 주석·문자열은 Identifier 노드가 아니라 자동 제외된다.
  */
 export function collectUses(sf: ts.SourceFile): Map<string, number> {
   const uses = new Map<string, number>();
-  const bump = (n: string) => uses.set(n, (uses.get(n) ?? 0) + 1);
   const visit = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) return;   // import/재export 통과
-    if (ts.isFunctionDeclaration(node)) { node.body && visit(node.body); return; }        // 선언 이름 제외
-    if (ts.isVariableDeclaration(node)) { node.initializer && visit(node.initializer); return; }
-    if (ts.isIdentifier(node)) bump(node.text);
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node) || ts.isExportAssignment(node)) return;
+    if (ts.isIdentifier(node) && !isDeclarationName(node)) {
+      uses.set(node.text, (uses.get(node.text) ?? 0) + 1);
+    }
     ts.forEachChild(node, visit);
   };
   ts.forEachChild(sf, visit);
@@ -161,6 +179,40 @@ describe("P0-d 고아 차단 — 프로젝트 범위 도달성(AST·대상 비�
     ]);
   });
 
+  it("R3 회귀 — 매개변수 기본값·중첩 선언·export default 자가참조", () => {
+    const fake = new Map<string, string>([
+      ["a.tsx", [
+        "export function LoadingCard() { return null; }",
+        "export function DeepOrphan() { return null; }",
+        "export function SelfExported() { return null; }",
+        "function outer() { function NestedOrphan() { return null; } return NestedOrphan; }", // 중첩 선언
+        "export default SelfExported;",                    // ExportAssignment = 자가참조 위장
+      ].join("\n") + "\n"],
+      ["b.tsx", [
+        "import { LoadingCard } from './a.js';",
+        // 매개변수 **기본값**에서만 쓰이는 참조 — body 만 순회하면 유실된다
+        "export function Page({ fallback = <LoadingCard /> }) { return fallback; }",
+      ].join("\n") + "\n"],
+      ["main.tsx", "import { Page } from './b.js';\nrender(<Page />);\n"],
+    ]);
+    const orphans = findOrphans(fake);
+    // ① 매개변수 기본값 참조가 살아있다 → LoadingCard 는 고아가 아니다(오탐 방지)
+    expect(orphans).not.toContain("LoadingCard");
+    // ② 중첩 선언도 수집된다. NestedOrphan 은 outer 가 반환하므로 참조 있음 → 고아 아님
+    expect(orphans).not.toContain("NestedOrphan");
+    // ③ export default 로만 "참조"되는 것은 사용이 아니다 → 고아로 잡혀야 한다
+    expect(orphans).toContain("SelfExported");
+    expect(orphans).toContain("DeepOrphan");
+  });
+
+  it("중첩 선언 안의 진짜 고아도 잡는다(최상위만 보면 영영 못 잡는다)", () => {
+    const fake = new Map<string, string>([
+      ["a.tsx", "export function Root() {\n  function HiddenOrphan() { return null; }\n  return null;\n}\n"],
+      ["main.tsx", "import { Root } from './a.js';\nrender(<Root />);\n"],
+    ]);
+    expect(findOrphans(fake)).toEqual(["HiddenOrphan"]);
+  });
+
   it("정상 사용은 고아로 오탐하지 않는다(오탐이 나면 아무도 가드를 안 믿는다)", () => {
     const fake = new Map<string, string>([
       ["ui.tsx", "export function Btn() { return null; }\nexport function Card() { return <Btn />; }\n"],
@@ -175,6 +227,26 @@ describe("P0-d 고아 차단 — 프로젝트 범위 도달성(AST·대상 비�
     for (const n of KNOWN_UNWIRED_LOCALS) {
       expect(new RegExp(`^(?:function|const)\\s+${n}\\b`, "m").test(t), `${n} 이 screens.tsx 에 없다 — 대장에서 지워라`).toBe(true);
     }
+  });
+
+  it("알려진 한계 — 동적 import 로만 로드되는 default export 컴포넌트", async () => {
+    // R3 양 엔진 MED: `React.lazy(() => import("./LazyPanel"))` 로만 연결되고 그 모듈이
+    // `export default function LazyPanel()` 이면 식별자 사용이 없어 고아로 오탐된다.
+    //
+    // **이 저장소에서는 발생할 수 없다** — 실측으로 확인한 두 조건 때문이다:
+    //   ① `export default` 선언이 0건. ② 동적 `import()` 는 모듈(api.js·governed.js)에만 쓰고
+    //      컴포넌트 지연 로딩에는 안 쓴다.
+    // 그래서 모듈 경로 해석 장치를 만들지 않았다(R-1: 없는 상황을 위한 설계 금지).
+    //
+    // **`export default` 가 도입되면** 이 테스트가 먼저 깨진다 — 그때 경로 해석이나
+    // 진입점 도달성 순회를 도입하라.
+    const files = await walk(SRC);
+    const withDefault: string[] = [];
+    for (const f of files) {
+      const text = await readFile(f, "utf8");
+      if (/^export\s+default\b/m.test(text)) withDefault.push(f.replace(SRC, "src"));
+    }
+    expect(withDefault, `export default 가 도입됐다 — 동적 import 오탐 방어를 검토하라:\n  ${withDefault.join("\n  ")}`).toEqual([]);
   });
 
   it("알려진 한계 — 진입점 컴포넌트는 정당하게 미참조일 수 있다", () => {
