@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import ts from "typescript";
 import { writeHarnessScorecardSnapshot, readHarnessTrend } from "../src/server/adapters/scorecard-snapshot.js";
+import { canonicalFindingId } from "../src/server/adapters/scorecard.js";
 import type { HarnessScorecard } from "../src/server/adapters/scorecard.js";
 
 let root: string;
@@ -21,7 +22,10 @@ afterEach(async () => { await rm(root, { recursive: true, force: true }); });
  */
 function sc(configHash: string, orphan: number): HarnessScorecard {
   const findings = Array.from({ length: orphan }, (_, i) => ({
-    id: `orphan:agent:a${i}`, type: "orphan" as const, subject: `a${i}`, subject_kind: "agent" as const,
+    // id 는 **실제 생성 함수로** 만든다 — 손으로 쓴 형식은 규칙이 바뀌어도 안 깨져
+    // 회귀를 놓친다(R3 양 엔진: 실제는 `type:runtime:subject_kind:subject` 라 runtime 세그먼트가 필요).
+    id: canonicalFindingId({ type: "orphan", runtime: "claude", subject_kind: "agent", subject: `a${i}`, target: undefined }),
+    type: "orphan" as const, subject: `a${i}`, subject_kind: "agent" as const,
     runtime: "claude" as const,
     severity: "med" as const,           // 실제 생성 경로와 일치(scorecard.ts 의 agent orphan = med)
     provenance: "declared_skills" as const,
@@ -90,7 +94,10 @@ describe("P0-c — 스냅샷 축적과 추세 산출", () => {
 
     const t = await readHarnessTrend(root);
     expect(t.findingDelta).toBe("available");     // truncated 아니므로 차집합 유효
-    expect(t.resolvedFindings).toEqual(expect.arrayContaining(["orphan:agent:a1", "orphan:agent:a2"]));
+    expect(t.resolvedFindings).toEqual(expect.arrayContaining([
+      canonicalFindingId({ type: "orphan", runtime: "claude", subject_kind: "agent", subject: "a1", target: undefined }),
+      canonicalFindingId({ type: "orphan", runtime: "claude", subject_kind: "agent", subject: "a2", target: undefined }),
+    ]));
     expect(t.newFindings).toEqual([]);
   });
 });
@@ -115,26 +122,31 @@ describe("P0-c — 진단 뷰 배선 계약(AST)", () => {
     return null;
   };
   /** sc-diagnostics 를 className 에 가진 <details> 열림 태그를 찾는다. */
-  const findDiagDetails = (sf: ts.SourceFile): ts.JsxElement | null => {
-    let found: ts.JsxElement | null = null;
+  const findDiagDetails = (sf: ts.SourceFile): ts.JsxElement[] => {
+    // **전수 수집한다.** 이전 판은 첫 매치에서 `return` 했지만 그건 방문 콜백만 끝낼 뿐
+    // 상위 순회를 멈추지 않아 **이후 매치가 덮어썼다**(R3 codex).
+    const found: ts.JsxElement[] = [];
     const visit = (n: ts.Node): void => {
-      if (ts.isJsxElement(n) && n.openingElement.tagName.getText() === "details") {
-        const cn = attrText(n.openingElement, "className") ?? "";
-        if (cn.includes("sc-diagnostics")) { found = n; return; }
-      }
+      if (ts.isJsxElement(n) && n.openingElement.tagName.getText() === "details" &&
+          (attrText(n.openingElement, "className") ?? "").includes("sc-diagnostics")) found.push(n);
       ts.forEachChild(n, visit);
     };
     visit(sf);
     return found;
   };
+  /** 정확히 1개여야 한다 — 복제되면 어느 것을 검사하는지 비결정적이 된다. */
+  const theDiagDetails = (sf: ts.SourceFile): ts.JsxElement => {
+    const all = findDiagDetails(sf);
+    expect(all.length, `sc-diagnostics details 가 ${all.length}개다 — 정확히 1개여야 한다`).toBe(1);
+    return all[0]!;
+  };
 
   it("진단 details 가 4축 Card 의 자손이다(최상위 노출은 카드 1개 유지·설계 §8)", async () => {
     const sf = await load();
-    const details = findDiagDetails(sf);
-    expect(details, "sc-diagnostics details 가 없다 — 배선이 지워졌다").not.toBeNull();
+    const details = theDiagDetails(sf);
 
     // 조상을 거슬러 올라가며 4축 Card 를 만나는지 확인한다(문자열 앞뒤 위치가 아니라 실제 포함관계).
-    let p: ts.Node | undefined = details!.parent, insideAxisCard = false;
+    let p: ts.Node | undefined = details.parent, insideAxisCard = false;
     while (p) {
       if (ts.isJsxElement(p) && p.openingElement.tagName.getText() === "Card") {
         const title = attrText(p.openingElement, "title") ?? "";
@@ -147,7 +159,7 @@ describe("P0-c — 진단 뷰 배선 계약(AST)", () => {
 
   it("펼칠 때만 마운트된다 — onToggle 과 조건부 렌더가 같은 details 안에서 연결돼 있다", async () => {
     const sf = await load();
-    const details = findDiagDetails(sf)!;
+    const details = theDiagDetails(sf);
     expect(attrText(details.openingElement, "onToggle"), "onToggle 이 없다 — 닫혀 있어도 GET 이 나간다").toBeTruthy();
 
     // 이 details **안에서** HarnessScorecardCard 가 조건식(삼항)의 분기로만 등장해야 한다.
@@ -156,7 +168,12 @@ describe("P0-c — 진단 뷰 배선 계약(AST)", () => {
       if (ts.isJsxSelfClosingElement(n) && n.tagName.getText() === "HarnessScorecardCard") {
         let a: ts.Node | undefined = n.parent, guarded = false;
         while (a && a !== details) {
-          if (ts.isConditionalExpression(a)) { guarded = true; break; }
+          // 삼항(`cond ? <X/> : …`)과 단축 평가(`cond && <X/>`) 둘 다 정상 지연 마운트다.
+          // 삼항만 인정하면 React 관례인 `&&` 로 바꿨을 때 **거짓 실패**한다(R3 양 엔진).
+          if (ts.isConditionalExpression(a) ||
+              (ts.isBinaryExpression(a) && a.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken)) {
+            guarded = true; break;
+          }
           a = a.parent;
         }
         if (guarded) conditionalMount = true; else unconditional = true;
