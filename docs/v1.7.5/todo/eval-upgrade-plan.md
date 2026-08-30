@@ -284,6 +284,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 ### 구현
 - [ ] myharness Phase 5 산출물에 `.agents/behaviors/` 편입 · `CLAUDE.md`/`AGENTS.md` 포인터 1줄
 - [ ] `check-behaviors.sh` 신설(자체 검증) — 위치·frontmatter 필수 필드(`name`·`description`)·**디렉토리명 일치**
+- [ ] **BEHAVIOR 내용 충실도 검사**(ADR D7·R9 양 엔진): 6차원 중 최소 `Intent`·`Failure modes` 에 **heading 외 본문이 있는가**. 없으면 빈 BEHAVIOR 를 가리켜 정의의 "본문 부실" 과락을 우회할 수 있다
 - [ ] **`behaviors:` 참조 목록을 정의 파일별로 출력**(ADR-001 D5 요구·R4 codex MED — 계획서에 없으면 구현자가 빼먹고 D5 의 역인덱스 수단이 사라진다). 끊긴 참조·고아도 함께
 - [ ] ⚠ `name` 정규식은 스펙 문구대로 `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` — **연속 하이픈 허용**. 원본 구현의 스펙↔코드 불일치(참고자료 §7 #3)를 그대로 베끼지 말 것
 - [ ] 구조적으로 무효한 스펙은 **건너뛰고 진단 노출**(부분 로드 금지 — 참고자료 §4)
@@ -305,7 +306,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 **목표:** 6차원(Intent·Evidence·Decision·Execution·Recovery·**Failure modes**)을 권장으로 추가.
 **등급:** 경량 · **근거:** 제안서 §3 B2
 
-> ⛔ **착수 전 필수(ADR-001 D7):** BEHAVIOR 를 도입한 정의가 **그 이유만으로 감점되지 않도록** 채점을 먼저 고친다. `scoreInduction` 은 명령형 줄 비율이라 판단 기준을 BEHAVIOR 로 옮기면 점수가 떨어진다(`artifacteval.ts:142-148`) — 행동 차원을 권장하면서 따르면 손해인 상태로 두면 안 된다. **참조 대상 BEHAVIOR 본문을 정의 채점 입력에 합성한다**(단일안 — "induction 축만 제외"는 채점 우회 통로라 폐기). **축별·검사별 입력이 다르다**(ADR D7 두 표): `trigger`=정의 description · `induction`·`pruning`=합성 body · `scoreStructure` 는 **검사마다** 다르다 — 필수 섹션·본문 부실·코드펜스·**references 분리 판단**=정의 body(합성 전), **줄 수 상한만 합성 body**. 추가 계약 2가지 — ① 줄 수 상한 finding 은 **`range` 생략**(합성 줄 수는 정의 파일에 없는 줄을 가리킨다)·`why` 에 내역 표기 ② **`behaviors:` 선언 정의의 "본문 부실" 판정은 줄 수가 아니라 구조로**(필수 heading 전부 + 끊긴 참조 0) — 안 그러면 규약을 지킬수록 과락한다. `scoreStructure` 시그니처를 "구조 검사용 body"와 "줄 수 계산용 body"로 **나눠 받도록 확장**할 것(함수 분리는 불필요·인자 추가로 충분). 공유 BEHAVIOR 는 참조하는 정의마다 줄 수가 반복 계산되며 **이는 의도된 동작 — 테스트로 고정**할 것. 구현 시 BEHAVIOR 본문도 **사전 읽기**로 가져온다.
+> ⛔ **착수 전 필수(ADR-001 D7):** BEHAVIOR 를 도입한 정의가 **그 이유만으로 감점되지 않도록** 채점을 먼저 고친다. `scoreInduction` 은 명령형 줄 비율이라 판단 기준을 BEHAVIOR 로 옮기면 점수가 떨어진다(`artifacteval.ts:142-148`) — 행동 차원을 권장하면서 따르면 손해인 상태로 두면 안 된다. **참조 대상 BEHAVIOR 본문을 정의 채점 입력에 합성한다**(단일안 — "induction 축만 제외"는 채점 우회 통로라 폐기). **축별·검사별 입력이 다르다**(ADR D7 두 표): `trigger`=정의 description · `induction`·`pruning`=합성 body · `scoreStructure` 는 **검사마다** 다르다 — 필수 섹션·본문 부실·**references 분리 판단**=정의 body(합성 전), **줄 수 상한·대용량 코드펜스=합성 body**(둘 다 `range` 생략·`why` 에 출처 표기). 원칙: *내용을 옮겨 빠져나갈 수 있는 검사는 합성, 정의 파일 자체의 형태를 보는 검사는 원본.* 추가 계약 2가지 — ① 줄 수 상한 finding 은 **`range` 생략**(합성 줄 수는 정의 파일에 없는 줄을 가리킨다)·`why` 에 내역 표기 ② **`behaviors:` 선언 정의의 "본문 부실" 판정은 줄 수가 아니라 구조로**(필수 heading 전부 + 끊긴 참조 0) — 안 그러면 규약을 지킬수록 과락한다. `scoreStructure` 시그니처를 "구조 검사용 body"와 "줄 수 계산용 body"로 **나눠 받도록 확장**할 것(함수 분리는 불필요·인자 추가로 충분). 공유 BEHAVIOR 는 참조하는 정의마다 줄 수가 반복 계산되며 **이는 의도된 동작 — 테스트로 고정**할 것. 구현 시 BEHAVIOR 본문도 **사전 읽기**로 가져온다.
 
 - [ ] 현행 필수 섹션(`SKILL.md:113` — 핵심 역할·작업 원칙·입출력 프로토콜·에러 핸들링·협업)과의 **매핑표** 작성 → `agent-design-patterns.md`
 - [ ] **강제하지 않고 권장**으로 추가(기존 5개 섹션과 충돌하지 않음: 에러 핸들링 ⊂ Recovery, 작업 원칙 ⊃ Intent/Decision)
