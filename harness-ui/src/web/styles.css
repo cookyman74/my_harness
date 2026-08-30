@@ -295,6 +295,10 @@ button.primary:disabled { opacity:.5; cursor:not-allowed; }
 .unused-block .badge { margin:0 4px 4px 0; }
 details.tier-b > summary { cursor:pointer; color:var(--accent-ink); font-size:13px; padding:6px 0; }
 details.tier-b[open] > summary { margin-bottom:8px; }
+/* P0-c 구성 건강도 진단 본문 — Card 를 중첩하지 않으므로(호출부가 이미 Card 안 details)
+   Card 가 주던 여백만 여기서 준다. */
+.sc-diag-body { padding:4px 0 2px; }
+.sc-diag-body > .sc-sub:first-child { margin-top:0; }
 
 /* 모달 + 전역 재연결 오버레이 */
 .modal-backdrop { position:fixed; inset:0; background:rgba(10,14,12,.5); display:flex; align-items:center; justify-content:center; z-index:100; padding:20px; }

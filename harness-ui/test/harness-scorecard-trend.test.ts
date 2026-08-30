@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import ts from "typescript";
 import { writeHarnessScorecardSnapshot, readHarnessTrend } from "../src/server/adapters/scorecard-snapshot.js";
 import type { HarnessScorecard } from "../src/server/adapters/scorecard.js";
 
@@ -22,7 +23,7 @@ function sc(configHash: string, orphan: number): HarnessScorecard {
   const findings = Array.from({ length: orphan }, (_, i) => ({
     id: `orphan:agent:a${i}`, type: "orphan" as const, subject: `a${i}`, subject_kind: "agent" as const,
     runtime: "claude" as const,
-    severity: "high" as const,          // 계약: high|med|low|info ("warn"·"err" 는 없다)
+    severity: "med" as const,           // 실제 생성 경로와 일치(scorecard.ts 의 agent orphan = med)
     provenance: "declared_skills" as const,
     confidence: "measured" as const,
     waived: false,
@@ -99,30 +100,88 @@ describe("P0-c — 스냅샷 축적과 추세 산출", () => {
 // "복원"을 요구했으므로 배선 자체가 계약이다. 소스 구조로 직접 확인한다.
 // (jsdom 렌더 대신 소스 단언을 쓰는 이유: EvalMain 은 다수의 useApi 에 의존해
 //  전체 화면 모킹 비용이 크고, 여기서 지켜야 할 계약은 "어디에·어떻게 배선됐나"다.)
-describe("P0-c — 진단 뷰 배선 계약", () => {
-  it("HarnessScorecardCard 가 4축 카드 안 details 로 배선돼 있다", async () => {
+describe("P0-c — 진단 뷰 배선 계약(AST)", () => {
+  // R2 codex: 문자열 slice(i, i+700) 방식은 양방향으로 허위였다 — 주석이 늘면 정상 배선이
+  // 실패하고, 4축 Card 밖으로 옮겨도 앞쪽에 시작 태그만 있으면 통과했다.
+  // JSX **조상 관계**를 AST 로 직접 확인한다.
+  const load = async () => {
     const src = await readFile(new URL("../src/web/screens.tsx", import.meta.url), "utf8");
-    const i = src.indexOf("sc-diagnostics");
-    expect(i, "진단 details 가 없다 — 배선이 지워졌다").toBeGreaterThan(0);
-    const block = src.slice(i, i + 700);
-    expect(block).toContain("<HarnessScorecardCard />");
-    // 최상위 노출은 4축 카드 1개 유지(설계 §8) — 진단은 그 카드 '안'에 있어야 한다.
-    const cardOpen = src.lastIndexOf("<Card title={`하네스 아티팩트 4축", i);
-    expect(cardOpen, "진단이 4축 카드 밖에 있다").toBeGreaterThan(0);
+    return ts.createSourceFile("screens.tsx", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  };
+  const attrText = (el: ts.JsxOpeningLikeElement, name: string): string | null => {
+    for (const a of el.attributes.properties) {
+      if (ts.isJsxAttribute(a) && a.name.getText() === name) return a.initializer?.getText() ?? "";
+    }
+    return null;
+  };
+  /** sc-diagnostics 를 className 에 가진 <details> 열림 태그를 찾는다. */
+  const findDiagDetails = (sf: ts.SourceFile): ts.JsxElement | null => {
+    let found: ts.JsxElement | null = null;
+    const visit = (n: ts.Node): void => {
+      if (ts.isJsxElement(n) && n.openingElement.tagName.getText() === "details") {
+        const cn = attrText(n.openingElement, "className") ?? "";
+        if (cn.includes("sc-diagnostics")) { found = n; return; }
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+    return found;
+  };
+
+  it("진단 details 가 4축 Card 의 자손이다(최상위 노출은 카드 1개 유지·설계 §8)", async () => {
+    const sf = await load();
+    const details = findDiagDetails(sf);
+    expect(details, "sc-diagnostics details 가 없다 — 배선이 지워졌다").not.toBeNull();
+
+    // 조상을 거슬러 올라가며 4축 Card 를 만나는지 확인한다(문자열 앞뒤 위치가 아니라 실제 포함관계).
+    let p: ts.Node | undefined = details!.parent, insideAxisCard = false;
+    while (p) {
+      if (ts.isJsxElement(p) && p.openingElement.tagName.getText() === "Card") {
+        const title = attrText(p.openingElement, "title") ?? "";
+        if (title.includes("하네스 아티팩트 4축")) { insideAxisCard = true; break; }
+      }
+      p = p.parent;
+    }
+    expect(insideAxisCard, "진단이 4축 Card 밖에 있다 — 최상위 카드가 늘어난다").toBe(true);
   });
 
-  it("펼칠 때만 마운트된다 — 접힌 채로 API 를 부르지 않는다", async () => {
-    const src = await readFile(new URL("../src/web/screens.tsx", import.meta.url), "utf8");
-    const block = src.slice(src.indexOf("sc-diagnostics"), src.indexOf("sc-diagnostics") + 700);
-    expect(block, "onToggle 지연 마운트가 없다 — 닫혀 있어도 scorecard GET 이 나간다").toContain("onToggle");
-    expect(block).toMatch(/diagOpen\s*\?/); // 조건부 렌더
+  it("펼칠 때만 마운트된다 — onToggle 과 조건부 렌더가 같은 details 안에서 연결돼 있다", async () => {
+    const sf = await load();
+    const details = findDiagDetails(sf)!;
+    expect(attrText(details.openingElement, "onToggle"), "onToggle 이 없다 — 닫혀 있어도 GET 이 나간다").toBeTruthy();
+
+    // 이 details **안에서** HarnessScorecardCard 가 조건식(삼항)의 분기로만 등장해야 한다.
+    let conditionalMount = false, unconditional = false;
+    const visit = (n: ts.Node): void => {
+      if (ts.isJsxSelfClosingElement(n) && n.tagName.getText() === "HarnessScorecardCard") {
+        let a: ts.Node | undefined = n.parent, guarded = false;
+        while (a && a !== details) {
+          if (ts.isConditionalExpression(a)) { guarded = true; break; }
+          a = a.parent;
+        }
+        if (guarded) conditionalMount = true; else unconditional = true;
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(details);
+    expect(conditionalMount, "조건부 마운트가 아니다").toBe(true);
+    expect(unconditional, "무조건 렌더되는 HarnessScorecardCard 가 함께 있다").toBe(false);
   });
 
   it("진단 뷰가 Card 를 중첩하지 않는다(호출부가 이미 Card 안이다)", async () => {
-    const src = await readFile(new URL("../src/web/screens.tsx", import.meta.url), "utf8");
-    const s = src.indexOf("function HarnessScorecardCard()");
-    const body = src.slice(s, src.indexOf("\n}\n", s));
-    expect(body).not.toContain('<Card title="구성 자기평가');
-    expect(body).toContain("sc-diag-body");
+    const sf = await load();
+    let body: ts.FunctionDeclaration | null = null;
+    ts.forEachChild(sf, (n) => {
+      if (ts.isFunctionDeclaration(n) && n.name?.text === "HarnessScorecardCard") body = n;
+    });
+    expect(body, "HarnessScorecardCard 선언을 못 찾았다").not.toBeNull();
+    let hasCard = false;
+    const visit = (n: ts.Node): void => {
+      if ((ts.isJsxElement(n) && n.openingElement.tagName.getText() === "Card") ||
+          (ts.isJsxSelfClosingElement(n) && n.tagName.getText() === "Card")) hasCard = true;
+      ts.forEachChild(n, visit);
+    };
+    visit(body!);
+    expect(hasCard, "Card 를 다시 감쌌다 — 호출부의 Card 와 중첩된다").toBe(false);
   });
 });
