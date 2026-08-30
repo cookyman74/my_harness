@@ -205,13 +205,14 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 |---|---|---|---|
 | 1 | `loop-self-eval.md:21` | `(측정·행동 모두 현재 비자동 — §1-8·P0-M-RESTORE)` | `(측정은 자동 · 행동은 비자동)` |
 | 2 | `loop-self-eval.md:23` | `**측정 = 현재 비자동(지시문 의존·P0-M-RESTORE).**` | `**측정 = 자동.**` |
-| 3 | `loop-self-eval.md:23` | ` — 단 **현재 자동 강제 장치가 없다**. Step 8 에서 오케스트레이터가 실행해야 발행된다(§1-8·P0-M-RESTORE)` | `(자동·Stage 1 기본·별도 트리거 불필요)` |
-| 4 | `loop-self-eval.md:46` | `**오케스트레이터가 반드시 실행해야** scorecard 발행(자동 강제 장치 없음 — §1-8·P0-M-RESTORE)` | `매 루프 종료 시 scorecard 발행` |
+| 3 | `loop-self-eval.md:23` | ` 한다 — 단 **현재 자동 강제 장치가 없다**. Step 8 에서 오케스트레이터가 실행해야 발행된다(§1-8·P0-M-RESTORE)` | `(자동·Stage 1 기본·별도 트리거 불필요)` |
+| 4 | `loop-self-eval.md:46` | `루프 종료 시 **오케스트레이터가 반드시 실행해야** scorecard 발행(자동 강제 장치 없음 — §1-8·P0-M-RESTORE)` | `매 루프 종료 시 scorecard 발행` |
 | 5 | `eval-v1-design.md:4` | `측정=현재 비자동(P0-M-RESTORE) / 행동=비자동` | `측정=자동 / 행동=비자동` |
 | 6 | `eval-v1-design.md:180` | `측정=현재 비자동(P0-M-RESTORE)·행동=비자동` | `측정=자동·행동=비자동` |
 | 7 | `eval-v1-prd.md:49` | `측정=현재 비자동(P0-M-RESTORE) / 행동=비자동` | `측정=자동 / 행동=비자동` |
 
 > ⚠ #3·#4 는 문장 구조가 바뀐 자리라 단순 괄호 치환이 아니다. **표의 literal 그대로** 대조할 것.
+> 특히 **#4 는 앞의 `루프 종료 시` 까지 포함**해야 한다(R6 agy) — 토큰 구간만 치환하면 `루프 종료 시 매 루프 종료 시` 로 **중복**된다. 표 작성 시 **실제 치환을 돌려 원본(`260a8b7^`)과 바이트 일치를 확인할 것** — #3 은 정정 당시 가독성 정리로 넣은 `한다` 까지 되돌려야 원본과 같아진다(R6 시뮬레이션에서 발견).
 > 복원 후 `rg -n "P0-M-RESTORE"` 가 위 3파일에서 **0건**이어야 완료.
 - [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속**
 - [x] **전파 범위 판정(R2 codex MED — 권고 일부 기각·근거 기록):** `loop-self-eval.md` 를 `MANAGED_RELS` 에 추가하라는 권고는 **채택하지 않는다.** 선검증 결과 이 파일은 **생성 하네스에 복사되지 않는 팩토리 내부 참조**다 — 생성 하네스가 받는 references 는 `dev-rules.md`·`tdd-doctrine.md`(`SKILL.md:126`)와 `external-review-loop.md`→SKILL.md 생성(`:205`)뿐이다. 게다가 **생성본이 되는 `external-review-loop.md` 에는 "측정=자동" 문구가 0건**이라 이 오보는 생성 하네스로 전파된 적이 없다. 없는 파일을 관리 대상에 넣으면 update 가 매번 `UNKNOWN` 을 만든다.
