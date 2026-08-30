@@ -585,6 +585,13 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
   const [remed, setRemed] = useState<RemediationResult | { status: "loading" } | null>(null); // E5-a 초안 폴링 상태
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [edited, setEdited] = useState<string>("");
+  const injectedRid = useRef<string | null>(null); // 초안 주입은 runId 당 1회(재주입=편집 덮어쓰기)
+  const [returnTo, setReturnTo] = useState<string | null>(() => returnToFromHash(location.hash));
+  useEffect(() => {
+    const read = () => setReturnTo(returnToFromHash(location.hash));
+    window.addEventListener("hashchange", read);
+    return () => window.removeEventListener("hashchange", read);
+  }, []);
   const [baseHash, setBaseHash] = useState<string>(""); // 낙관적 동시성 기준(저장·adopt 시 갱신)
   const [showDiff, setShowDiff] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -625,6 +632,7 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
   useEffect(() => {
     if (!remediateRunId || !doc) return;
     let live = true, timer: ReturnType<typeof setTimeout> | undefined;
+    // (주입 1회 보장은 아래 injectedRid 참조)
     setRemed({ status: "loading" });
     const poll = async () => {
       try {
@@ -635,6 +643,13 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
         // 초안이 현재 편집기 대상과 일치할 때만 주입(딥링크/stale runId 로 엉뚱한 초안 표시 방지·codex MED).
         if (r.status === "ready") {
           if (r.kind !== kind || r.name !== name) { setRemed({ status: "invalid", error: "mismatched-target" }); return; }
+          // **한 runId 당 1회만 주입한다**(R1 agy HIGH). 이 effect 는 `doc` 에도 의존하는데,
+          //   저장하면 `setDoc` 으로 doc 이 바뀌어 effect 가 재발화한다. 그때 다시 주입하면
+          //   **방금 저장한 사용자 편집분이 과거 AI 초안으로 덮어써지고**, 사용자가 모르고
+          //   다시 저장하면 편집이 영구 유실된다.
+          // 게다가 저장 후의 초안은 stale(원본이 바뀜)이라 주입 대상이 아니다.
+          if (injectedRid.current === remediateRunId || r.stale) return;
+          injectedRid.current = remediateRunId;
           setEdited(r.proposedContent); setShowDiff(true); setMode("edit");
         }
       } catch (e) { if (live) setRemed({ status: "invalid", error: e instanceof DefEditError ? e.code : String(e) }); }
@@ -715,6 +730,9 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
     <Card title={`정의 편집 · ${name}`}>
       {/* 닫기는 onClose 제공 시에만(Agents/Skills 는 미제공 = 버튼 없음·좌측 목록으로 전환·docs/context 뷰어 동형). */}
       {onClose && <button className="link" onClick={doClose}>✕ 닫기</button>}
+      {/* P0-e 복귀 동선: 배치 검토 큐에서 왔으면 돌아갈 길을 준다.
+          뒤로가기에만 의존하면 새 탭·중간 이동 시 배치 id 를 복구할 방법이 없다. */}
+      {returnTo && <p><a className="link" href={returnTo}>← 검토 큐로 돌아가기</a></p>}
       {loadErr && <p className="banner err" role="alert">⚠ {loadErr}</p>}
       {!doc && !loadErr && <p className="muted">불러오는 중…</p>}
       {doc && (
@@ -2527,9 +2545,24 @@ export async function bulkApplyItems(
  * 편집기는 초안의 kind/name 이 대상과 다르면 주입을 거부하므로(mismatched-target)
  * 링크가 잘못돼도 엉뚱한 초안이 열리지 않는다.
  */
-export function draftEditLink(item: { kind: "agent" | "skill"; name: string; runId?: string | null }): string {
-  const base = `#/${item.kind === "agent" ? "agents" : "skills"}?sel=${encodeURIComponent(item.name)}`;
-  return item.runId ? `${base}&remediate=${encodeURIComponent(item.runId)}` : base;
+export function draftEditLink(
+  item: { kind: "agent" | "skill"; name: string; runId?: string | null },
+  returnTo?: string | null,
+): string {
+  let link = `#/${item.kind === "agent" ? "agents" : "skills"}?sel=${encodeURIComponent(item.name)}`;
+  if (item.runId) link += `&remediate=${encodeURIComponent(item.runId)}`;
+  // 복귀 동선(R1 codex): B 의 전제가 "고치고 **돌아옴**"인데 돌아갈 길이 없었다.
+  //   뒤로가기에만 의존하면 새 탭·중간 이동 시 배치 id 를 복구할 방법이 없다.
+  if (returnTo) link += `&returnTo=${encodeURIComponent(returnTo)}`;
+  return link;
+}
+
+/** 해시 쿼리에서 `returnTo` 를 읽는다. 값이 없거나 `#/` 로 시작하지 않으면 무시(오픈 리다이렉트 방지). */
+export function returnToFromHash(hash: string): string | null {
+  const q = hash.indexOf("?");
+  if (q < 0) return null;
+  const v = new URLSearchParams(hash.slice(q + 1)).get("returnTo");
+  return v && v.startsWith("#/") ? v : null;   // 앱 내부 해시 경로만 허용
 }
 
 const BATCH_TERMINAL = new Set(["ready", "failed", "invalid", "cancelled", "skipped"]);
@@ -2656,7 +2689,7 @@ function BatchItemCard({ item, applied, skipped, busy, onApplied, onSkip }: {
                 PUT 하는 구조라, 편집분을 끼워넣으면 baseHash(=초안이 파생된 원본 버전)
                 취급을 새로 만들어야 하고 낙관적 동시성이 깨질 위험이 크다. */}
             {item.runId && (
-              <a className="btn" href={draftEditLink(item)}>초안 고쳐서 적용 →</a>
+              <a className="btn" href={draftEditLink(item, location.hash)}>초안 고쳐서 적용 →</a>
             )}
             <button className="btn" disabled={applying || busy} onClick={onSkip}>건너뛰기</button>
           </div>

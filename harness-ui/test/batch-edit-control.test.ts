@@ -5,7 +5,8 @@
 import { describe, it, expect } from "vitest";
 import { readFile } from "node:fs/promises";
 import ts from "typescript";
-import { draftEditLink, bulkApplyItems } from "../src/web/screens.js";
+import { draftEditLink, returnToFromHash, bulkApplyItems } from "../src/web/screens.js";
+import type { BatchItemView } from "../src/web/api.js";
 
 describe("P0-e — 초안 편집 딥링크", () => {
   it("kind 별 경로 + 대상 선택 + runId 를 모두 담는다", () => {
@@ -29,19 +30,22 @@ describe("P0-e — 초안 편집 딥링크", () => {
 });
 
 describe("P0-e — 일괄 적용 회귀(부분성공·stale·순차)", () => {
-  const item = (name: string, runId: string) => ({ kind: "agent" as const, name, runId, status: "ready", stale: false });
+  // **캐스팅하지 않는다**(R1 양 엔진) — `as never[]` 는 타입 계약을 무력화해
+  //   시그니처가 바뀌어도 회귀를 놓친다. 실제 BatchItemView 를 만족시킨다.
+  const item = (name: string, runId: string | null): BatchItemView =>
+    ({ kind: "agent", name, runId, status: "ready", stale: false }) satisfies BatchItemView;
 
   it("일부 실패해도 나머지를 계속 적용한다(부분성공 수집)", async () => {
-    const items = [item("a", "r1"), item("b", "r2"), item("c", "r3")] as never[];
-    const r = await bulkApplyItems(items, async (it: { name: string }) =>
+    const items = [item("a", "r1"), item("b", "r2"), item("c", "r3")];
+    const r = await bulkApplyItems(items, async (it: BatchItemView) =>
       it.name === "b" ? { ok: false, code: "stale" } : { ok: true, code: "applied" });
     expect(r.okKeys).toEqual(["r1", "r3"]);
     expect(r.failed).toEqual([{ key: "r2", name: "b", code: "stale" }]);
   });
 
   it("예외가 나도 중단하지 않는다(한 건의 오류가 배치를 죽이지 않는다)", async () => {
-    const items = [item("a", "r1"), item("b", "r2")] as never[];
-    const r = await bulkApplyItems(items, async (it: { name: string }) => {
+    const items = [item("a", "r1"), item("b", "r2")];
+    const r = await bulkApplyItems(items, async (it: BatchItemView) => {
       if (it.name === "a") throw new Error("boom");
       return { ok: true, code: "applied" };
     });
@@ -51,8 +55,8 @@ describe("P0-e — 일괄 적용 회귀(부분성공·stale·순차)", () => {
 
   it("순차 적용한다(동시 PUT 으로 서로의 baseHash 를 무효화하지 않게)", async () => {
     const order: string[] = [];
-    const items = [item("a", "r1"), item("b", "r2"), item("c", "r3")] as never[];
-    await bulkApplyItems(items, async (it: { name: string }) => {
+    const items = [item("a", "r1"), item("b", "r2"), item("c", "r3")];
+    await bulkApplyItems(items, async (it: BatchItemView) => {
       order.push(`start:${it.name}`);
       await new Promise((r) => setTimeout(r, 1));
       order.push(`end:${it.name}`);
@@ -62,7 +66,7 @@ describe("P0-e — 일괄 적용 회귀(부분성공·stale·순차)", () => {
   });
 
   it("runId 가 없으면 kind:name 을 키로 쓴다(키 충돌로 성공/실패가 뒤섞이지 않게)", async () => {
-    const items = [{ kind: "agent" as const, name: "x", runId: null }] as never[];
+    const items = [item("x", null)];
     const r = await bulkApplyItems(items, async () => ({ ok: true, code: "applied" }));
     expect(r.okKeys).toEqual(["agent:x"]);
   });
@@ -90,5 +94,43 @@ describe("P0-e — 배선 계약", () => {
     expect(body).toMatch(/baseHash:\s*d\.baseHash/);
     // stale 은 적용 자체를 거부한다(일괄은 무인 순차라 단건보다 보수적).
     expect(body).toMatch(/d\.stale/);
+  });
+});
+
+describe("P0-e — 복귀 동선(returnTo)", () => {
+  it("배치 큐 해시를 returnTo 로 실어 보낸다", () => {
+    const link = draftEditLink({ kind: "agent", name: "a", runId: "r1" }, "#/eval?batch=b9");
+    expect(link).toContain("returnTo=%23%2Feval%3Fbatch%3Db9");
+  });
+
+  it("returnTo 를 되읽는다(왕복 동선 성립)", () => {
+    const link = draftEditLink({ kind: "skill", name: "s", runId: "r" }, "#/eval?batch=b1");
+    expect(returnToFromHash(link)).toBe("#/eval?batch=b1");
+  });
+
+  it("앱 내부 해시 경로만 허용한다(오픈 리다이렉트 차단)", () => {
+    expect(returnToFromHash("#/agents?returnTo=https%3A%2F%2Fevil.com")).toBeNull();
+    expect(returnToFromHash("#/agents?returnTo=%2F%2Fevil.com")).toBeNull();
+    expect(returnToFromHash("#/agents?returnTo=javascript%3Aalert(1)")).toBeNull();
+    expect(returnToFromHash("#/agents?sel=a")).toBeNull();       // 없으면 null
+    expect(returnToFromHash("#/agents")).toBeNull();             // 쿼리 자체가 없어도 null
+  });
+});
+
+describe("P0-e — 초안 주입은 runId 당 1회(편집 덮어쓰기 방지)", () => {
+  it("저장 후 재발화해도 초안을 다시 주입하지 않는다", async () => {
+    const src = await readFile(new URL("../src/web/screens.tsx", import.meta.url), "utf8");
+    const i = src.indexOf("초안 잡 폴링");
+    const body = src.slice(i, src.indexOf("}, [remediateRunId, doc]);", i));
+    // 이 effect 는 `doc` 에 의존한다. 저장하면 setDoc 으로 doc 이 바뀌어 재발화하는데,
+    // 가드가 없으면 방금 저장한 편집분이 과거 AI 초안으로 덮어써진다(R1 agy HIGH).
+    expect(body, "runId 1회 주입 가드가 없다 — 저장 후 편집분이 초안으로 덮어써진다").toContain("injectedRid");
+    expect(body, "stale 초안 재주입 가드가 없다").toMatch(/r\.stale/);
+  });
+
+  it("편집기에 검토 큐 복귀 링크가 있다", async () => {
+    const src = await readFile(new URL("../src/web/screens.tsx", import.meta.url), "utf8");
+    expect(src).toContain("검토 큐로 돌아가기");
+    expect(src).toContain("returnToFromHash");
   });
 });
