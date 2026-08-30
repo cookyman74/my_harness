@@ -586,7 +586,9 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [edited, setEdited] = useState<string>("");
   const injectedRid = useRef<string | null>(null); // 초안 주입은 runId 당 1회(재주입=편집 덮어쓰기)
-  const [injected, setInjected] = useState(false);   // 초안이 실제로 편집기에 들어왔는가(배너 정직성)
+  // 초안 주입 결과 — 배너가 사실만 말하도록 **사유까지** 남긴다(R3 codex: boolean 이면
+  //   미주입 사유를 언제나 stale 로 오표시한다).
+  const [draftState, setDraftState] = useState<"injected" | "skipped-stale" | null>(null);
   const [returnTo, setReturnTo] = useState<string | null>(() => returnToFromHash(location.hash));
   useEffect(() => {
     const read = () => setReturnTo(returnToFromHash(location.hash));
@@ -649,13 +651,16 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
           //   **방금 저장한 사용자 편집분이 과거 AI 초안으로 덮어써지고**, 사용자가 모르고
           //   다시 저장하면 편집이 영구 유실된다.
           // 게다가 저장 후의 초안은 stale(원본이 바뀜)이라 주입 대상이 아니다.
-          // stale 초안은 주입하지 않는다. 다만 **주입하지 않았다는 사실을 UI 가 알아야** 한다 —
-          //   안 그러면 "반영되었습니다" 배너만 뜨고 편집기엔 원본이 남아, 사용자가 초안이
-          //   들어온 줄 알고 저장한다(R2 양 엔진: 기만 신호).
-          if (r.stale) { setInjected(false); return; }
+          // **이미 이 runId 로 주입했으면 상태를 건드리지 않고 빠진다.**
+          //   이 검사가 stale 검사보다 **먼저** 와야 한다(R3 양 엔진): 저장에 성공하면
+          //   정의가 바뀌어 재조회 결과가 stale 이 되는데, 그때 stale 을 먼저 보면
+          //   "반영하지 않았습니다" 로 뒤집혀 **성공한 작업을 실패처럼** 표시한다.
           if (injectedRid.current === remediateRunId) return;
+          // 아직 주입한 적 없는데 초안이 stale 이면 주입하지 않는다. 그 사실을 UI 에 알린다 —
+          //   안 그러면 "반영됨" 배너만 뜨고 편집기엔 원본이 남아 사용자가 초안인 줄 알고 저장한다.
+          if (r.stale) { setDraftState("skipped-stale"); return; }
           injectedRid.current = remediateRunId;
-          setInjected(true);
+          setDraftState("injected");
           setEdited(r.proposedContent); setShowDiff(true); setMode("edit");
         }
       } catch (e) { if (live) setRemed({ status: "invalid", error: e instanceof DefEditError ? e.code : String(e) }); }
@@ -754,10 +759,10 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
           {/* E5-a AI 초안 반영 상태 배너. ready → edited 에 초안 주입됨(아래 diff·저장으로 사람 승인). */}
           {remed && remed.status === "loading" && <p className="banner" role="status">🤖 AI가 초안 생성 중…</p>}
           {remed && remed.status === "running" && <p className="banner" role="status">🤖 AI가 초안 생성 중… (실행 대기)</p>}
-          {remed && remed.status === "ready" && injected && (
+          {remed && remed.status === "ready" && draftState === "injected" && (
             <p className="banner ok" role="status">🤖 AI 초안이 반영되었습니다 — 아래 diff를 검토한 뒤 <b>저장</b>하면 적용됩니다. 반려하려면 저장하지 말고 닫으세요.</p>
           )}
-          {remed && remed.status === "ready" && !injected && (
+          {remed && remed.status === "ready" && draftState === "skipped-stale" && (
             // 주입하지 않은 경우. **성공 배너를 띄우지 않는다** — 편집기엔 현재 정의가 그대로이므로
             //   "반영됨"이라 말하면 사용자가 초안인 줄 알고 저장한다.
             <p className="banner err" role="alert">⚠ 초안을 <b>반영하지 않았습니다</b> — 초안 생성 후 정의가 바뀌었습니다(stale).

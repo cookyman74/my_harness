@@ -137,33 +137,45 @@ describe("P0-e — 초안 주입은 runId 당 1회(편집 덮어쓰기 방지)",
 
 describe("P0-e — 배너 정직성·이탈 보호", () => {
   const load = async () => readFile(new URL("../src/web/screens.tsx", import.meta.url), "utf8");
+  /** 초안 폴링 effect 본문만 잘라 본다(고정 오프셋 금지 — 주석이 늘면 깨진다). */
+  const draftEffect = (src: string) => {
+    const i = src.indexOf("초안 잡 폴링");
+    expect(i, "초안 폴링 effect 를 못 찾았다").toBeGreaterThan(-1);
+    return src.slice(i, src.indexOf("}, [remediateRunId, doc]);", i));
+  };
+
+  it("이미 주입한 runId 는 상태를 건드리지 않는다 — 저장 성공이 실패로 뒤집히면 안 된다", async () => {
+    const body = draftEffect(await load());
+    const already = body.indexOf("injectedRid.current === remediateRunId");
+    const staleChk = body.indexOf("if (r.stale)");
+    expect(already, "중복 주입 가드가 없다").toBeGreaterThan(-1);
+    expect(staleChk, "stale 가드가 없다").toBeGreaterThan(-1);
+    // 순서가 뒤집히면: 저장 성공 → 재조회 stale → "반영하지 않았습니다" 로 오표시(R3 양 엔진).
+    expect(already, "stale 검사가 중복 주입 가드보다 먼저다 — 저장 성공이 실패처럼 표시된다")
+      .toBeLessThan(staleChk);
+  });
+
+  it("미주입 사유를 상태로 구분한다(boolean 이면 언제나 stale 로 오표시)", async () => {
+    const body = draftEffect(await load());
+    expect(body).toContain('setDraftState("skipped-stale")');
+    expect(body).toContain('setDraftState("injected")');
+  });
 
   it("주입하지 않았으면 '반영되었습니다' 라고 말하지 않는다", async () => {
     const src = await load();
-    // 성공 배너는 injected 일 때만. stale 로 주입을 건너뛰면 편집기엔 원본이 남는데
-    // "반영됨"이라 하면 사용자가 초안인 줄 알고 저장한다(R2 양 엔진).
-    const okBanner = src.indexOf("AI 초안이 반영되었습니다");
-    expect(okBanner).toBeGreaterThan(-1);
-    const before = src.slice(Math.max(0, okBanner - 200), okBanner);
-    expect(before, "성공 배너가 injected 조건 없이 렌더된다").toContain("injected");
-    // 주입 안 한 경우를 알리는 별도 배너가 있어야 한다.
+    // 성공 배너는 draftState === "injected" 일 때만.
+    const ok = src.indexOf("AI 초안이 반영되었습니다");
+    expect(ok).toBeGreaterThan(-1);
+    const cond = src.lastIndexOf("remed.status === \"ready\"", ok);
+    expect(src.slice(cond, ok), "성공 배너가 주입 여부와 무관하게 렌더된다").toContain('draftState === "injected"');
     expect(src).toContain("반영하지 않았습니다");
-  });
-
-  it("stale 초안은 주입하지 않고 그 사실을 상태로 남긴다", async () => {
-    const src = await load();
-    const i = src.indexOf("초안 잡 폴링");
-    const body = src.slice(i, src.indexOf("}, [remediateRunId, doc]);", i));
-    expect(body).toMatch(/if \(r\.stale\)/);
-    expect(body).toContain("setInjected(false)");
-    expect(body).toContain("setInjected(true)");
   });
 
   it("복귀 링크가 미저장 편집 확인을 우회하지 않는다", async () => {
     const src = await load();
     const i = src.indexOf("검토 큐로 돌아가기");
-    const block = src.slice(Math.max(0, i - 500), i);
-    // 해시 라우팅은 unload 가 아니라 beforeunload 보호가 안 걸린다 → onClick 게이트 필요.
+    const start = src.lastIndexOf("{returnTo &&", i);
+    const block = src.slice(start, i);
     expect(block, "복귀 링크에 dirty 확인이 없다 — 편집분이 조용히 사라진다").toContain("dirty");
     expect(block).toContain("preventDefault");
   });
