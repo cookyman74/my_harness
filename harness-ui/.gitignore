@@ -1,3 +1,10 @@
 node_modules/
 dist/
 *.log
+
+# 외부 리뷰어(codex·agy)가 --add-dir 로 레포에 만드는 임시 검증 파일.
+# P0-d 에서 `git add -A` 에 32개가 쓸려 들어가 커밋됐다(R7 codex LOW).
+scratch*.ts
+scratch*.js
+test-*.cjs
+test-*.js
