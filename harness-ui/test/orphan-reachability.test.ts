@@ -240,11 +240,21 @@ describe("P0-d 고아 차단 — 프로젝트 범위 도달성(AST·대상 비�
     //
     // **`export default` 가 도입되면** 이 테스트가 먼저 깨진다 — 그때 경로 해석이나
     // 진입점 도달성 순회를 도입하라.
+    // **정규식이 아니라 AST 로 판정한다**(R4 codex MED): `/^export\s+default\b/m` 은
+    // `export { X as default }` 와 `export /* 주석 */ default` 를 놓쳐, 가드를 만든
+    // 목적 그대로 조용히 통과시킨다. 같은 파일의 parse 를 재사용한다.
     const files = await walk(SRC);
     const withDefault: string[] = [];
     for (const f of files) {
-      const text = await readFile(f, "utf8");
-      if (/^export\s+default\b/m.test(text)) withDefault.push(f.replace(SRC, "src"));
+      const sf = parse(f, await readFile(f, "utf8"));
+      const hasDefault = sf.statements.some((st) =>
+        ts.isExportAssignment(st) ||                                   // export default X
+        ((ts.isFunctionDeclaration(st) || ts.isClassDeclaration(st)) &&  // export default function/class
+          st.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword)) ||
+        (ts.isExportDeclaration(st) && st.exportClause && ts.isNamedExports(st.exportClause) &&
+          st.exportClause.elements.some((e) => e.name.text === "default")), // export { X as default }
+      );
+      if (hasDefault) withDefault.push(f.replace(SRC, "src"));
     }
     expect(withDefault, `export default 가 도입됐다 — 동적 import 오탐 방어를 검토하라:\n  ${withDefault.join("\n  ")}`).toEqual([]);
   });
