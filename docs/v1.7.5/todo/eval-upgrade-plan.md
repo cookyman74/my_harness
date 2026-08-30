@@ -62,9 +62,10 @@ B0(ADR) → B1 → B2 → B3 → B4 → (E3 착수 가능)
 
 ### 구현
 - [ ] `evaluation_mode` 를 `"static" | "deep" | "cross_checked"` 유니온으로 복원(계층B 선결)
-- [ ] `confidence` 하드코딩(`:250` 0.45 · `:261` 0.5)을 rubric×mode 표로 분리
+- [ ] `confidence` 하드코딩 **3곳**(`:250` 0.45 toml-agent · `:261` 0.5 md-agent · `:278` 0.5 md-skill)을 rubric×mode 표로 분리 — *선검증 실측: 계획 초안은 2곳으로 적었으나 `:278` 이 누락돼 있었다*
 - [ ] fixture 하네스(좋은 정의 1·나쁜 정의 1)로 등급 임계 캘리브레이션 → 확정값 근거와 함께 기록
-- [ ] `noUnusedLocals` 활성화 + 기존 위반 정리
+- [ ] `noUnusedLocals` 활성화 + 기존 위반 정리 — *선검증 실측: 위반 **46건**. `tsc --noEmit` 현 기준선은 클린*
+- [ ] 고아 카드 차단이 실제로 성립함을 회귀로 고정 — *선검증 실측: `HarnessScorecardCard`(`screens.tsx:2058`)는 **비-export 로컬 함수**라 `noUnusedLocals` 가 `TS6133` 로 잡는다. export 였다면 못 잡았을 것이므로, 이후 export 로 바뀌면 가드가 조용히 무력화된다*
 - [ ] 계층A 결정성 회귀 테스트(같은 입력 2회 = 같은 점수)
 
 ### 게이트
@@ -312,7 +313,16 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 
 - **순서:** (P0-d · P0-c · P0-e · 정본 정정 — 병행 가능) → P0-M 설계 → P0-M 구현 → §1-8 해소 판정. B0 → B1 → B2 → B3 → B4 → E3.
 - **모든 단계:** 외부리뷰(codex+agy·러너 제외) **2R 이상 · HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서 + `check-artifacts.sh` · 단일 커밋.
-- **정본 변경 단계**(정본 정정·B1·B2·B4)는 **중대 blast-radius**(전 생성 하네스 전파) — `stabilizer` 게이트(정책감사·외부리뷰·회귀 드라이런) 적용.
+- **전파 범위는 단계마다 다르다 — 일괄로 "전 생성 하네스 전파"라 쓰지 말 것**(R8 codex MED. 근거는 `harness-update.sh:48` 의 `MANAGED_RELS` 7항목과 생성 번들 실측):
+
+  | 단계 | 실제 전파 범위 | 근거 | 게이트 |
+  |---|---|---|---|
+  | 정본 정정 | **전파 없음** — 팩토리 내부 문서만 | `loop-self-eval.md` 는 `MANAGED_RELS` 미등록·생성 번들 미포함(§218). 생성본이 되는 `external-review-loop.md` 엔 해당 오서술 0건 | 정책감사·외부리뷰(회귀 드라이런 불요) |
+  | B1 | **기존 하네스까지** — 단 `check-behaviors.sh` 를 `MANAGED_RELS` 에 **등록해야** 성립 | 등록이 B1 체크리스트 항목. 미등록 시 생성 하네스에서 영영 미갱신 | **중대** — `stabilizer` 3층 |
+  | B2 | **신규 생성분만** | `agent-design-patterns.md` 는 생성 시점 입력(`SKILL.md:75·80·90`)이나 `MANAGED_RELS` 미등록 → 기존 하네스는 재생성 전까지 안 받음 | 정책감사·외부리뷰 |
+  | B4 | **전파 없음** — 팩토리 정본 아님 | 대상이 `harness-ui/src/server/adapters/artifacteval.ts` = 앱 코드. 팩토리에 동일 파일 없음 | 외부리뷰·`vitest` |
+
+  **판정 규칙:** 어떤 단계를 "중대 blast-radius"로 올리려면 **그 단계가 건드리는 파일이 `MANAGED_RELS` 에 있거나 생성 번들에 포함된다는 것을 먼저 실측**하라. "정본 디렉토리에 있으니 전파된다"는 추측이다 — `skills/myharness/references/` 안에도 전파되지 않는 내부 문서가 있다.
 - **TDD**(`dev-rules`·`tdd-doctrine`) · `vitest` · 정책 감사 유지.
 
 ## 다음 단계 참조
