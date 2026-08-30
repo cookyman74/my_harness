@@ -7,7 +7,7 @@ import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  evaluateArtifacts, confidenceOf, CONFIDENCE_BY_RUBRIC_MODE, GRADE_THRESHOLDS,
+  evaluateArtifacts, confidenceOf, CONFIDENCE_BY_RUBRIC_MODE, GRADE_THRESHOLDS, gradeOf,
   type EvaluationMode, type ArtifactRubric, type Grade,
 } from "../src/server/adapters/artifacteval.js";
 
@@ -62,17 +62,20 @@ describe("P0-d 경계 테스트 — 채택된 임계의 직전·직후에서 등
     { label: "B", th: GRADE_THRESHOLDS.B, above: "B", below: "C" },
     { label: "C", th: GRADE_THRESHOLDS.C, above: "C", below: "D" },
   ];
-  // gradeOf 는 비공개이므로 임계 계약을 동일 식으로 재현해 경계만 검증한다.
-  const gradeFor = (avg: number): Grade => {
-    const T = GRADE_THRESHOLDS;
-    return avg >= T.A ? "A" : avg >= T.B ? "B" : avg >= T.C ? "C" : "D";
-  };
+  // **실제 구현을 직접 호출한다.** 복제 함수를 검증하면 구현이 바뀌어도 통과해
+  // 캘리브레이션 안전망이 사라진다(R1 양 엔진 지적).
+  const gradeFor = (avg: number): Grade => gradeOf(avg, false);
   for (const c of cases) {
     it(`임계 ${c.label}(=${c.th}) 직상 → ${c.above} · 직하 → ${c.below}`, () => {
       expect(gradeFor(c.th)).toBe(c.above);          // 임계값 자체는 포함(>=)
       expect(gradeFor(c.th - EPS)).toBe(c.below);    // 직전은 한 등급 아래
     });
   }
+
+  it("min-gate: 구조 과락이면 평균과 무관하게 D(정성 점수로 세탁 불가)", () => {
+    expect(gradeOf(1.0, true)).toBe("D");   // 만점이어도 gate 실패면 D
+    expect(gradeOf(1.0, false)).toBe("A");
+  });
 
   it("임계는 A > B > C 순으로 단조 감소한다(뒤집히면 등급 산정이 무의미)", () => {
     expect(GRADE_THRESHOLDS.A).toBeGreaterThan(GRADE_THRESHOLDS.B);

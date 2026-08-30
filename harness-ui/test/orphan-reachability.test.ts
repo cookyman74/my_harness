@@ -25,28 +25,85 @@ async function walk(dir: string): Promise<string[]> {
   return out.sort();
 }
 
-/** PascalCase = 컴포넌트 관례. 대상을 열거하지 않고 **패턴으로** 수집한다. */
-const DECL = /^export\s+function\s+([A-Z][A-Za-z0-9_]*)\s*\(/gm;
+/**
+ * PascalCase = 컴포넌트 관례. 대상을 열거하지 않고 **패턴으로** 수집한다.
+ * R1 양 엔진 HIGH: `export function` 만 잡으면 화살표 컴포넌트·비-export 선언이 전부 빠진다.
+ * `noUnusedLocals` 가 비-export 를 담당한다고 적었으나 **그 플래그는 아직 꺼져 있어**(동결 결정)
+ * 구멍이 실재했다. 여기서 네 형태를 모두 수집한다.
+ */
+const DECL_PATTERNS = [
+  /^export\s+function\s+([A-Z][A-Za-z0-9_]*)\s*\(/gm,          // export function X(
+  /^export\s+(?:const|let|var)\s+([A-Z][A-Za-z0-9_]*)\s*=/gm,   // export const X = ...
+  /^function\s+([A-Z][A-Za-z0-9_]*)\s*\(/gm,                    // function X(   (비-export)
+  /^(?:const|let|var)\s+([A-Z][A-Za-z0-9_]*)\s*=\s*(?:\(|async|function)/gm, // const X = (…) => / function
+];
+function collectDecls(text: string): string[] {
+  const out: string[] = [];
+  for (const re of DECL_PATTERNS) for (const m of text.matchAll(re)) out.push(m[1]!);
+  return out;
+}
+/**
+ * 참조 판정에서 제외할 잡음을 지운다(R1 codex MED):
+ * - **import/재export**: 이름만 등장할 뿐 사용이 아니다.
+ * - **주석**: 문서에 이름이 적혀 있다고 살아있는 게 아니다(실측: `FilterBar` 가 주석 언급만으로 생존 위장).
+ */
+function stripNoise(text: string): string {
+  // ⚠ 블록 주석(`/* … */`)은 **일부러 제거하지 않는다.** 문자열 안의 `/*`(예: 글롭 패턴) 때문에
+  //   범위를 넘어 실제 코드를 삼킨다 — 실측으로 `api/index.ts` 의 50%가 지워져 멀쩡한 심볼이
+  //   고아로 오탐됐다. 줄 주석만 지운다(가드가 오탐을 내면 아무도 안 믿는다).
+  text = text.replace(/^\s*\/\/.*$/gm, "");
+  return stripImportsOnly(text);
+}
+function stripImportsOnly(text: string): string {
+  return text.replace(/^\s*import\s[\s\S]*?from\s*["'][^"']+["'];?\s*$/gm, "")
+             .replace(/^\s*import\s*\{[\s\S]*?\}\s*from\s*["'][^"']+["'];?/gm, "")
+             .replace(/^\s*export\s*\{[\s\S]*?\}\s*(?:from\s*["'][^"']+["'])?;?/gm, ""); // 재export 도 제외
+}
 
 /**
  * P0-d 시점 **기존** 미배선 export — 삭제/배선 판정 전까지의 동결 목록(사람 승인 대기).
  * 규칙: **추가 금지 · 감소만 허용.** 새 이름을 여기 넣는 것은 가드를 무력화하는 것이다.
  */
 const KNOWN_UNWIRED = new Set<string>([
-  "MetricCell", // ui.tsx — screens.tsx 의 미사용 import 제거로 드러남(P0-d)
+  // ui.tsx — screens.tsx 의 미사용 import 제거로 드러남(P0-d)
+  "MetricCell",
+  // screens.tsx — 선언됐으나 화면에 배선되지 않은 UI(사용자 결정: 동결 유지)
+  "AdoptionStageHeader",
+  "CoverageNote",
+  "EvalIndexBody",
+  "FilterBar",
+  "HarnessScorecardCard", // P0-c 가 배선 예정
+  "MetricsWindowBar",
+  "ResultBar",
+  "RunDetail",            // 전용 회귀 테스트 있음(webrundetail.test.ts)
 ]);
 
 /**
- * P0-d 시점 미배선 **지역**(비-export) 선언 — `noUnusedLocals` 가 잡을 대상이지만
- * 삭제 판정 전이라 플래그를 아직 켜지 않았다(사용자 결정: 동결 유지).
- * 이 목록은 **가드가 아니라 부채 대장**이다. 해소될 때마다 지운다.
+ * PascalCase 가 아니어서 위 가드가 수집하지 않는 미배선 지역 선언 — 부채 대장.
+ * `noUnusedLocals` 가 잡을 대상이지만 삭제 판정 전이라 플래그를 켜지 않았다(사용자 결정).
+ * **가드가 아니라 대장이다.** 해소될 때마다 지운다.
  */
-export const KNOWN_UNWIRED_LOCALS = [
-  "CoverageNote", "MetricsWindowBar", "stateKind", "FilterBar", "ResultBar",
-  "RunDetail",              // 전용 회귀 테스트 있음(webrundetail.test.ts)
-  "HarnessScorecardCard",   // P0-c 가 배선 예정
-  "AdoptionStageHeader", "hasMedRisk", "BATCH_TERMINAL", "EvalIndexBody",
-] as const;
+export const KNOWN_UNWIRED_LOCALS = ["stateKind", "hasMedRisk", "BATCH_TERMINAL"] as const;
+
+/** 참조 0 인 선언을 찾는다. **본 검사와 자체 시험이 같은 함수를 쓴다**(복제하면 시험이 무의미). */
+function findOrphans(src: Map<string, string>, declaredIn: Map<string, string[]>): string[] {
+  const orphans: string[] = [];
+  for (const [name, where] of declaredIn) {
+    let refs = 0;
+    for (const [f, txt] of src) {
+      const body = stripNoise(txt);
+      if (where.includes(f)) {
+        // 선언 자신은 참조가 아니다 — 선언 형태들을 제거한 뒤 남은 등장만 센다.
+        const selfDecl = new RegExp(`^(?:export\\s+)?(?:function\\s+${name}\\s*\\(|(?:const|let|var)\\s+${name}\\s*=)`, "gm");
+        refs += (body.replace(selfDecl, "").match(new RegExp(`\\b${name}\\b`, "g")) ?? []).length;
+      } else {
+        refs += (body.match(new RegExp(`\\b${name}\\b`, "g")) ?? []).length;
+      }
+    }
+    if (refs === 0) orphans.push(name);
+  }
+  return orphans.sort();
+}
 
 describe("P0-d 고아 차단 — 프로젝트 범위 도달성(대상 비열거)", () => {
   it("export 된 컴포넌트는 전부 프로젝트 어딘가에서 참조된다", async () => {
@@ -56,67 +113,64 @@ describe("P0-d 고아 차단 — 프로젝트 범위 도달성(대상 비열거)
     const src = new Map<string, string>();
     for (const f of files) src.set(f, await readFile(f, "utf8"));
 
-    // 선언 수집
+    // 선언 수집(네 형태 전부)
     const declaredIn = new Map<string, string[]>();
-    for (const [f, t] of src) {
-      for (const m of t.matchAll(DECL)) {
-        const n = m[1]!;
-        declaredIn.set(n, [...(declaredIn.get(n) ?? []), f]);
-      }
-    }
+    for (const [f, txt] of src) for (const n of collectDecls(txt)) declaredIn.set(n, [...(declaredIn.get(n) ?? []), f]);
     expect(declaredIn.size).toBeGreaterThan(0); // 정규식이 깨져 0개를 훑고 통과하는 위장 방지
 
-    const orphans: string[] = [];
-    for (const [name, where] of declaredIn) {
-      let refs = 0;
-      for (const [f, t] of src) {
-        if (where.includes(f)) {
-          // 선언 파일 안에서도 "선언줄을 제외한" 사용은 살아있는 참조로 센다.
-          const body = t.replace(new RegExp(`^export\\s+function\\s+${name}\\s*\\(`, "gm"), "");
-          refs += (body.match(new RegExp(`<${name}[\\s/>]`, "g")) ?? []).length;
-        } else {
-          refs += (t.match(new RegExp(`\\b${name}\\b`, "g")) ?? []).length;
-        }
-      }
-      if (refs === 0) orphans.push(`${name} (${where.map((w) => w.replace(SRC, "src")).join(", ")})`);
-    }
+    const orphans = findOrphans(src, declaredIn);
 
     // 기존 부채는 **동결 목록**으로 둔다. 삭제는 이 저장소 교리상 사람 승인 사항이라
     // (제안서 AE5: delete-candidate = 고위험) 가드가 임의로 지우게 하지 않는다.
     // 목록은 **줄어들 수만 있다** — 새 고아가 생기면 즉시 실패한다.
-    const names = orphans.map((o) => o.split(" ")[0]!);
-    const unexpected = names.filter((n) => !KNOWN_UNWIRED.has(n));
+    const unexpected = orphans.filter((n) => !KNOWN_UNWIRED.has(n));
     expect(unexpected, `새 고아가 생겼다(동결 목록에 없음):\n  ${unexpected.join("\n  ")}`).toEqual([]);
 
-    // 동결 목록이 실제보다 크면(이미 해소됐는데 남아 있으면) 목록을 줄이라고 알린다 —
-    // 방치하면 목록이 진짜 고아를 덮는 예외 목록으로 변질된다.
-    const stale = [...KNOWN_UNWIRED].filter((n) => !names.includes(n) && declaredIn.has(n));
-    expect(stale, `해소된 항목이 동결 목록에 남아 있다 — 목록에서 지워라:\n  ${stale.join("\n  ")}`).toEqual([]);
+    // 동결 목록이 실제보다 크면 목록을 줄이라고 알린다. **소스에서 완전히 사라진 이름도 stale 이다**
+    // — 남겨두면 훗날 같은 이름의 진짜 고아를 조용히 덮는다(R1 agy HIGH).
+    const stale = [...KNOWN_UNWIRED].filter((n) => !orphans.includes(n));
+    expect(stale, `해소·삭제된 항목이 동결 목록에 남아 있다 — 목록에서 지워라:\n  ${stale.join("\n  ")}`).toEqual([]);
   });
 
-  it("검사가 실제로 고아를 잡는다(가드 자체의 회귀 방지)", async () => {
-    // 위 검사와 같은 알고리즘에 **인위적 고아**를 넣어 검출되는지 확인한다.
-    // 가드가 조용히 무력화(정규식 깨짐·빈 집합)되면 이 테스트가 먼저 깨진다.
+  it("검사가 실제로 고아를 잡는다 — 네 선언 형태 + 위장 참조(가드 자체의 회귀 방지)", () => {
+    // **본 검사와 같은 함수(collectDecls·findOrphans)를 쓴다.** 로직을 복제하면 시험이 무의미하다.
     const fake = new Map<string, string>([
-      ["a.tsx", "export function UsedCard() { return null; }\nexport function OrphanCard() { return null; }\n"],
-      ["b.tsx", "import { UsedCard } from './a.js';\nexport function Page() { return <UsedCard />; }\n"],
+      ["a.tsx", [
+        "export function UsedCard() { return null; }",
+        "export function OrphanFn() { return null; }",          // ① export function 고아
+        "export const OrphanArrow = () => null;",               // ② export 화살표 고아
+        "function LocalOrphan() { return null; }",              // ③ 비-export 고아
+        "const LocalArrowOrphan = () => null;",                 // ④ 비-export 화살표 고아
+        "export function ImportedButUnused() { return null; }", // ⑤ import 만 되고 안 쓰임
+        "export function ReexportedOnly() { return null; }",    // ⑥ 재export 만 됨
+      ].join("\n") + "\n"],
+      ["b.tsx", [
+        "import { UsedCard, ImportedButUnused } from './a.js';", // import 는 참조로 세지 않는다
+        "export { ReexportedOnly } from './a.js';",              // 재export 도 참조 아님
+        "export function Page() { return <UsedCard />; }",
+      ].join("\n") + "\n"],
       ["main.tsx", "import { Page } from './b.js';\nrender(<Page />);\n"],
     ]);
     const declaredIn = new Map<string, string[]>();
-    for (const [f, t] of fake) for (const m of t.matchAll(DECL)) declaredIn.set(m[1]!, [...(declaredIn.get(m[1]!) ?? []), f]);
+    for (const [f, txt] of fake) for (const n of collectDecls(txt)) declaredIn.set(n, [...(declaredIn.get(n) ?? []), f]);
 
-    const orphans: string[] = [];
-    for (const [name, where] of declaredIn) {
-      let refs = 0;
-      for (const [f, t] of fake) {
-        if (where.includes(f)) {
-          const body = t.replace(new RegExp(`^export\\s+function\\s+${name}\\s*\\(`, "gm"), "");
-          refs += (body.match(new RegExp(`<${name}[\\s/>]`, "g")) ?? []).length;
-        } else refs += (t.match(new RegExp(`\\b${name}\\b`, "g")) ?? []).length;
-      }
-      if (refs === 0) orphans.push(name);
-    }
-    expect(orphans).toEqual(["OrphanCard"]); // UsedCard·Page 는 참조됨, OrphanCard 만 고아
+    expect(findOrphans(fake, declaredIn)).toEqual([
+      "ImportedButUnused", "LocalArrowOrphan", "LocalOrphan", "OrphanArrow", "OrphanFn", "ReexportedOnly",
+    ]);
+  });
+
+  it("고아끼리 서로 참조해도 살아있는 것으로 위장되지 않는다", () => {
+    // R1 codex MED: 고아 모듈끼리 import 만 해도 통과하던 구멍.
+    const fake = new Map<string, string>([
+      ["dead1.tsx", "import { DeadB } from './dead2.js';\nexport function DeadA() { return <DeadB />; }\n"],
+      ["dead2.tsx", "export function DeadB() { return null; }\n"],
+      ["main.tsx", "render(<div />);\n"],
+    ]);
+    const declaredIn = new Map<string, string[]>();
+    for (const [f, txt] of fake) for (const n of collectDecls(txt)) declaredIn.set(n, [...(declaredIn.get(n) ?? []), f]);
+    // DeadA 는 아무도 안 쓰므로 고아로 잡힌다. DeadB 는 DeadA 가 렌더하므로 이 검사로는 안 잡힌다 —
+    // **알려진 한계**(도달성 순회가 아니라 참조 유무 검사). DeadA 가 잡히면 사람이 DeadB 까지 함께 판단한다.
+    expect(findOrphans(fake, declaredIn)).toContain("DeadA");
   });
 
   it("미배선 지역 선언 대장이 실제 소스와 일치한다(대장이 낡으면 부채가 안 보인다)", async () => {

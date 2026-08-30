@@ -174,7 +174,11 @@ function avgOf(scores: Partial<Record<Axis, number>>): number {
   const vs = Object.values(scores).filter((v): v is number => typeof v === "number");
   return vs.length ? vs.reduce((a, b) => a + b, 0) / vs.length : 0;
 }
-function gradeOf(avg: number, gateFail: boolean): Grade {
+/**
+ * 등급 산정. **테스트가 실제 구현을 타야 하므로 export 한다**(R1 양 엔진 HIGH/MED):
+ * 테스트가 같은 삼항식을 복제해 검증하면 구현이 `>=` → `>` 로 바뀌어도 통과해 안전망이 사라진다.
+ */
+export function gradeOf(avg: number, gateFail: boolean): Grade {
   if (gateFail) return "D"; // min-gate: 구조 과락은 정성 점수로 세탁 불가
   const T = GRADE_THRESHOLDS;
   return avg >= T.A ? "A" : avg >= T.B ? "B" : avg >= T.C ? "C" : "D";
