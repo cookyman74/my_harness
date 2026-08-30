@@ -55,7 +55,7 @@
 
 ---
 
-## P0-d — 스키마·임계 정리 `🔍 리뷰중(R1)`
+## P0-d — 스키마·임계 정리 `✅ 부분완료(no-high·no-med 2연속 · 임계확정·noUnusedLocals 이월)`
 
 **목표:** 계층B 확장 지점을 열고, 잠정값으로 굳은 임계를 캘리브레이션하고, 고아 재발을 빌드에서 막는다.
 **등급:** 경량 · **근거:** 제안서 §1-4
@@ -91,7 +91,7 @@
 
 ### 게이트
 - [x] `npx vitest run` **1189 pass**(기준선 1172 + 신규 17)·1 skip · `npx tsc --noEmit` 클린
-- [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
+- [x] 외부리뷰 **R1~R7** · **HIGH 0 · MEDIUM 0 2연속**(R6·R7) · 측정 꼬리 발행(`alignment 0.971` · `regression_catch 0.6`) · 결과서 `../working_history/P0-d-schema-thresholds.md`
 
 ---
 
