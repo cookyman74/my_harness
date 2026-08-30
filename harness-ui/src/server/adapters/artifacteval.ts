@@ -14,6 +14,31 @@ export type Axis = "trigger" | "structure" | "induction" | "pruning";
 export type ArtifactRubric = "md-agent" | "md-skill" | "toml-agent";
 export type Grade = "A" | "B" | "C" | "D";
 
+// P0-d: 계층B 확장 지점. 현재 산출은 전부 "static" 이지만 타입을 리터럴로 굳혀두면
+//   계층B(deep·cross_checked)를 붙일 때 인터페이스부터 깨진다 — 확장 지점을 미리 연다.
+export type EvaluationMode = "static" | "deep" | "cross_checked";
+
+// P0-d: confidence 하드코딩 3곳(toml-agent 0.45 · md-agent 0.5 · md-skill 0.5)을 rubric×mode 표로 분리.
+//   값 자체는 현행 유지(회귀 금지) — 흩어진 리터럴을 단일 출처로 모으는 것이 목적이다.
+//   toml-agent 가 낮은 이유: 4축 중 induction/pruning 미적용(구조화 파일)이라 근거 축이 적다.
+//   deep/cross_checked 는 계층B 도입 전까지 **미측정**이다. 추측값을 넣으면 계층B가 붙기도 전에
+//   "높은 confidence" 가 UI 에 노출된다 — 도입 시점에 실측으로 채운다(R-1: 없는 것을 전제하지 않는다).
+export const CONFIDENCE_BY_RUBRIC_MODE: Record<ArtifactRubric, Partial<Record<EvaluationMode, number>>> = {
+  "toml-agent": { static: 0.45 },
+  "md-agent": { static: 0.5 },
+  "md-skill": { static: 0.5 },
+};
+export function confidenceOf(rubric: ArtifactRubric, mode: EvaluationMode): number {
+  const v = CONFIDENCE_BY_RUBRIC_MODE[rubric][mode];
+  if (v == null) throw new Error(`confidence 미정의: rubric=${rubric} mode=${mode} — 계층B 도입 시 실측값으로 채울 것`);
+  return v;
+}
+
+// P0-d: 등급 임계를 명명 상수로 노출한다. 테스트가 0.9/0.75/0.6 리터럴을 박으면
+//   캘리브레이션으로 임계가 바뀔 때 "테스트가 현행값을 고정" 하는 교착이 생긴다(계획서 R14).
+//   경계 테스트는 이 상수를 참조해 **채택된 임계의 직전·직후**를 검증해야 한다.
+export const GRADE_THRESHOLDS = { A: 0.9, B: 0.75, C: 0.6 } as const;
+
 export interface Finding {
   axis: Axis | "completeness";
   target: { anchor: string; range?: string; field?: string }; // content-hash anchor(line-only stale 방지·design §2)
@@ -29,8 +54,8 @@ export interface ArtifactScore {
   rubric: ArtifactRubric;
   scores: Partial<Record<Axis, number>>; // 적용 축만(TOML 은 induction/pruning 제외)
   grade: Grade;
-  evaluation_mode: "static";
-  confidence: number; // static 은 낮음(계층B 전)
+  evaluation_mode: EvaluationMode;
+  confidence: number; // rubric×mode 표에서 도출(confidenceOf) — 흩어진 리터럴 금지
   findings: Finding[];
 }
 export interface ArtifactEval {
@@ -151,7 +176,8 @@ function avgOf(scores: Partial<Record<Axis, number>>): number {
 }
 function gradeOf(avg: number, gateFail: boolean): Grade {
   if (gateFail) return "D"; // min-gate: 구조 과락은 정성 점수로 세탁 불가
-  return avg >= 0.9 ? "A" : avg >= 0.75 ? "B" : avg >= 0.6 ? "C" : "D";
+  const T = GRADE_THRESHOLDS;
+  return avg >= T.A ? "A" : avg >= T.B ? "B" : avg >= T.C ? "C" : "D";
 }
 
 // 동시성 제한 map(agy HIGH: 무제한 Promise.all 은 대형 하네스서 EMFILE·1개 reject 로 전체 붕괴). 순서 보존(결정적).
@@ -207,6 +233,8 @@ export function applyRel(scores: Partial<Record<Axis, number>>, findings: Findin
 }
 
 export async function evaluateArtifacts(root: string, opts?: { now?: string }): Promise<ArtifactEval> {
+  // 이 함수는 계층A(정적·결정적)만 산출한다. 계층B가 붙으면 여기서 mode 가 갈린다.
+  const MODE: EvaluationMode = "static";
   const now = opts?.now ?? "2026-01-01"; // findings 는 now 무관(결정성)·generated_at 만 영향
   const [agents, skills, hsc] = await Promise.all([
     readAgents(root), readSkills(root),
@@ -247,7 +275,7 @@ export async function evaluateArtifacts(root: string, opts?: { now?: string }): 
       scores.structure = name && desc ? 1 : 0.5;
       if (!name || !desc) findings.push({ axis: "structure", target: { anchor }, action: "add-required-section", why: "필수 필드(name/description) 미검출·또는 TOML 파싱 실패", risk: "med" });
       applyRel(scores, findings, relBy.get("agent|" + a.name) ?? [], anchor);
-      artifacts.push({ kind: "agent", name: a.name, path: a.sourcePath, runtime: a.runtime, rubric: "toml-agent", scores, grade: gradeOf(avgOf(scores), false), evaluation_mode: "static", confidence: 0.45, findings });
+      artifacts.push({ kind: "agent", name: a.name, path: a.sourcePath, runtime: a.runtime, rubric: "toml-agent", scores, grade: gradeOf(avgOf(scores), false), evaluation_mode: MODE, confidence: confidenceOf("toml-agent", MODE), findings });
       return;
     }
     const { body } = splitBody(raw);
@@ -258,7 +286,7 @@ export async function evaluateArtifacts(root: string, opts?: { now?: string }): 
     scores.induction = scoreInduction(body);
     scores.pruning = scorePruning(body, findings, anchor);
     applyRel(scores, findings, relBy.get("agent|" + a.name) ?? [], anchor); // 관계 신호(dead-link 등) 감점
-    artifacts.push({ kind: "agent", name: a.name, path: a.sourcePath, runtime: a.runtime, rubric: "md-agent", scores, grade: gradeOf(avgOf(scores), st.gateFail), evaluation_mode: "static", confidence: 0.5, findings });
+    artifacts.push({ kind: "agent", name: a.name, path: a.sourcePath, runtime: a.runtime, rubric: "md-agent", scores, grade: gradeOf(avgOf(scores), st.gateFail), evaluation_mode: MODE, confidence: confidenceOf("md-agent", MODE), findings });
   });
 
   // ── 스킬 ──
@@ -275,7 +303,7 @@ export async function evaluateArtifacts(root: string, opts?: { now?: string }): 
     scores.induction = scoreInduction(body);
     scores.pruning = scorePruning(body, findings, anchor);
     applyRel(scores, findings, relBy.get("skill|" + s.name) ?? [], anchor); // orphan/coverage 감점(가지치기)
-    artifacts.push({ kind: "skill", name: s.name, path: skillPaths[i]!, runtime: s.runtimePaths.join(","), rubric: "md-skill", scores, grade: gradeOf(avgOf(scores), st.gateFail), evaluation_mode: "static", confidence: 0.5, findings });
+    artifacts.push({ kind: "skill", name: s.name, path: skillPaths[i]!, runtime: s.runtimePaths.join(","), rubric: "md-skill", scores, grade: gradeOf(avgOf(scores), st.gateFail), evaluation_mode: MODE, confidence: confidenceOf("md-skill", MODE), findings });
   });
 
   // 결정성(codex/agy MED): path 로 안정 정렬(스캔 순서 무관·동일 출력 보장).

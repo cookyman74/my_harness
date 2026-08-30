@@ -3,7 +3,7 @@ import {
   formatMetricValue, confidenceMeta, CONFIDENCE_META, truncatedReasonText,
   coverageSummary, coverageWindowText, windowEmptyNotice, overviewSuggestions,
   formatPercent, formatDurationMs,
-  type Coverage, type OverviewMetrics, type MetricValue,
+  type Coverage, type OverviewMetrics, 
 } from "../src/web/metrics.js";
 
 // M9 F6 — 과대표시 금지 핵심 로직(A62/A90/W7). value===null → 0 위장 금지·미측정/미귀속 표기.

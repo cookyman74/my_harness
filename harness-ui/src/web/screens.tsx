@@ -1,10 +1,10 @@
 // 9화면(§IA: Overview·Build·Agents·Skills·Runs·Docs·Drift·Ops·Settings). 모두 읽기(mutating=Build dry-run/실행·Drift sync-plan만).
 // XSS: 전 텍스트 React escape. dangerouslySetInnerHTML 는 오직 renderMarkdown(markdown-it html:false + DOMPurify) 통과분에만(F5 DV8).
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useApi, Async, Badge, Card, Table, ConfBadge, MetricCell } from "./ui.js";
+import { useApi, Async, Badge, Card, Table } from "./ui.js";
 import {
-  type OverviewMetrics, type AgentsMetrics, type SkillsMetrics, type Coverage,
-  coverageSummary, coverageWindowText, truncatedReasonText, windowEmptyNotice, overviewSuggestions,
+  type Coverage,
+  coverageSummary, coverageWindowText, truncatedReasonText, 
 } from "./metrics.js";
 import {
   apiPost, apiGet, fetchArtifact, downloadDoc, downloadArtifact,
@@ -25,7 +25,7 @@ import {
   type DocsSourcesList,
   type SettingsInfo, type ProjectRootPreview,
   type DefKind, type DefinitionDoc, type PutDefResult,
-  type EvalsIndex, type LoopIndexEntry, type LoopTrend, type TrendPoint,
+  type EvalsIndex, type LoopTrend, 
   type ScorecardDetail, type EvalProposal, type EvalsConfigResolved,
   type MetricSetting,
   type EvalAxis, type ArtifactScore, type ArtifactEvalResult,
@@ -57,7 +57,7 @@ import {
 } from "./docs-sources.js";
 import {
   type RunTemplate, type RunSubmitResult,
-  runSubmitErrorText, focusRunFromHash, runsDeepLink,
+  runSubmitErrorText, runsDeepLink,
 } from "./agent-run.js";
 import { renderMarkdown } from "./render.js";
 import { breadcrumbTrail, isMarkdownName, viewerBanner, localDocPath, localArtifactPath, focusDocFromHash, filterDocTree } from "./docs-view.js";
@@ -67,13 +67,13 @@ import {
   nextEventCursor, mergeEventItems, nextTailDelayMs,
 } from "./run-tail.js";
 import {
-  type MetricsWindow, type WindowPreset, DEFAULT_WINDOW, PRESET_LABEL,
-  metricsPath, parseLimitInput,
+  type MetricsWindow, type WindowPreset, PRESET_LABEL,
+  parseLimitInput,
 } from "./metrics-window.js";
 import {
   type RunsFilter, type RunsQueryResult, type ChipField,
-  parseQuery, buildQuery, setField, clearField, clearAll, activeChips, hasActiveFilter,
-  toggleOrder, pageTo, truncationNotice, pageRange, nextOffset, prevOffset,
+  setField, 
+  toggleOrder, truncationNotice, pageRange, nextOffset, prevOffset,
 } from "./runs-filter.js";
 
 type Inv = { projectRoot: string; claude: { entrypoint: string | null; agents: number; skills: number }; codex: { entrypoint: string | null; agents: number; skills: number }; workspace: { exists: boolean; runs: number } };

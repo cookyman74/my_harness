@@ -1,7 +1,6 @@
 // M-C — harness_scorecard 스냅샷 축적(append-on-state-change) + 추세 판정.
 // 설계: docs/myharness/harness-scorecard-mc-design.md. 계층A compute 결과(sc)를 받아 lock 안에서 I/O만(초 단위·TTL 전제).
 import { open, mkdir, readFile, writeFile, rename, unlink, link, stat, readdir } from "node:fs/promises";
-import { constants } from "node:fs";
 import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";

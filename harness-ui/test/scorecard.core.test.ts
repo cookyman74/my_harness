@@ -1,5 +1,5 @@
 // M-A A2/A3/A4(T2/T3/T5) — computeConfigHash 결정성 · 분류(raw 불변) · 스냅샷/waiver.
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

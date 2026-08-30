@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listEvalLoops, loopTrend, scorecardDetail, loopProposal, LABELS } from "../src/server/adapters/evals.js";
+import { listEvalLoops, loopTrend, scorecardDetail, loopProposal } from "../src/server/adapters/evals.js";
 import * as runsMod from "../src/server/adapters/runs.js";
 import { resolveEvalsConfig } from "../src/server/lib/evalsconfig.js";
 

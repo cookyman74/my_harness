@@ -1,7 +1,7 @@
 // 하네스 구성 변경 이력(ledger) — 에이전트/스킬 추가·수정·삭제를 append-only 로 기록.
 // UI 빌더(build/create)·편집(PUT definition)·삭제가 발생시킨 변경만 기록(정확·UI 발원). #/build(History) 표시 소스.
 import { constants } from "node:fs";
-import { open, mkdir, readFile } from "node:fs/promises";
+import { open, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 export type ConfigAction = "create" | "edit" | "delete";

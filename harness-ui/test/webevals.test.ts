@@ -6,7 +6,7 @@ import {
   evalsEmptyState, proposalDisabledText, gateShortfalls,
   parseIntInput, thresholdError, thresholdDiff, thresholdsValid,
   stageNeedsHighRiskConfirm, adoptionStageLabel, buildConfigPatch, evalsConfigErrorText,
-  type EvalsConfigResolved, type ProposalGate, type LoopIndexEntry, type ThresholdKey,
+  type EvalsConfigResolved, type ProposalGate, type LoopIndexEntry, 
 } from "../src/web/evals.js";
 import { postEvalsConfig, EvalsConfigError } from "../src/web/api.js";
 
