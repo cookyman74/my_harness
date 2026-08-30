@@ -2784,16 +2784,18 @@ function BatchItemCard({ item, applied, skipped, busy, onApplied, onSkip }: {
           <p className="muted" style={{ marginTop: 6 }}>
             여기서는 초안을 <b>그대로</b> 적용합니다. 내용을 고치려면 <b>초안 고쳐서 적용</b>으로 편집기에서 수정 후 저장하세요.
           </p>
-          {item.stale && (
-            // stale 은 "충돌"이 아니라 "초안 생성 후 정의가 바뀜"이다. 그 원인이 **사용자 자신의
-            //   편집**일 수 있는데(초안 고쳐서 적용 → 저장), 구분 없이 경고만 띄우면 이미 끝낸
-            //   작업을 실패로 오인해 재생성을 누른다(R6 양 엔진).
-            <p className="warn-text" style={{ marginTop: 4 }}>
-              ⚠ 초안 생성 후 정의가 바뀌었습니다. <b>직접 편집해 저장했다면 이미 반영된 것</b>이니 건너뛰세요.
-              그렇지 않다면 <b>재생성</b> 후 다시 검토하세요. (이 상태에서 적용하면 거부됩니다)
-            </p>
-          )}
         </>
+      )}
+      {/* stale 안내는 **`!done` 밖에 둔다**(R13 agy HIGH): `!done` 안에 있으면 정작
+          "적용됨" 상태에서 안 보여, 사용자가 [stale]+[적용됨] 배지만 보고 충돌로 오인한다.
+          R7 에서 "문구로 원인을 구분한다"고 한 설계가 UI 구조로 무산돼 있었다. */}
+      {item.stale && item.status === "ready" && (
+        <p className="warn-text" style={{ marginTop: 4 }}>
+          {applied
+            ? <>⚠ 초안 생성 후 정의가 바뀌었습니다 — <b>이 항목은 이미 적용됨</b>이므로 정상입니다(편집·저장으로 정의가 바뀐 것). 추가 조치가 필요 없습니다.</>
+            : <>⚠ 초안 생성 후 정의가 바뀌었습니다. <b>직접 편집해 저장했다면 이미 반영된 것</b>이니 건너뛰세요.
+              그렇지 않다면 <b>재생성</b> 후 다시 검토하세요. (이 상태에서 적용하면 거부됩니다)</>}
+        </p>
       )}
       {msg && <p className={`banner ${applied ? "ok" : "err"}`} role="status">{msg}</p>}
     </Card>
