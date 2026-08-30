@@ -244,8 +244,9 @@ describe("P0-e — 큐 진행 상태 보존(왕복 동선의 정직성)", () => 
     const i = src.indexOf("setSaveResult(res)");
     expect(i, "저장 성공 처리부를 못 찾았다").toBeGreaterThan(-1);
     const body = src.slice(i, i + 900);
-    expect(body, "저장 성공 시 배치 적용 기록이 없다").toContain("batchIdFromHash");
-    expect(body).toContain("batchSessionKey");
-    expect(body).toContain("remediateRunId");
+    expect(body, "저장 성공 시 배치 적용 기록이 없다").toContain('syncBatchApplied("add")');
+    // 되돌리기에서 빼주지 않으면 취소한 작업이 "적용됨"으로 남는다(R8 agy).
+    const rb = src.indexOf("const doRollback");
+    expect(src.slice(rb, rb + 900), "되돌리기가 적용 기록을 되돌리지 않는다").toContain('syncBatchApplied("remove")');
   });
 });

@@ -37,7 +37,7 @@ import {
   parseIntInput, thresholdError, thresholdDiff, thresholdsValid,
   stageNeedsHighRiskConfirm, adoptionStageLabel, buildConfigPatch, evalsConfigErrorText,
   diagLiveMessage, draftInjectDecision,
-  batchSessionKey, batchIdFromHash, readSessionSet, writeSessionSet,
+  batchSessionKey, batchIdFromHash, readSessionSet, writeSessionSet, updateBatchApplied,
 } from "./evals.js";
 import {
   defEditErrorText, diffLines, diffStats, hasChanges, isDiffCoarse, sideRows,
@@ -701,12 +701,7 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
       // P0-e R7(codex HIGH): 이 저장이 **배치 검토 큐에서 온 초안 편집**이면 그 항목을
       //   적용됨으로 기록한다. 이 연결이 없으면 큐로 돌아갔을 때 여전히 "미처리 + stale"
       //   로 보여, 방금 끝낸 작업이 실패처럼 표시된다(R6 수정이 이 경로를 못 덮었다).
-      const bid = batchIdFromHash(returnTo);
-      if (bid && remediateRunId) {
-        const key = batchSessionKey(bid, "applied");
-        const cur = readSessionSet(key); cur.add(remediateRunId);
-        writeSessionSet(key, cur);
-      }
+      syncBatchApplied("add");
       // canonical 재직렬화본을 재조회해 diff 기준 갱신(실패해도 저장 성공 배너 유지·A83).
       try { const d = await getDefinition(kind, name); setDoc(d); setEdited(d.content); setBaseHash(d.baseHash); } catch { /* 재조회 실패 격리 */ }
     } catch (e) {
@@ -737,12 +732,21 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
   };
 
   // "되돌리기" = POST rollback(expectedCurrentHash=newHash·backupHash=prevHash). 성공 → 재조회 반영.
+  /** 이 편집이 배치 검토 큐에서 온 것이면 그 항목의 적용 기록을 갱신한다. */
+  const syncBatchApplied = (op: "add" | "remove") => {
+    const bid = batchIdFromHash(returnTo);
+    if (bid && remediateRunId) updateBatchApplied(bid, remediateRunId, op);
+  };
+
   const doRollback = async () => {
     if (!saveResult) return;
     setRbBusy(true); setErr(null);
     try {
       await rollbackDefinition(kind, name, rollbackBodyFromSave(saveResult));
       setSaveResult(null); setRolledBack(true);
+      // 되돌리면 파일이 원상복구돼 서버 stale 이 풀린다. 세션 기록을 안 지우면 큐에서
+      //   **취소한 작업이 "적용됨"으로 보인다**(R8 agy HIGH). 기록도 함께 되돌린다.
+      syncBatchApplied("remove");
       const d = await getDefinition(kind, name); setDoc(d); setEdited(d.content); setBaseHash(d.baseHash);
     } catch (e) {
       setErr(e instanceof DefEditError ? defEditErrorText(e.code, e.status, e.detail) : String(e));

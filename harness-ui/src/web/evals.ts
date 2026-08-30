@@ -405,3 +405,15 @@ export function readSessionSet(key: string): Set<string> {
 export function writeSessionSet(key: string, values: Iterable<string>): void {
   try { sessionStorage.setItem(key, JSON.stringify([...values])); } catch { /* 저장 실패는 무시(메모리로는 동작) */ }
 }
+
+/**
+ * 배치 적용 기록을 더하거나 뺀다. 편집기(저장/되돌리기)와 큐가 같은 경로를 쓴다.
+ * 되돌리기에서 **빼주지 않으면** 파일은 원상복구돼 stale 이 풀리는데 세션엔 "적용됨"이
+ * 남아, 취소한 작업이 완료로 보인다(P0-e R8 agy).
+ */
+export function updateBatchApplied(batchId: string, runId: string, op: "add" | "remove"): void {
+  const key = batchSessionKey(batchId, "applied");
+  const s = readSessionSet(key);
+  if (op === "add") s.add(runId); else s.delete(runId);
+  writeSessionSet(key, s);
+}

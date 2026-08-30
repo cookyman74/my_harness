@@ -3,7 +3,7 @@
 //   (소스 AST 검사는 node 환경의 batch-edit-control.test.ts 에 둔다 — jsdom 에서는
 //    import.meta.url 이 file 스킴이 아니라 readFile 이 깨진다.)
 import { describe, it, expect } from "vitest";
-import { batchSessionKey, batchIdFromHash, readSessionSet, writeSessionSet } from "../src/web/evals.js";
+import { batchSessionKey, batchIdFromHash, readSessionSet, writeSessionSet, updateBatchApplied } from "../src/web/evals.js";
 
 // ── 왕복 동선(동작) ──────────────────────────────────────────────────────────
 // R7 codex HIGH: R6 수정은 **큐 안에서의 적용**만 기록해서, 정작 목표 시나리오
@@ -54,5 +54,29 @@ describe("P0-e — 왕복 동선의 진행 기록", () => {
   it("깨진 JSON 이 저장돼 있어도 빈 집합으로 회복한다", () => {
     try { sessionStorage.setItem("broken", "{not json"); } catch { /* 환경 미지원 */ }
     expect(readSessionSet("broken").size).toBe(0);
+  });
+});
+
+describe("P0-e — 저장/되돌리기 대칭(R8)", () => {
+  it("저장은 더하고 되돌리기는 뺀다", () => {
+    updateBatchApplied("bX", "run-1", "add");
+    expect(readSessionSet(batchSessionKey("bX", "applied")).has("run-1")).toBe(true);
+    // 되돌리면 파일이 원상복구돼 stale 이 풀린다. 기록이 남아 있으면 취소한 작업이
+    // 큐에서 "적용됨"으로 보인다(R8 agy HIGH).
+    updateBatchApplied("bX", "run-1", "remove");
+    expect(readSessionSet(batchSessionKey("bX", "applied")).has("run-1")).toBe(false);
+  });
+
+  it("다른 항목의 기록은 건드리지 않는다", () => {
+    updateBatchApplied("bY", "keep", "add");
+    updateBatchApplied("bY", "drop", "add");
+    updateBatchApplied("bY", "drop", "remove");
+    const s = readSessionSet(batchSessionKey("bY", "applied"));
+    expect([...s]).toEqual(["keep"]);
+  });
+
+  it("없는 항목을 빼도 안전하다", () => {
+    expect(() => updateBatchApplied("bZ", "nope", "remove")).not.toThrow();
+    expect(readSessionSet(batchSessionKey("bZ", "applied")).size).toBe(0);
   });
 });
