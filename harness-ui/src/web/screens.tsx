@@ -2521,6 +2521,17 @@ export async function bulkApplyItems(
 }
 
 // M-y2 검토 큐 — 배치 진행/결과를 대상별 카드로. ready 는 diff(접힘) + [적용](사람 승인)·[건너뛰기]. 적용=putDefinition(F7 재사용).
+/**
+ * P0-e: 배치 항목 → 단건 편집기 딥링크(초안 주입).
+ * 아티팩트 목록의 `editLink` 와 같은 경로 규칙에 `remediate=<runId>` 를 더한다.
+ * 편집기는 초안의 kind/name 이 대상과 다르면 주입을 거부하므로(mismatched-target)
+ * 링크가 잘못돼도 엉뚱한 초안이 열리지 않는다.
+ */
+export function draftEditLink(item: { kind: "agent" | "skill"; name: string; runId?: string | null }): string {
+  const base = `#/${item.kind === "agent" ? "agents" : "skills"}?sel=${encodeURIComponent(item.name)}`;
+  return item.runId ? `${base}&remediate=${encodeURIComponent(item.runId)}` : base;
+}
+
 const BATCH_TERMINAL = new Set(["ready", "failed", "invalid", "cancelled", "skipped"]);
 function batchStatusKind(s: string): "ok" | "warn" | "err" {
   return s === "ready" ? "ok" : s === "running" || s === "queued" ? "warn" : "err";
@@ -2638,8 +2649,20 @@ function BatchItemCard({ item, applied, skipped, busy, onApplied, onSkip }: {
           </details>
           <div className="row" style={{ gap: 8, marginTop: 8 }}>
             <button className="btn primary" disabled={applying || busy} onClick={apply}>{applying ? "적용 중…" : "적용(저장)"}</button>
+            {/* P0-e: 일괄 경로에서도 **초안을 고쳐** 적용할 수 있게 한다.
+                단건 편집기는 `?sel=&remediate=` 로 들어오면 초안을 편집 버퍼에 주입하므로
+                (useRemedDeepLink → setEdited) 이 링크 하나로 통제 입도가 단건과 같아진다.
+                인라인 편집 대신 이 경로를 쓰는 이유: applyBatchItem 이 초안을 재조회해
+                PUT 하는 구조라, 편집분을 끼워넣으면 baseHash(=초안이 파생된 원본 버전)
+                취급을 새로 만들어야 하고 낙관적 동시성이 깨질 위험이 크다. */}
+            {item.runId && (
+              <a className="btn" href={draftEditLink(item)}>초안 고쳐서 적용 →</a>
+            )}
             <button className="btn" disabled={applying || busy} onClick={onSkip}>건너뛰기</button>
           </div>
+          <p className="muted" style={{ marginTop: 6 }}>
+            여기서는 초안을 <b>그대로</b> 적용합니다. 내용을 고치려면 <b>초안 고쳐서 적용</b>으로 편집기에서 수정 후 저장하세요.
+          </p>
         </>
       )}
       {msg && <p className={`banner ${applied ? "ok" : "err"}`} role="status">{msg}</p>}
