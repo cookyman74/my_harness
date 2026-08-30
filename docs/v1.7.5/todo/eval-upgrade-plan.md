@@ -284,6 +284,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 ### 구현
 - [ ] myharness Phase 5 산출물에 `.agents/behaviors/` 편입 · `CLAUDE.md`/`AGENTS.md` 포인터 1줄
 - [ ] `check-behaviors.sh` 신설(자체 검증) — 위치·frontmatter 필수 필드(`name`·`description`)·**디렉토리명 일치**
+- [ ] **`behaviors:` 참조 목록을 정의 파일별로 출력**(ADR-001 D5 요구·R4 codex MED — 계획서에 없으면 구현자가 빼먹고 D5 의 역인덱스 수단이 사라진다). 끊긴 참조·고아도 함께
 - [ ] ⚠ `name` 정규식은 스펙 문구대로 `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` — **연속 하이픈 허용**. 원본 구현의 스펙↔코드 불일치(참고자료 §7 #3)를 그대로 베끼지 말 것
 - [ ] 구조적으로 무효한 스펙은 **건너뛰고 진단 노출**(부분 로드 금지 — 참고자료 §4)
 - [ ] `harness-update.sh` MANAGED_RELS 에 신규 스크립트 등록(등록 누락 시 생성 하네스에서 영영 미갱신)
@@ -301,6 +302,8 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 
 **목표:** 6차원(Intent·Evidence·Decision·Execution·Recovery·**Failure modes**)을 권장으로 추가.
 **등급:** 경량 · **근거:** 제안서 §3 B2
+
+> ⛔ **착수 전 필수(ADR-001 D7):** BEHAVIOR 를 도입한 정의가 **그 이유만으로 감점되지 않도록** 채점을 먼저 고친다. `scoreInduction` 은 명령형 줄 비율이라 판단 기준을 BEHAVIOR 로 옮기면 점수가 떨어진다(`artifacteval.ts:142-148`) — 행동 차원을 권장하면서 따르면 손해인 상태로 두면 안 된다. (a) 참조 대상 BEHAVIOR 를 함께 읽어 채점 / (b) 해당 정의는 `induction` 축 제외 중 실측으로 택일.
 
 - [ ] 현행 필수 섹션(`SKILL.md:113` — 핵심 역할·작업 원칙·입출력 프로토콜·에러 핸들링·협업)과의 **매핑표** 작성 → `agent-design-patterns.md`
 - [ ] **강제하지 않고 권장**으로 추가(기존 5개 섹션과 충돌하지 않음: 에러 핸들링 ⊂ Recovery, 작업 원칙 ⊃ Intent/Decision)
