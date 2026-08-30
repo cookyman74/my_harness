@@ -18,9 +18,9 @@
 
 > **수치(10/30/θ)는 "관찰 시작 최소치"이지 통계적 확정 임계가 아니다** — LLM 평가 노이즈상 비율 지표는 표본이 더 필요할 수 있다. 리스크/단계/리뷰어가 섞이면 신뢰구간을 함께 보고, θ는 리스크 등급별 기본값으로 둔다. 3·4단계는 롤링윈도우·3회 연속 하락 시에만, 단일 실행 노이즈로 흐름을 바꾸지 않는다(플래핑 방지). **2단계까지가 실용 권장 — 3·4(자동 환류)는 실험적**, 데이터 충분+holdout 후에만.
 
-## 자동 실행 경계 (측정은 자동 · 행동은 비자동)
+## 자동 실행 경계 (측정·행동 모두 현재 비자동 — §1-8)
 "자기평가가 자동으로 도는가?"의 답 — **측정과 행동을 나눠 본다:**
-- **측정 = 자동.** `external-review-loop` 종료 시 `build-scorecard.sh`가 scorecard 발행 + `summary.jsonl` append(자동·Stage 1 기본·별도 트리거 불필요). 오케스트레이터는 Phase 0/7 진입 시 요약만 읽는다.
+- **측정 = 현재 비자동(지시문 의존).** `external-review-loop` 종료 시 `build-scorecard.sh`가 scorecard 발행 + `summary.jsonl` append 한다 — 단 **현재 자동 강제 장치가 없다**. Step 8 에서 오케스트레이터가 실행해야 발행된다(§1-8·P0-M 구현 후 자동화 복원). 오케스트레이터는 Phase 0/7 진입 시 요약만 읽는다.
 - **행동 = 비자동(기본 OFF).** 제안 emit(Stage 3)·자동 흐름 개선(Stage 4)은 **실험·명시 옵트인**. **자동 적용 절대 금지**(Goodhart·플래핑) — 승인 게이트 필수.
 - **커버리지 한계(중요):** scorecard는 **external-review-loop이 도는 단계**(코드/설계 표준·중대)에서만 발행된다. 슬림·비코드 하네스는 외부 리뷰 게이트 자체가 없어 → scorecard 없음(정상). **"자기평가가 안 돈다"의 대부분은 버그가 아니라, 외부 리뷰 게이트가 없는 슬림 실행이기 때문.** 측정을 원하면 해당 단계를 표준+ 등급으로 올려 external-review-loop을 켠다.
 
@@ -43,7 +43,7 @@
 
 ## 읽기 경로 (1단계에도 소비자 필수 — write-only 방지)
 측정만 하고 안 읽으면 낭비. 1단계부터 **읽기 경로**를 둔다:
-- `scripts/build-scorecard.sh`가 매 루프 종료 시 scorecard 발행 + `_workspace/evals/{loop}/summary.jsonl`에 최근 N회 집계(append).
+- `scripts/build-scorecard.sh`가 루프 종료 시 **오케스트레이터가 실행하면** scorecard 발행 + `_workspace/evals/{loop}/summary.jsonl`에 최근 N회 집계(append).
 - 오케스트레이터는 **Phase 0(현황 감사)·Phase 7(진화) 진입 시 `summary.jsonl` 1줄 요약만** 읽는다(원본 JSON 미로드 — Lean). 악화 추세가 보이면 사람에게 보고(2단계 수동 검토).
 
 ## loop_scorecard.json 스키마 (신규 — grading.json 재사용 아님)

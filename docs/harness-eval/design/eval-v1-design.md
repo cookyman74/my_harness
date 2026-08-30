@@ -1,7 +1,7 @@
 # 설계서 — 하네스 아티팩트 단일 평가 + 자동 개선 (Eval v1)
 
 > PRD: `../prd/eval-v1-prd.md`. 정합 대상: `skills/myharness/references/{harness-scorecard,loop-self-eval,external-review-loop}.md`, `harness-ui/src/server/adapters/{scorecard,evals}.ts`, myharness Phase 7-7(update).
-> 원칙: 기존 `harness_scorecard`를 **확장**(새 병렬 시스템 금지). 측정=자동 / 행동=비자동. 삭제 우선.
+> 원칙: 기존 `harness_scorecard`를 **확장**(새 병렬 시스템 금지). 측정=현재 비자동(P0-M 전) / 행동=비자동. 삭제 우선.
 
 ## 0. 요약 아키텍처
 
@@ -177,4 +177,4 @@
 
 ## 다음 단계 참조
 - **미해결·선결:** ① 이 설계 외부감사(codex+agy) → no-high. ② E1(계층A 4축·측정만) 먼저 — 저위험·재사용 큼. ③ harness_scorecard 통합 vs 병행 결정.
-- **핵심 결정:** 기존 `harness_scorecard` **확장**으로 4축 흡수(새 병렬 금지). 측정=자동·행동=비자동. **삭제(가지치기) 우선**·external-review 교차검증. 전파=update(7-7) 재사용.
+- **핵심 결정:** 기존 `harness_scorecard` **확장**으로 4축 흡수(새 병렬 금지). 측정=현재 비자동(P0-M 전)·행동=비자동. **삭제(가지치기) 우선**·external-review 교차검증. 전파=update(7-7) 재사용.

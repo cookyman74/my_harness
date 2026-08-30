@@ -46,7 +46,7 @@
 - **AE4** 단순화: `#/eval`에 아티팩트 카드가 **1급 뷰**로 노출·과정 지표(loop/verdicts)는 접힘/보조.
 - **AE5** 삭제 테스트: 문장/섹션 "지워도 행동 불변" 판정 → 삭제후보 findings. **delete-candidate = 고위험(사람 승인 필수)**. 자동 적용은 (a)external-review 양엔진 동의 + (b)동적 테스트(트리거 eval·드라이런) **필수 통과**(없으면 자동 불가) + (c)outcome holdout 무저하, **3중 AND**만. 교차검증 불가(리뷰어 0/offline)=적용 불가·제안만.
 - **AE5b** 과-축약 방어: 삭제후보가 필수 섹션(완전성 축·에러 핸들링·핵심 제약)을 건드리면 **자동 거부**.
-- **AE6** 자동 개선 안전·Goodhart 차단: 측정=자동 / 행동=비자동(기본 OFF). **재평가 성공 판정 = 같은 rubric 재측정 금지 → outcome holdout**(대표 요청 before/after: 트리거·참조로딩·산출물·금지케이스·회귀). rubric 점수는 부차 신호. rolling 3연속 하락·holdout 전 자동 흐름 변경 금지.
+- **AE6** 자동 개선 안전·Goodhart 차단: 측정=현재 비자동(P0-M 전) / 행동=비자동(기본 OFF). **재평가 성공 판정 = 같은 rubric 재측정 금지 → outcome holdout**(대표 요청 before/after: 트리거·참조로딩·산출물·금지케이스·회귀). rubric 점수는 부차 신호. rolling 3연속 하락·holdout 전 자동 흐름 변경 금지.
 - **AE7** 전파: 승인 정본 수정 → `update`(7-7) 재전파. **provenance·local divergence 감지(사용자 로컬 의존 충돌 시 자동 스킵)·per-artifact 승인**. pre-commit check-artifacts.
 - **AE8** 커버리지·종류별 rubric: 계층A(정적)는 슬림 포함 전 하네스. 계층B(LLM) 선택·offline fail-open. **4축은 md 자연어 정의 전용**·Codex TOML 등 구조화 파일은 별도 rubric(필드/스키마·삭제·유도 미적용). `evaluation_mode`(static/deep/cross_checked)·confidence 병기·롤업 mode 분리.
 - **AE9** 신뢰도 세탁 방지: 계층A 과락 시 계층B로 등급 세탁 불가(min-gate). target = content-hash anchor(line-only stale 방지). 빈 하네스·non-md·대형 정의 처리 정의.
