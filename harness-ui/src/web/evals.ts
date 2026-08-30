@@ -352,3 +352,29 @@ export function diagLiveMessage(sc: ApiState, trend: ApiState): string {
   if (sc.err || trend.err) return "구성 건강도 진단 불러오기 실패";
   return "구성 건강도 진단 불러오기 완료";
 }
+
+// ── P0-e 초안 주입 결정 ──────────────────────────────────────────────────────
+export type DraftInjectDecision = "inject" | "skip-already-injected" | "skip-stale";
+
+/**
+ * 딥링크로 받은 초안을 편집 버퍼에 주입할지 결정한다.
+ *
+ * 순서가 이 로직의 전부다(P0-e R3):
+ *  ① **이미 이 runId 로 주입했으면** 아무것도 바꾸지 않는다. 저장에 성공하면 정의가 바뀌어
+ *     재조회 결과가 stale 이 되는데, stale 을 먼저 보면 **성공한 작업을 "반영하지 않음"으로
+ *     뒤집어** 표시한다.
+ *  ② 아직 주입한 적 없는데 stale 이면 주입하지 않는다. 주입했다고 말해서도 안 된다 —
+ *     편집기엔 현재 정의 원본이 남아 있어 사용자가 초안인 줄 알고 저장한다.
+ *
+ * 순수 함수로 둔 이유: 컴포넌트 안에 두면 테스트가 `if` 문의 **텍스트 순서**를 단언하게 되고
+ * (P0-c 에서 겪은 형태 추적), 논리적으로 동등한 리팩터링에 거짓 실패한다.
+ */
+export function draftInjectDecision(a: {
+  runId: string;
+  injectedRunId: string | null;
+  stale: boolean;
+}): DraftInjectDecision {
+  if (a.injectedRunId === a.runId) return "skip-already-injected";
+  if (a.stale) return "skip-stale";
+  return "inject";
+}

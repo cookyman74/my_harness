@@ -36,7 +36,7 @@ import {
   evalsEmptyState, proposalDisabledText, gateShortfalls,
   parseIntInput, thresholdError, thresholdDiff, thresholdsValid,
   stageNeedsHighRiskConfirm, adoptionStageLabel, buildConfigPatch, evalsConfigErrorText,
-  diagLiveMessage,
+  diagLiveMessage, draftInjectDecision,
 } from "./evals.js";
 import {
   defEditErrorText, diffLines, diffStats, hasChanges, isDiffCoarse, sideRows,
@@ -651,16 +651,18 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
           //   **방금 저장한 사용자 편집분이 과거 AI 초안으로 덮어써지고**, 사용자가 모르고
           //   다시 저장하면 편집이 영구 유실된다.
           // 게다가 저장 후의 초안은 stale(원본이 바뀜)이라 주입 대상이 아니다.
-          // **이미 이 runId 로 주입했으면 상태를 건드리지 않고 빠진다.**
-          //   이 검사가 stale 검사보다 **먼저** 와야 한다(R3 양 엔진): 저장에 성공하면
-          //   정의가 바뀌어 재조회 결과가 stale 이 되는데, 그때 stale 을 먼저 보면
-          //   "반영하지 않았습니다" 로 뒤집혀 **성공한 작업을 실패처럼** 표시한다.
-          if (injectedRid.current === remediateRunId) return;
-          // 아직 주입한 적 없는데 초안이 stale 이면 주입하지 않는다. 그 사실을 UI 에 알린다 —
-          //   안 그러면 "반영됨" 배너만 뜨고 편집기엔 원본이 남아 사용자가 초안인 줄 알고 저장한다.
-          if (r.stale) { setDraftState("skipped-stale"); return; }
-          injectedRid.current = remediateRunId;
+          // 결정은 순수 함수가 한다(evals.ts) — 컴포넌트 안에 두면 테스트가 if 문 순서를
+          //   문자열로 단언하게 되고, 동등한 리팩터링에 거짓 실패한다(P0-c 교훈).
+          const decision = draftInjectDecision({
+            runId: remediateRunId, injectedRunId: injectedRid.current, stale: r.stale === true,
+          });
+          if (decision === "skip-stale") { setDraftState("skipped-stale"); return; }
+          // 이미 주입한 runId 로 **되돌아온** 경우에도 상태를 복원한다(R4 agy HIGH):
+          //   A(정상)→B(stale)→A 로 오가면 draftState 에 B 의 잔재가 남아, 정상 주입된 A 에서
+          //   "반영하지 않았습니다" 가 뜬다. ref 는 남고 state 는 덮어써지기 때문이다.
           setDraftState("injected");
+          if (decision === "skip-already-injected") return;
+          injectedRid.current = remediateRunId;
           setEdited(r.proposedContent); setShowDiff(true); setMode("edit");
         }
       } catch (e) { if (live) setRemed({ status: "invalid", error: e instanceof DefEditError ? e.code : String(e) }); }

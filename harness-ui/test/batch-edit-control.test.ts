@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 import { readFile } from "node:fs/promises";
 import ts from "typescript";
 import { draftEditLink, returnToFromHash, bulkApplyItems } from "../src/web/screens.js";
+import { draftInjectDecision } from "../src/web/evals.js";
 import type { BatchItemView } from "../src/web/api.js";
 
 describe("P0-e — 초안 편집 딥링크", () => {
@@ -144,21 +145,9 @@ describe("P0-e — 배너 정직성·이탈 보호", () => {
     return src.slice(i, src.indexOf("}, [remediateRunId, doc]);", i));
   };
 
-  it("이미 주입한 runId 는 상태를 건드리지 않는다 — 저장 성공이 실패로 뒤집히면 안 된다", async () => {
+  it("결정 로직이 순수 함수로 분리돼 있다(if 순서를 문자열로 단언하지 않기 위해)", async () => {
     const body = draftEffect(await load());
-    const already = body.indexOf("injectedRid.current === remediateRunId");
-    const staleChk = body.indexOf("if (r.stale)");
-    expect(already, "중복 주입 가드가 없다").toBeGreaterThan(-1);
-    expect(staleChk, "stale 가드가 없다").toBeGreaterThan(-1);
-    // 순서가 뒤집히면: 저장 성공 → 재조회 stale → "반영하지 않았습니다" 로 오표시(R3 양 엔진).
-    expect(already, "stale 검사가 중복 주입 가드보다 먼저다 — 저장 성공이 실패처럼 표시된다")
-      .toBeLessThan(staleChk);
-  });
-
-  it("미주입 사유를 상태로 구분한다(boolean 이면 언제나 stale 로 오표시)", async () => {
-    const body = draftEffect(await load());
-    expect(body).toContain('setDraftState("skipped-stale")');
-    expect(body).toContain('setDraftState("injected")');
+    expect(body, "draftInjectDecision 을 쓰지 않는다 — 결정이 컴포넌트에 묻혀 있다").toContain("draftInjectDecision");
   });
 
   it("주입하지 않았으면 '반영되었습니다' 라고 말하지 않는다", async () => {
@@ -178,5 +167,36 @@ describe("P0-e — 배너 정직성·이탈 보호", () => {
     const block = src.slice(start, i);
     expect(block, "복귀 링크에 dirty 확인이 없다 — 편집분이 조용히 사라진다").toContain("dirty");
     expect(block).toContain("preventDefault");
+  });
+});
+
+// ── 초안 주입 결정(순수 함수) ────────────────────────────────────────────────
+// R4 agy: if 문의 텍스트 순서를 단언하면 동등한 리팩터링에 거짓 실패한다.
+// 결정 자체를 순수 함수로 빼서 입력→출력으로 검증한다(P0-c 에서 배운 방식).
+describe("P0-e — draftInjectDecision", () => {
+  it("처음 보는 초안이고 stale 이 아니면 주입한다", () => {
+    expect(draftInjectDecision({ runId: "r1", injectedRunId: null, stale: false })).toBe("inject");
+  });
+
+  it("이미 주입한 runId 면 stale 이어도 '이미 주입'이다 — 저장 성공이 실패로 뒤집히면 안 된다", () => {
+    // 저장하면 정의가 바뀌어 재조회가 stale 이 된다. 여기서 stale 을 먼저 보면
+    // 성공한 작업이 "반영하지 않음"으로 표시된다(R3 양 엔진).
+    expect(draftInjectDecision({ runId: "r1", injectedRunId: "r1", stale: true }))
+      .toBe("skip-already-injected");
+    expect(draftInjectDecision({ runId: "r1", injectedRunId: "r1", stale: false }))
+      .toBe("skip-already-injected");
+  });
+
+  it("처음 보는 초안인데 stale 이면 주입하지 않는다", () => {
+    expect(draftInjectDecision({ runId: "r2", injectedRunId: "r1", stale: true })).toBe("skip-stale");
+    expect(draftInjectDecision({ runId: "r2", injectedRunId: null, stale: true })).toBe("skip-stale");
+  });
+
+  it("다른 초안으로 갔다 돌아와도 판정이 유지된다(A→B→A)", () => {
+    // A 주입 → B(stale) 조회 → A 복귀. A 는 여전히 "이미 주입"이어야 하고,
+    // UI 는 B 의 잔재("반영하지 않았습니다")를 남기면 안 된다(R4 agy HIGH).
+    expect(draftInjectDecision({ runId: "A", injectedRunId: null, stale: false })).toBe("inject");
+    expect(draftInjectDecision({ runId: "B", injectedRunId: "A", stale: true })).toBe("skip-stale");
+    expect(draftInjectDecision({ runId: "A", injectedRunId: "A", stale: false })).toBe("skip-already-injected");
   });
 });
