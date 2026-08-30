@@ -1,8 +1,8 @@
 # 작업계획서 — 하네스 평가 시스템 개선 (P0-M · P0-c · P0-d · B0~B4)
 
 > **근거 문서:** [harness-eval-upgrade-proposal.md](../harness-eval-upgrade-proposal.md)(외부리뷰 R1~R13 수렴·`converged`·alignment 0.98) · [agentbehavior-reference.md](../agentbehavior-reference.md)
-> **경로:** `harness-ui/**` 는 레포 루트 `harness-ui/` 하위. `skills/myharness/**` 는 팩토리 정본(= 모든 생성 하네스에 전파).
-> **코드 정박(전 지점 실재 확인·제안서 §1 에서 대조):** `artifacteval.ts`(Finding union:20·risk:22·evaluation_mode:32·confidence:250,261·completeness:138-145·relOfFinding:51-56·applyRel:199·computeHarnessScorecard 호출:213·rollup.health:44,217-223) · `remediate.ts`(안전 주석:3·REMEDIATION_ACTIONS:17-21·actionSurface:24-25) · `screens.tsx`(HarnessScorecardCard:2058-2161 고아·EvalMain:2319·rel-health:2385-2392·snapshot POST:2066) · `api/index.ts`(artifacts:644·harness-scorecard:775,777,780) · `emit-loop-scorecard.sh`(jq 부재 exit 0:14·eval_status 확인:23~) · `build-scorecard.sh`(summary append) · `run-review.sh`(die_launcher·rc 취합) · `orchestrator-template.md`(강제장치 교리:374,376-378·hook 파싱:419·hook 리터럴:393-398)
+> **경로:** `harness-ui/**` 는 레포 루트 `harness-ui/` 하위. `skills/myharness/**` 는 팩토리 정본. **단 "정본 = 전파"가 아니다** — 실제 전파 여부는 생성 경로(`SKILL.md` 번들)와 `harness-update.sh` 의 `MANAGED_RELS` 로 **단계마다 판정**한다(§게이트·순서 요약의 표). 이 디렉토리 안에도 전파되지 않는 내부 문서가 있다.
+> **코드 정박(전 지점 실재 확인·제안서 §1 에서 대조):** `artifacteval.ts`(Finding union:20·risk:22·evaluation_mode:32·confidence:250,261,278·completeness:138-145·relOfFinding:51-56·applyRel:199·computeHarnessScorecard 호출:213·rollup.health:44,217-223) · `remediate.ts`(안전 주석:3·REMEDIATION_ACTIONS:17-21·actionSurface:24-25) · `screens.tsx`(HarnessScorecardCard:2058-2161 고아·EvalMain:2319·rel-health:2385-2392·snapshot POST:2066) · `api/index.ts`(artifacts:644·harness-scorecard:775,777,780) · `emit-loop-scorecard.sh`(jq 부재 exit 0:14·eval_status 확인:23~) · `build-scorecard.sh`(summary append) · `run-review.sh`(die_launcher·rc 취합) · `orchestrator-template.md`(강제장치 교리:374,376-378·hook 파싱:419·hook 리터럴:393-398)
 
 ---
 
@@ -238,7 +238,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 ## B1 — BEHAVIOR.md 포맷 채택 `⬜ 미착수`
 
 **목표:** 팩토리가 `.agents/behaviors/<name>/BEHAVIOR.md` 를 출력하고 자체 스크립트로 검증한다.
-**등급:** 경량 · **근거:** 제안서 §3 B1 · 참고자료 §2·§4
+**등급:** **중대**(ⓐ 검증기 전파분 — `stabilizer` 3층) · ⓑ 정의·포인터 신설분은 경량 · **근거:** 제안서 §3 B1 · 참고자료 §2·§4 · 전파 실측(§게이트·순서 요약 표)
 
 ### P0 선검증
 - [ ] `.agents/skills/` 듀얼런타임 출력이 실재하는지 확인(같은 관례 계열이라 비용이 낮다는 전제의 근거)
@@ -250,6 +250,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 - [ ] ⚠ `name` 정규식은 스펙 문구대로 `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` — **연속 하이픈 허용**. 원본 구현의 스펙↔코드 불일치(참고자료 §7 #3)를 그대로 베끼지 말 것
 - [ ] 구조적으로 무효한 스펙은 **건너뛰고 진단 노출**(부분 로드 금지 — 참고자료 §4)
 - [ ] `harness-update.sh` MANAGED_RELS 에 신규 스크립트 등록(등록 누락 시 생성 하네스에서 영영 미갱신)
+- [ ] ⚠ **기존 하네스는 검증기만 받고 BEHAVIOR·포인터는 못 받는다**(R9 codex MED) — 소급 마이그레이션을 **하거나**, 안 한다면 "기존 하네스는 B1 미적용"을 명시적으로 기록하라. 등록만 하고 완료로 처리하면 **검증기가 없는 정의를 검사해 전건 fail** 하거나 미적용이 완료로 오판된다
 
 ### 게이트
 - [ ] 정책 감사 PASS · `tests/test-harness-update.sh` PASS
@@ -315,12 +316,17 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 - **모든 단계:** 외부리뷰(codex+agy·러너 제외) **2R 이상 · HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서 + `check-artifacts.sh` · 단일 커밋.
 - **전파 범위는 단계마다 다르다 — 일괄로 "전 생성 하네스 전파"라 쓰지 말 것**(R8 codex MED. 근거는 `harness-update.sh:48` 의 `MANAGED_RELS` 7항목과 생성 번들 실측):
 
-  | 단계 | 실제 전파 범위 | 근거 | 게이트 |
+  | 단계 | 실제 전파 범위 | 근거 | 전파 기인 최소 게이트 |
   |---|---|---|---|
   | 정본 정정 | **전파 없음** — 팩토리 내부 문서만 | `loop-self-eval.md` 는 `MANAGED_RELS` 미등록·생성 번들 미포함(§218). 생성본이 되는 `external-review-loop.md` 엔 해당 오서술 0건 | 정책감사·외부리뷰(회귀 드라이런 불요) |
-  | B1 | **기존 하네스까지** — 단 `check-behaviors.sh` 를 `MANAGED_RELS` 에 **등록해야** 성립 | 등록이 B1 체크리스트 항목. 미등록 시 생성 하네스에서 영영 미갱신 | **중대** — `stabilizer` 3층 |
+  | B1 | **둘로 쪼개진다** — ⓐ `check-behaviors.sh`(검증기)**만** 기존 하네스까지(`MANAGED_RELS` 등록 시) · ⓑ **BEHAVIOR 파일·`CLAUDE.md`/`AGENTS.md` 포인터는 신규 생성분만** | updater 는 `MANAGED_RELS` 의 **파일 복사만** 한다(`harness-update.sh:48`) — Phase 5 산출물(`:247`)을 기존 하네스에 소급 생성하지 않는다 | ⓐ **중대** · ⓑ 정책감사·외부리뷰 |
   | B2 | **신규 생성분만** | `agent-design-patterns.md` 는 생성 시점 입력(`SKILL.md:75·80·90`)이나 `MANAGED_RELS` 미등록 → 기존 하네스는 재생성 전까지 안 받음 | 정책감사·외부리뷰 |
-  | B4 | **전파 없음** — 팩토리 정본 아님 | 대상이 `harness-ui/src/server/adapters/artifacteval.ts` = 앱 코드. 팩토리에 동일 파일 없음 | 외부리뷰·`vitest` |
+  | B4 | **전파 없음** — 팩토리 정본 아님 | 대상이 `harness-ui/src/server/adapters/artifacteval.ts` = 앱 코드. 팩토리에 동일 파일 없음 | 외부리뷰·`vitest` (**최종 등급은 중대 — 안전 기인**, 아래 규칙) |
+
+  **등급 합성 규칙(중요):** 이 표의 마지막 열은 **전파에서만 도출한 최소 게이트**다. 최종 리스크 등급은
+  **`max(전파 기인, 안전 기인)`** 이다 — 전파가 0이어도 안전상 중대일 수 있다. **B4 가 그 예다**: 전파는
+  없지만 삭제 판정 가드라 등급은 **중대**를 유지한다(제안서 §3 B4). 반대로 **B1 은 전파 기인으로 중대가
+  되므로 절의 `등급:` 줄도 중대로 맞춘다.** 표와 절의 `등급:` 줄이 어긋나면 **높은 쪽이 권위**다.
 
   **판정 규칙:** 어떤 단계를 "중대 blast-radius"로 올리려면 **그 단계가 건드리는 파일이 `MANAGED_RELS` 에 있거나 생성 번들에 포함된다는 것을 먼저 실측**하라. "정본 디렉토리에 있으니 전파된다"는 추측이다 — `skills/myharness/references/` 안에도 전파되지 않는 내부 문서가 있다.
 - **TDD**(`dev-rules`·`tdd-doctrine`) · `vitest` · 정책 감사 유지.
