@@ -164,7 +164,7 @@
 - [x] 회귀 테스트 **48건** — `batch-edit-control.test.ts` 25(딥링크·일괄 루프·배선·접근성 계약·JSX 조상 검증) + `batch-session.test.ts` 23(세션 왕복·저장/롤백 전이 전수) — 딥링크 3(경로·runId 부재·인코딩) · 일괄 4(부분성공·예외 격리·**순차 적용**·키 대체) · 배선 계약 2(카드에 링크 존재·`baseHash: d.baseHash` 유지 + stale 거부)
 
 ### 게이트
-- [x] `npx vitest run` **1219 pass**·1 skip · `npx tsc --noEmit` 클린
+- [x] `npx vitest run` **1258 pass**·1 skip · `npx tsc --noEmit` 클린
 - [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
 
 ---

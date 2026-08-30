@@ -236,23 +236,34 @@ describe("P0-e — 큐 진행 상태 보존(왕복 동선의 정직성)", () => 
     // 대신 문구로 원인을 구분한다.
     expect(src).toContain("직접 편집해 저장했다면 이미 반영된 것");
 
-    // ⚠ 문구가 `!done` 블록 **안**에 있으면 정작 "적용됨" 상태에서 안 보인다(R13 agy HIGH).
-    //   문자열 포함만 보던 이전 테스트가 이 배치 결함을 놓쳤다 — 조상 관계로 검증한다.
+    // ⚠ 문구가 처리 완료(`done`/`applied`/`skipped`) 가드 **안**에 있으면 정작 그 상태에서
+    //   안 보인다(R13 agy HIGH). 문자열 `!done` 만 찾으면 `done === false`·
+    //   `!(applied || skipped)` 같은 동등 표현을 놓치므로(R14 agy),
+    //   **조상 가드가 참조하는 식별자**를 모아서 판정한다.
     const sf = ts.createSourceFile("screens.tsx", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-    let staleNote: ts.Node | null = null;
+    let note: ts.JsxElement | null = null;
     const findNote = (n: ts.Node): void => {
-      if (ts.isJsxText(n) && n.getText().includes("초안 생성 후 정의가 바뀌었습니다")) staleNote = n;
+      // ⚠ 앵커는 **배치 카드에만 있는 문구**여야 한다. "초안 생성 후 정의가 바뀌었습니다" 는
+      //   편집기 배너에도 있어서, 이전 판은 엉뚱한 요소를 검사하며 조용히 통과했다(실측 발견).
+      if (ts.isJsxElement(n) && n.getText().includes("직접 편집해 저장했다면") &&
+          n.openingElement.tagName.getText() === "p") note ??= n;
       ts.forEachChild(n, findNote);
     };
     ts.forEachChild(sf, findNote);
-    expect(staleNote, "stale 안내 문구를 못 찾았다").not.toBeNull();
-    // 조상 중에 `!done` 을 조건으로 갖는 표현식이 있으면 안 된다.
-    let p: ts.Node | undefined = staleNote!.parent, guardedByDone = false;
+    expect(note, "stale 안내 <p> 를 못 찾았다").not.toBeNull();
+
+    const guardIds = new Set<string>();
+    let p: ts.Node | undefined = note!.parent;
     while (p) {
-      if (ts.isBinaryExpression(p) && p.getText().includes("!done")) { guardedByDone = true; break; }
+      if (ts.isBinaryExpression(p) && p.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+        const collect = (m: ts.Node): void => { if (ts.isIdentifier(m)) guardIds.add(m.text); ts.forEachChild(m, collect); };
+        collect(p.left);   // && 의 좌변만 가드다(우변은 렌더 대상)
+      }
       p = p.parent;
     }
-    expect(guardedByDone, "stale 안내가 !done 안에 있다 — 적용됨 상태에서 안 보인다").toBe(false);
+    for (const forbidden of ["done", "applied", "skipped"]) {
+      expect(guardIds.has(forbidden), `stale 안내가 '${forbidden}' 가드 안에 있다 — 그 상태에서 안 보인다`).toBe(false);
+    }
   });
 
   it("편집기 저장이 배치 진행에 기록된다(왕복 동선의 핵심 연결)", async () => {
