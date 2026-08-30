@@ -96,7 +96,7 @@ describe("P0-e — batchApplyTransition", () => {
   it("첫 저장은 add, 이어지는 저장은 카운트만 올린다", () => {
     const a = batchApplyTransition(null, save("b1", "r1"));
     expect(a.effect).toEqual({ op: "add", batchId: "b1", runId: "r1" });
-    expect(a.snap).toEqual({ batchId: "b1", runId: "r1", saves: 1 });
+    expect(a.snap).toEqual({ batchId: "b1", runId: "r1", saves: 1, wasApplied: false });
 
     const b = batchApplyTransition(a.snap, save("b1", "r1"));
     expect(b.effect, "중복 add 로 기록이 흔들리면 안 된다").toBeNull();
@@ -133,7 +133,7 @@ describe("P0-e — batchApplyTransition", () => {
     const s = batchApplyTransition(null, save("b1", "r1")).snap;
     const n = batchApplyTransition(s, save("b1", "r2"));
     expect(n.effect).toEqual({ op: "add", batchId: "b1", runId: "r2" });
-    expect(n.snap).toEqual({ batchId: "b1", runId: "r2", saves: 1 });
+    expect(n.snap).toEqual({ batchId: "b1", runId: "r2", saves: 1, wasApplied: false });
   });
 });
 
@@ -172,5 +172,34 @@ describe("P0-e — 비배치 저장이 끼어드는 경우(R10)", () => {
     expect(r1.snap).toBeNull();
     const r2 = batchApplyTransition(r1.snap, rollback);
     expect(r2).toEqual({ snap: null, effect: null });
+  });
+});
+
+describe("P0-e — 이미 적용된 항목의 재저장(R11)", () => {
+  const save = (batchId: string | null, runId: string | null, wasApplied = false) =>
+    ({ type: "save" as const, batchId, runId, wasApplied });
+  const rollback = { type: "rollback" as const };
+
+  it("배치 A 저장 → 비배치 저장 → A 재저장 → 롤백: 기록을 지우지 않는다", () => {
+    // 첫 저장분은 백업 아래에 영구히 남는다. 재저장 스냅샷만 보고 remove 하면
+    // 실제 적용된 항목이 미처리로 강등된다(R11 양 엔진 HIGH/MED).
+    let s = batchApplyTransition(null, save("A", "r1")).snap;          // add
+    s = batchApplyTransition(s, save(null, null)).snap;                 // 추적 폐기
+    s = batchApplyTransition(s, save("A", "r1", true)).snap;            // 재저장(이미 적용됨)
+    const r = batchApplyTransition(s, rollback);
+    expect(r.effect, "이미 적용된 항목이 롤백으로 미처리가 된다").toBeNull();
+    expect(r.snap).toBeNull();
+  });
+
+  it("이미 적용된 항목을 저장하면 중복 add 하지 않는다", () => {
+    const a = batchApplyTransition(null, save("A", "r1", true));
+    expect(a.effect).toBeNull();
+    expect(a.snap).toEqual({ batchId: "A", runId: "r1", saves: 1, wasApplied: true });
+  });
+
+  it("적용된 적 없는 항목은 종전대로 add 하고 롤백 시 remove 한다", () => {
+    const a = batchApplyTransition(null, save("A", "r1", false));
+    expect(a.effect).toEqual({ op: "add", batchId: "A", runId: "r1" });
+    expect(batchApplyTransition(a.snap, rollback).effect).toEqual({ op: "remove", batchId: "A", runId: "r1" });
   });
 });

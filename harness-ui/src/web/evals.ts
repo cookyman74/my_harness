@@ -419,7 +419,9 @@ export function updateBatchApplied(batchId: string, runId: string, op: "add" | "
 }
 
 // ── P0-e 배치 적용 스냅샷(저장/되돌리기 대칭) ────────────────────────────────
-export type BatchApplySnapshot = { batchId: string; runId: string; saves: number } | null;
+export type BatchApplySnapshot =
+  | { batchId: string; runId: string; saves: number; wasApplied: boolean }
+  | null;
 
 /**
  * 저장/되돌리기가 배치 적용 기록을 어떻게 바꿔야 하는지 결정한다.
@@ -427,30 +429,38 @@ export type BatchApplySnapshot = { batchId: string; runId: string; saves: number
  *
  * 규칙:
  *  - 저장: 이 항목의 첫 저장이면 기록을 **더한다**. 이어지는 저장은 카운트만 올린다.
- *  - 되돌리기: **저장 시점 스냅샷**을 쓴다(호출 시점 해시가 아니다 — 그 사이 해시가 바뀌면
- *    엉뚱한 배치를 지운다). 카운트가 0이 될 때만 **뺀다** — 연속 저장 후 마지막만
- *    되돌리면 파일엔 이전 저장이 남아 여전히 적용 상태다.
+ *    이때 **저장 직전의 적용 여부**(`wasApplied`)를 함께 기억한다.
+ *  - 비배치 저장: 새 백업 층이 덮였으므로 이 편집기는 더 이상 이전 배치의 롤백 주체가
+ *    아니다 → 추적을 폐기한다.
+ *  - 되돌리기: **저장 시점 스냅샷**을 쓴다(호출 시점 해시가 아니다). 카운트가 0이 되고
+ *    **저장 전에 적용 상태가 아니었을 때만** 뺀다.
+ *
+ * `wasApplied` 가 필요한 이유(R11 양 엔진): `배치 A 저장 → 비배치 저장 → A 재저장 → 롤백`
+ * 에서 첫 저장분은 백업 아래에 **영구히 남는다**. 재저장 스냅샷만 보고 remove 하면
+ * 실제 적용된 항목이 미처리로 강등된다. 이미 적용돼 있었다면 되돌려도 적용 상태다.
  */
 export function batchApplyTransition(
   snap: BatchApplySnapshot,
-  event: { type: "save"; batchId: string | null; runId: string | null } | { type: "rollback" },
+  event:
+    | { type: "save"; batchId: string | null; runId: string | null; wasApplied?: boolean }
+    | { type: "rollback" },
 ): { snap: BatchApplySnapshot; effect: { op: "add" | "remove"; batchId: string; runId: string } | null } {
   if (event.type === "save") {
-    // **비배치 저장이면 추적을 폐기한다**(R10 양 엔진). 그대로 유지하면
-    //   `배치 A 저장 → 비배치 저장 → 롤백` 에서 파일엔 A 가 남는데(롤백은 직전 백업만
-    //   되돌린다) 기록만 지워져, 실제 적용된 A 가 큐에서 미처리로 보인다.
-    //   새 저장이 백업 층을 덮었으므로 이 편집기는 더 이상 A 의 롤백 주체가 아니다.
     if (!event.batchId || !event.runId) return { snap: null, effect: null };
     if (snap && snap.batchId === event.batchId && snap.runId === event.runId) {
       return { snap: { ...snap, saves: snap.saves + 1 }, effect: null };
     }
+    const wasApplied = event.wasApplied === true;
     return {
-      snap: { batchId: event.batchId, runId: event.runId, saves: 1 },
-      effect: { op: "add", batchId: event.batchId, runId: event.runId },
+      snap: { batchId: event.batchId, runId: event.runId, saves: 1, wasApplied },
+      // 이미 적용 상태였으면 다시 add 할 필요가 없다(Set 이라 무해하지만 의도를 분명히).
+      effect: wasApplied ? null : { op: "add", batchId: event.batchId, runId: event.runId },
     };
   }
-  if (!snap) return { snap, effect: null };                              // 이 편집기에서 저장한 적 없음
+  if (!snap) return { snap, effect: null };
   const saves = snap.saves - 1;
   if (saves > 0) return { snap: { ...snap, saves }, effect: null };
+  // 저장 전에 이미 적용돼 있었다면 되돌려도 여전히 적용 상태다 — 기록을 지우지 않는다.
+  if (snap.wasApplied) return { snap: null, effect: null };
   return { snap: null, effect: { op: "remove", batchId: snap.batchId, runId: snap.runId } };
 }

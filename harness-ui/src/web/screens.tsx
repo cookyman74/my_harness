@@ -750,7 +750,14 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
     batchApply.current = snap;
     if (effect) updateBatchApplied(effect.batchId, effect.runId, effect.op);
   };
-  const markBatchSaved = () => applyTransition({ type: "save", batchId: batchIdFromHash(returnTo), runId: remediateRunId ?? null });
+  const markBatchSaved = () => {
+    const bid = batchIdFromHash(returnTo);
+    // 저장 **직전**의 적용 여부를 읽어 전이에 넘긴다 — 이미 적용된 항목은 되돌려도
+    //   적용 상태로 남아야 한다(R11 양 엔진).
+    const wasApplied = bid && remediateRunId
+      ? readSessionSet(batchSessionKey(bid, "applied")).has(remediateRunId) : false;
+    applyTransition({ type: "save", batchId: bid, runId: remediateRunId ?? null, wasApplied });
+  };
   const markBatchRolledBack = () => applyTransition({ type: "rollback" });
 
   const doRollback = async () => {
