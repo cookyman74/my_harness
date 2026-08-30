@@ -38,6 +38,7 @@ import {
   stageNeedsHighRiskConfirm, adoptionStageLabel, buildConfigPatch, evalsConfigErrorText,
   diagLiveMessage, draftInjectDecision,
   batchSessionKey, batchIdFromHash, readSessionSet, writeSessionSet, updateBatchApplied,
+  batchApplyTransition, type BatchApplySnapshot,
 } from "./evals.js";
 import {
   defEditErrorText, diffLines, diffStats, hasChanges, isDiffCoarse, sideRows,
@@ -701,7 +702,7 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
       // P0-e R7(codex HIGH): 이 저장이 **배치 검토 큐에서 온 초안 편집**이면 그 항목을
       //   적용됨으로 기록한다. 이 연결이 없으면 큐로 돌아갔을 때 여전히 "미처리 + stale"
       //   로 보여, 방금 끝낸 작업이 실패처럼 표시된다(R6 수정이 이 경로를 못 덮었다).
-      syncBatchApplied("add");
+      markBatchSaved();
       // canonical 재직렬화본을 재조회해 diff 기준 갱신(실패해도 저장 성공 배너 유지·A83).
       try { const d = await getDefinition(kind, name); setDoc(d); setEdited(d.content); setBaseHash(d.baseHash); } catch { /* 재조회 실패 격리 */ }
     } catch (e) {
@@ -732,11 +733,25 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
   };
 
   // "되돌리기" = POST rollback(expectedCurrentHash=newHash·backupHash=prevHash). 성공 → 재조회 반영.
-  /** 이 편집이 배치 검토 큐에서 온 것이면 그 항목의 적용 기록을 갱신한다. */
-  const syncBatchApplied = (op: "add" | "remove") => {
-    const bid = batchIdFromHash(returnTo);
-    if (bid && remediateRunId) updateBatchApplied(bid, remediateRunId, op);
+  /**
+   * 배치 적용 기록 갱신. **저장 시점의 식별자를 스냅샷으로 고정**해서 쓴다(R9 양 엔진).
+   *
+   * 왜: 롤백은 저장보다 나중에 일어나는데, 그 사이 해시가 바뀌면(`returnTo`·`remediate`
+   * 수정·다른 딥링크) 호출 시점 값으로는 **엉뚱한 배치 항목**을 지운다. 원래 항목은
+   * "적용됨"으로 남고 무관한 항목이 미처리가 된다.
+   *
+   * 저장 횟수도 센다: 연속 저장(1→2) 후 **마지막만 롤백**하면 파일엔 첫 저장 결과가
+   * 남으므로 여전히 적용된 상태다. 이때 기록을 지우면 실제 적용된 작업이 미처리로 보인다.
+   * 카운트가 0이 될 때만 제거한다.
+   */
+  const batchApply = useRef<BatchApplySnapshot>(null);
+  const applyTransition = (event: Parameters<typeof batchApplyTransition>[1]) => {
+    const { snap, effect } = batchApplyTransition(batchApply.current, event);
+    batchApply.current = snap;
+    if (effect) updateBatchApplied(effect.batchId, effect.runId, effect.op);
   };
+  const markBatchSaved = () => applyTransition({ type: "save", batchId: batchIdFromHash(returnTo), runId: remediateRunId ?? null });
+  const markBatchRolledBack = () => applyTransition({ type: "rollback" });
 
   const doRollback = async () => {
     if (!saveResult) return;
@@ -746,7 +761,7 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
       setSaveResult(null); setRolledBack(true);
       // 되돌리면 파일이 원상복구돼 서버 stale 이 풀린다. 세션 기록을 안 지우면 큐에서
       //   **취소한 작업이 "적용됨"으로 보인다**(R8 agy HIGH). 기록도 함께 되돌린다.
-      syncBatchApplied("remove");
+      markBatchRolledBack();
       const d = await getDefinition(kind, name); setDoc(d); setEdited(d.content); setBaseHash(d.baseHash);
     } catch (e) {
       setErr(e instanceof DefEditError ? defEditErrorText(e.code, e.status, e.detail) : String(e));

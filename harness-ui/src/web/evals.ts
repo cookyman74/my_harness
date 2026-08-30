@@ -417,3 +417,36 @@ export function updateBatchApplied(batchId: string, runId: string, op: "add" | "
   if (op === "add") s.add(runId); else s.delete(runId);
   writeSessionSet(key, s);
 }
+
+// ── P0-e 배치 적용 스냅샷(저장/되돌리기 대칭) ────────────────────────────────
+export type BatchApplySnapshot = { batchId: string; runId: string; saves: number } | null;
+
+/**
+ * 저장/되돌리기가 배치 적용 기록을 어떻게 바꿔야 하는지 결정한다.
+ * 순수 함수라 **행동으로** 검증할 수 있다(R9 agy: 문자열 검사는 대칭을 강제하지 못한다).
+ *
+ * 규칙:
+ *  - 저장: 이 항목의 첫 저장이면 기록을 **더한다**. 이어지는 저장은 카운트만 올린다.
+ *  - 되돌리기: **저장 시점 스냅샷**을 쓴다(호출 시점 해시가 아니다 — 그 사이 해시가 바뀌면
+ *    엉뚱한 배치를 지운다). 카운트가 0이 될 때만 **뺀다** — 연속 저장 후 마지막만
+ *    되돌리면 파일엔 이전 저장이 남아 여전히 적용 상태다.
+ */
+export function batchApplyTransition(
+  snap: BatchApplySnapshot,
+  event: { type: "save"; batchId: string | null; runId: string | null } | { type: "rollback" },
+): { snap: BatchApplySnapshot; effect: { op: "add" | "remove"; batchId: string; runId: string } | null } {
+  if (event.type === "save") {
+    if (!event.batchId || !event.runId) return { snap, effect: null };   // 배치에서 온 편집이 아니다
+    if (snap && snap.batchId === event.batchId && snap.runId === event.runId) {
+      return { snap: { ...snap, saves: snap.saves + 1 }, effect: null };
+    }
+    return {
+      snap: { batchId: event.batchId, runId: event.runId, saves: 1 },
+      effect: { op: "add", batchId: event.batchId, runId: event.runId },
+    };
+  }
+  if (!snap) return { snap, effect: null };                              // 이 편집기에서 저장한 적 없음
+  const saves = snap.saves - 1;
+  if (saves > 0) return { snap: { ...snap, saves }, effect: null };
+  return { snap: null, effect: { op: "remove", batchId: snap.batchId, runId: snap.runId } };
+}
