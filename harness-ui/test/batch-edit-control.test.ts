@@ -134,3 +134,37 @@ describe("P0-e — 초안 주입은 runId 당 1회(편집 덮어쓰기 방지)",
     expect(src).toContain("returnToFromHash");
   });
 });
+
+describe("P0-e — 배너 정직성·이탈 보호", () => {
+  const load = async () => readFile(new URL("../src/web/screens.tsx", import.meta.url), "utf8");
+
+  it("주입하지 않았으면 '반영되었습니다' 라고 말하지 않는다", async () => {
+    const src = await load();
+    // 성공 배너는 injected 일 때만. stale 로 주입을 건너뛰면 편집기엔 원본이 남는데
+    // "반영됨"이라 하면 사용자가 초안인 줄 알고 저장한다(R2 양 엔진).
+    const okBanner = src.indexOf("AI 초안이 반영되었습니다");
+    expect(okBanner).toBeGreaterThan(-1);
+    const before = src.slice(Math.max(0, okBanner - 200), okBanner);
+    expect(before, "성공 배너가 injected 조건 없이 렌더된다").toContain("injected");
+    // 주입 안 한 경우를 알리는 별도 배너가 있어야 한다.
+    expect(src).toContain("반영하지 않았습니다");
+  });
+
+  it("stale 초안은 주입하지 않고 그 사실을 상태로 남긴다", async () => {
+    const src = await load();
+    const i = src.indexOf("초안 잡 폴링");
+    const body = src.slice(i, src.indexOf("}, [remediateRunId, doc]);", i));
+    expect(body).toMatch(/if \(r\.stale\)/);
+    expect(body).toContain("setInjected(false)");
+    expect(body).toContain("setInjected(true)");
+  });
+
+  it("복귀 링크가 미저장 편집 확인을 우회하지 않는다", async () => {
+    const src = await load();
+    const i = src.indexOf("검토 큐로 돌아가기");
+    const block = src.slice(Math.max(0, i - 500), i);
+    // 해시 라우팅은 unload 가 아니라 beforeunload 보호가 안 걸린다 → onClick 게이트 필요.
+    expect(block, "복귀 링크에 dirty 확인이 없다 — 편집분이 조용히 사라진다").toContain("dirty");
+    expect(block).toContain("preventDefault");
+  });
+});
