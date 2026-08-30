@@ -248,11 +248,16 @@ describe("P0-d 고아 차단 — 프로젝트 범위 도달성(AST·대상 비�
     for (const f of files) {
       const sf = parse(f, await readFile(f, "utf8"));
       const hasDefault = sf.statements.some((st) =>
-        ts.isExportAssignment(st) ||                                   // export default X
-        ((ts.isFunctionDeclaration(st) || ts.isClassDeclaration(st)) &&  // export default function/class
-          st.modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword)) ||
-        (ts.isExportDeclaration(st) && st.exportClause && ts.isNamedExports(st.exportClause) &&
-          st.exportClause.elements.some((e) => e.name.text === "default")), // export { X as default }
+        // ① export default X — 단 `export = X` 는 CommonJS 이지 default 가 아니다(R5 codex).
+        (ts.isExportAssignment(st) && !st.isExportEquals) ||
+        // ② export default function/class/interface/… — 선언 종류를 열거하지 않고
+        //    **modifier 를 일반적으로** 본다. 열거하면 interface 같은 형태를 계속 흘린다(R5 양 엔진).
+        (ts.canHaveModifiers(st) && ts.getModifiers(st)?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword)) ||
+        // ③ export { X as default } / export * as default from '…'(NamespaceExport·R5 agy)
+        (ts.isExportDeclaration(st) && st.exportClause != null && (
+          (ts.isNamedExports(st.exportClause) && st.exportClause.elements.some((e) => e.name.text === "default")) ||
+          (ts.isNamespaceExport(st.exportClause) && st.exportClause.name.text === "default")
+        )),
       );
       if (hasDefault) withDefault.push(f.replace(SRC, "src"));
     }
