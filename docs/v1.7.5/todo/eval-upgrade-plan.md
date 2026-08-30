@@ -122,7 +122,7 @@
 
 ---
 
-## P0-e — 일괄 반영 경로의 편집 통제 복원 `🔍 리뷰중(R13)`
+## P0-e — 일괄 반영 경로의 편집 통제 복원 `✅ 완료(no-high·no-med 2연속)`
 
 **목표:** 일괄(batch) 반영에서 사용자가 **AI 초안을 고칠 수 없는** 비대칭을 해소한다.
 **등급:** 표준(`harness-ui` 한정·정본 전파 없음) · **근거:** 코드 실측(아래)
@@ -165,7 +165,7 @@
 
 ### 게이트
 - [x] `npx vitest run` **1258 pass**·1 skip · `npx tsc --noEmit` 클린
-- [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
+- [x] 외부리뷰 **R1~R16** · **HIGH 0 · MEDIUM 0 2연속**(R15·R16) · 측정 꼬리 발행(`alignment 1.0` · `regression_catch 1.4`) · 결과서 `../working_history/P0-e-batch-edit.md`
 
 ---
 
