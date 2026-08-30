@@ -2073,9 +2073,14 @@ function HarnessScorecardCard() {
   };
   return (
     // Card 로 감싸지 않는다 — 호출부가 이미 `<Card>` 안 `<details>` 다(중첩 방지·R1 agy MED).
-    // aria-live: 지연 마운트라 펼친 뒤 내용이 비동기로 채워진다 — 로딩·완료가
-    //   스크린리더에 전달되지 않으면 사용자는 무엇이 생겼는지 알 수 없다(R5 양 엔진).
-    <div className="sc-diag-body" aria-live="polite" aria-busy={sc.loading || trend.loading}>
+    // ⚠ `aria-live` 를 이 컨테이너에 걸지 말 것(R6 양 엔진) — 요약·결함·추세 표를 전부
+    //   감싸고 있어서, 로드가 끝나면 스크린리더가 **표 전체를 통째로 읽는다**(과다 방송).
+    //   상태 통지는 아래 작은 전용 영역이 맡고, 여기엔 `aria-busy` 만 둔다.
+    <div className="sc-diag-body" aria-busy={sc.loading || trend.loading}>
+      {/* 스크린리더 전용 상태 통지 — 짧은 문장만 방송한다. */}
+      <p className="sr-only" role="status">
+        {sc.loading || trend.loading ? "구성 건강도 진단 불러오는 중" : sc.err || trend.err ? "구성 건강도 진단 불러오기 실패" : "구성 건강도 진단 불러오기 완료"}
+      </p>
       <p className="muted">
         하네스 <b>구성 상태</b>(에이전트·스킬·오케스트레이터 연결)를 정적 파싱으로 측정. 아래 루프 평가는 보조 신호(loop_ref). ·
         <b>미선언(link_unknown)은 "아직 모름"</b>(감점 아님·마이그레이션 부채) — 고아(확실히 무연결)와 구분.

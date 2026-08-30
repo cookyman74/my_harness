@@ -298,6 +298,9 @@ details.tier-b[open] > summary { margin-bottom:8px; }
 /* P0-c 구성 건강도 진단 본문 — Card 를 중첩하지 않으므로(호출부가 이미 Card 안 details)
    Card 가 주던 여백만 여기서 준다. */
 .sc-diag-body { padding:4px 0 2px; }
+/* 스크린리더 전용 — 시각적으로 숨기되 접근성 트리에는 남긴다.
+   `display:none`·`visibility:hidden` 은 아예 안 읽히므로 쓰면 안 된다. */
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
 .sc-diag-body > .sc-sub:first-of-type { margin-top:0; }  /* 첫 자식은 <p> 라 first-child 는 죽은 규칙이었다(R3 codex) */
 
 /* 모달 + 전역 재연결 오버레이 */

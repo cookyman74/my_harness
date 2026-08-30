@@ -203,26 +203,56 @@ describe("P0-c — 진단 뷰 배선 계약(AST)", () => {
   });
 });
 
-describe("P0-c — 진단 뷰 접근성 계약", () => {
-  const load = async () => readFile(new URL("../src/web/screens.tsx", import.meta.url), "utf8");
+describe("P0-c — 진단 뷰 접근성 계약(AST)", () => {
+  // R6 agy: 소스 문자열 정규식은 변수명·공백만 바뀌어도 깨지고, 계약이 아니라 표기를 검사한다.
+  //   JSX 속성을 AST 로 확인해 **무엇이 어디에 붙어 있는가**를 계약으로 고정한다.
+  const cardBody = async (): Promise<ts.FunctionDeclaration> => {
+    const src = await readFile(new URL("../src/web/screens.tsx", import.meta.url), "utf8");
+    const sf = ts.createSourceFile("screens.tsx", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    let fn: ts.FunctionDeclaration | null = null;
+    ts.forEachChild(sf, (n) => { if (ts.isFunctionDeclaration(n) && n.name?.text === "HarnessScorecardCard") fn = n; });
+    expect(fn, "HarnessScorecardCard 선언을 못 찾았다").not.toBeNull();
+    return fn!;
+  };
+  const opens = (root: ts.Node): ts.JsxOpeningLikeElement[] => {
+    const out: ts.JsxOpeningLikeElement[] = [];
+    const visit = (n: ts.Node): void => {
+      if (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) out.push(n);
+      ts.forEachChild(n, visit);
+    };
+    visit(root); return out;
+  };
+  const attr = (el: ts.JsxOpeningLikeElement, name: string): string | null => {
+    for (const a of el.attributes.properties) {
+      if (ts.isJsxAttribute(a) && a.name.getText() === name) return a.initializer?.getText() ?? "";
+    }
+    return null;
+  };
+  const cls = (el: ts.JsxOpeningLikeElement) => attr(el, "className") ?? "";
 
-  it("스냅샷 실패가 성공과 구분된다(실패를 성공으로 오판하지 않는다)", async () => {
-    const src = await load();
-    const s = src.indexOf("function HarnessScorecardCard()");
-    const body = src.slice(s, src.indexOf("\n}\n", s));
-    // 실패 경로가 별도 상태로 분리돼 있어야 한다 — 같은 .muted span 이면 구분 불가.
-    expect(body).toMatch(/failed:\s*true/);
-    expect(body).toMatch(/role=\{snapMsg\.failed \? "alert" : "status"\}/);
-    expect(body).toMatch(/className=\{snapMsg\.failed \? "err" : "muted"\}/);
+  it("상태 통지는 작은 전용 영역이 맡는다 — 표 컨테이너를 라이브로 만들지 않는다", async () => {
+    const body = await cardBody();
+    const els = opens(body);
+    const container = els.find((e) => cls(e).includes("sc-diag-body"));
+    expect(container, "sc-diag-body 컨테이너가 없다").toBeTruthy();
+
+    // 과다 방송 회귀 차단: 표 전체를 감싸는 컨테이너에 aria-live 를 걸면
+    // 로드 완료 시 스크린리더가 표를 통째로 읽는다(R6 양 엔진).
+    expect(attr(container!, "aria-live"), "표 컨테이너에 aria-live 가 붙었다 — 과다 방송").toBeNull();
+    expect(attr(container!, "aria-busy"), "aria-busy 가 없다").toBeTruthy();
+
+    // 대신 짧은 문장만 방송하는 전용 영역이 있어야 한다.
+    const live = els.find((e) => (attr(e, "role") ?? "").includes("status") && cls(e).includes("sr-only"));
+    expect(live, "sr-only role=status 상태 영역이 없다 — 로딩·완료가 전달되지 않는다").toBeTruthy();
   });
 
-  it("비동기 로딩·완료가 스크린리더에 전달된다", async () => {
-    const src = await load();
-    const s = src.indexOf("function HarnessScorecardCard()");
-    const body = src.slice(s, src.indexOf("\n}\n", s));
-    // 지연 마운트라 펼친 뒤 내용이 비동기로 채워진다 — aria-live 가 없으면 무엇이
-    // 생겼는지 알 수 없다.
-    expect(body).toContain('aria-live="polite"');
-    expect(body).toMatch(/aria-busy=/);
+  it("스냅샷 실패가 성공과 구분된다(실패를 성공으로 오판하지 않는다)", async () => {
+    const body = await cardBody();
+    // 실패/성공에 따라 role 과 className 이 갈리는 요소가 있어야 한다.
+    const split = opens(body).find((e) => {
+      const r = attr(e, "role") ?? "", c = cls(e);
+      return r.includes("alert") && r.includes("status") && c.includes("err") && c.includes("muted");
+    });
+    expect(split, "실패와 성공이 같은 표기로 렌더된다 — 실패를 안내로 오판한다").toBeTruthy();
   });
 });
