@@ -43,7 +43,7 @@
 
 ## 읽기 경로 (1단계에도 소비자 필수 — write-only 방지)
 측정만 하고 안 읽으면 낭비. 1단계부터 **읽기 경로**를 둔다:
-- `scripts/build-scorecard.sh`가 루프 종료 시 **오케스트레이터가 실행하면** scorecard 발행 + `_workspace/evals/{loop}/summary.jsonl`에 최근 N회 집계(append).
+- `scripts/build-scorecard.sh`가 루프 종료 시 **오케스트레이터가 반드시 실행해야** scorecard 발행(자동 강제 장치 없음 — §1-8·P0-M 구현 후 복원) + `_workspace/evals/{loop}/summary.jsonl`에 최근 N회 집계(append).
 - 오케스트레이터는 **Phase 0(현황 감사)·Phase 7(진화) 진입 시 `summary.jsonl` 1줄 요약만** 읽는다(원본 JSON 미로드 — Lean). 악화 추세가 보이면 사람에게 보고(2단계 수동 검토).
 
 ## loop_scorecard.json 스키마 (신규 — grading.json 재사용 아님)
