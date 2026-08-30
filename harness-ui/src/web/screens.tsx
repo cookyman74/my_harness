@@ -36,6 +36,7 @@ import {
   evalsEmptyState, proposalDisabledText, gateShortfalls,
   parseIntInput, thresholdError, thresholdDiff, thresholdsValid,
   stageNeedsHighRiskConfirm, adoptionStageLabel, buildConfigPatch, evalsConfigErrorText,
+  diagLiveMessage,
 } from "./evals.js";
 import {
   defEditErrorText, diffLines, diffStats, hasChanges, isDiffCoarse, sideRows,
@@ -2064,15 +2065,9 @@ function HarnessScorecardCard() {
   const [liveMsg, setLiveMsg] = useState("");   // 첫 커밋엔 빈 리전만(위 주석 참조)
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    // ⚠ `loading` 만 보면 안 된다(R8 codex): `useApi` 의 초기 loading 은 false 이고
-    //   요청은 별도 effect 에서 시작한다. 그래서 첫 계산이 "완료"로 나가고 뒤이어
-    //   "불러오는 중"으로 뒤집혀, 스크린리더 사용자가 **로드 완료로 오판**한다.
-    //   아직 데이터도 오류도 없으면 = 대기 중이다.
-    const pending = (s: { loading: boolean; data: unknown; err: string | null }) =>
-      s.loading || (s.data == null && s.err == null);
-    setLiveMsg(pending(sc) || pending(trend) ? "구성 건강도 진단 불러오는 중"
-      : sc.err || trend.err ? "구성 건강도 진단 불러오기 실패"
-      : "구성 건강도 진단 불러오기 완료");
+    // 문구 계산은 순수 함수(evals.ts)로 뺐다 — 컴포넌트 안에 두면 테스트가 구현 형태를
+    // 쫓게 된다. 여기서는 "첫 커밋엔 빈 리전, 다음 커밋에 주입"만 담당한다.
+    setLiveMsg(diagLiveMessage(sc, trend));
   }, [sc.loading, sc.data, sc.err, trend.loading, trend.data, trend.err]);
   const recordSnapshot = async () => {
     setBusy(true); setSnapMsg(null);

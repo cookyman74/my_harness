@@ -331,3 +331,24 @@ export function evalsConfigErrorText(code: string, status?: number): string {
     return "입력값이 유효하지 않습니다 — 채택 단계는 1~3, 임계는 각 floor(30/10/3) 이상이어야 합니다(서버 검증 실패).";
   return `설정 저장 실패${status ? ` (${status})` : ""}${code && code !== String(status) ? ` · ${code}` : ""}.`;
 }
+
+// ── P0-c 진단 뷰 상태 통지 ───────────────────────────────────────────────────
+/** `useApi` 가 돌려주는 것 중 상태 판정에 필요한 부분만. */
+export type ApiState = { loading: boolean; data: unknown; err: string | null };
+
+/**
+ * 진단 패널의 스크린리더 상태 문구.
+ *
+ * **`loading` 만 보면 안 된다**: `useApi` 의 초기 `loading` 은 `false` 이고 요청은 별도
+ * effect 에서 시작한다. 그래서 첫 계산이 "완료"로 나가고 뒤이어 "불러오는 중"으로
+ * 뒤집혀, 스크린리더 사용자가 **로드 완료로 오판**한다. 데이터도 오류도 아직 없으면 대기다.
+ *
+ * 순수 함수로 둔 이유: 컴포넌트 안에 두면 테스트가 AST 로 구현 형태를 쫓게 되고
+ * (setter 이름·useState 구조분해 등) 정상 리팩터링마다 깨진다. 입력→출력으로 검증한다.
+ */
+export function diagLiveMessage(sc: ApiState, trend: ApiState): string {
+  const pending = (s: ApiState) => s.loading || (s.data == null && s.err == null);
+  if (pending(sc) || pending(trend)) return "구성 건강도 진단 불러오는 중";
+  if (sc.err || trend.err) return "구성 건강도 진단 불러오기 실패";
+  return "구성 건강도 진단 불러오기 완료";
+}

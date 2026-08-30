@@ -8,6 +8,7 @@ import { join } from "node:path";
 import ts from "typescript";
 import { writeHarnessScorecardSnapshot, readHarnessTrend } from "../src/server/adapters/scorecard-snapshot.js";
 import { canonicalFindingId } from "../src/server/adapters/scorecard.js";
+import { diagLiveMessage } from "../src/web/evals.js";
 import type { HarnessScorecard } from "../src/server/adapters/scorecard.js";
 
 let root: string;
@@ -59,9 +60,17 @@ function sc(configHash: string, orphan: number): HarnessScorecard {
 function findComponent(sf: ts.SourceFile, name: string): ts.Node | null {
   // **최상위 선언만 본다**(R11 codex): 깊이 우선으로 훑으면 앞선 함수 안의 동명 지역변수를
   // 실제 컴포넌트로 오인해, 이후 검사가 엉뚱한 노드를 보고 통과/실패한다.
+  // 래퍼는 **이름을 확인하고** 벗긴다(R12 양 엔진). 아무 호출식이나 첫 인자로 내려가면
+  // `styled(Button)(...)`·`connect(mapState)(C)` 에서 엉뚱한 노드를 본문으로 반환한다.
+  const WRAPPERS = new Set(["memo", "forwardRef"]);
+  const isWrapper = (e: ts.CallExpression): boolean => {
+    const c = e.expression;
+    if (ts.isIdentifier(c)) return WRAPPERS.has(c.text);
+    if (ts.isPropertyAccessExpression(c)) return WRAPPERS.has(c.name.text); // React.memo
+    return false;
+  };
   const unwrap = (e: ts.Expression): ts.Node =>
-    // `memo(() => …)` · `forwardRef(...)` 같은 래퍼는 벗겨 실제 본문을 준다.
-    ts.isCallExpression(e) && e.arguments.length > 0 ? unwrap(e.arguments[0]!) : e;
+    ts.isCallExpression(e) && isWrapper(e) && e.arguments.length > 0 ? unwrap(e.arguments[0]!) : e;
   for (const st of sf.statements) {
     if (ts.isFunctionDeclaration(st) && st.name?.text === name) return st;
     if (ts.isVariableStatement(st)) {
@@ -292,67 +301,15 @@ describe("P0-c — 진단 뷰 접근성 계약(AST)", () => {
     expect(dynamic, "상태 영역 내용이 고정 문자열이다 — 내용이 안 바뀌면 방송되지 않는다").toBe(true);
   });
 
-  it("상태 문구가 로딩·실패·완료를 실제로 구분한다(고정 문자열이면 방송이 무의미)", async () => {
+  it("상태 영역 내용이 고정 문자열이 아니다(내용이 안 바뀌면 방송되지 않는다)", async () => {
     const body = await cardBody();
-    // **리전에서 출발해 추적한다**(R11 codex): 컴포넌트 전체에서 loading/data/err 를
-    // 모으면 `Async` 사용부만 있어도 통과해 **존재 검증으로 후퇴**한다.
-    // 리전이 쓰는 식별자 → 그 setter → setter 인자가 세 상태를 참조하는지 본다.
-    const els = opens(body);
-    const live = els.find((e) => literalAttr(e, "role") === "status" && hasClass(e, "sr-only"))!;
+    const live = opens(body).find((x) => literalAttr(x, "role") === "status" && hasClass(x, "sr-only"))!;
     const kids = (live.parent as ts.JsxElement).children;
     const expr = kids.find((c): c is ts.JsxExpression => ts.isJsxExpression(c) && c.expression != null);
-    expect(expr, "상태 영역 내용이 고정 문자열이다 — 내용이 안 바뀌면 방송되지 않는다").toBeTruthy();
-    expect(ts.isStringLiteral(expr!.expression!), "상태 영역 내용이 문자열 리터럴이다").toBe(false);
-
-    // 리전이 참조하는 식별자들
-    const regionIds = new Set<string>();
-    const collectIds = (n: ts.Node): void => {
-      if (ts.isIdentifier(n)) regionIds.add(n.text);
-      ts.forEachChild(n, collectIds);
-    };
-    collectIds(expr!.expression!);
-
-    // `const [x, setX] = useState(...)` 에서 x 에 대응하는 setter 이름을 찾는다.
-    const setters = new Set<string>();
-    const findSetters = (n: ts.Node): void => {
-      if (ts.isVariableDeclaration(n) && ts.isArrayBindingPattern(n.name) && n.name.elements.length === 2) {
-        const [a, b] = n.name.elements;
-        if (a && ts.isBindingElement(a) && ts.isIdentifier(a.name) && regionIds.has(a.name.text) &&
-            b && ts.isBindingElement(b) && ts.isIdentifier(b.name)) setters.add(b.name.text);
-      }
-      ts.forEachChild(n, findSetters);
-    };
-    findSetters(body);
-    expect(setters.size, "상태 영역 식별자에 대응하는 setter 를 못 찾았다").toBeGreaterThan(0);
-
-    // setter 호출 인자에서 참조되는 프로퍼티만 모은다.
-    const props = new Set<string>();
-    const walkCalls = (n: ts.Node): void => {
-      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && setters.has(n.expression.text)) {
-        const walkProps = (m: ts.Node): void => {
-          if (ts.isPropertyAccessExpression(m)) props.add(m.name.text);
-          ts.forEachChild(m, walkProps);
-        };
-        n.arguments.forEach(walkProps);
-        // setter 인자가 헬퍼 호출이면(예: pending(sc)) 그 헬퍼 본문도 본다.
-        n.arguments.forEach(function inner(a: ts.Node) {
-          if (ts.isCallExpression(a) && ts.isIdentifier(a.expression)) {
-            const nm = a.expression.text;
-            const findHelper = (m: ts.Node): void => {
-              if (ts.isVariableDeclaration(m) && ts.isIdentifier(m.name) && m.name.text === nm && m.initializer) walkProps(m.initializer);
-              ts.forEachChild(m, findHelper);
-            };
-            findHelper(body);
-          }
-          ts.forEachChild(a, inner);
-        });
-      }
-      ts.forEachChild(n, walkCalls);
-    };
-    walkCalls(body);
-    for (const need of ["loading", "data", "err"]) {
-      expect(props.has(need), `상태 통지가 '${need}' 를 반영하지 않는다 — 문구가 실제 상태를 따르지 않는다`).toBe(true);
-    }
+    expect(expr, "상태 영역 내용이 표현식이 아니다").toBeTruthy();
+    expect(ts.isStringLiteral(expr!.expression!), "상태 영역이 고정 문자열이다").toBe(false);
+    // ※ 문구가 **무엇을 반영하는가**는 아래 순수 함수 테스트가 입력→출력으로 검증한다.
+    //   AST 로 setter 를 추적하면 useState/useReducer/커스텀 훅 같은 정상 리팩터링에 깨진다(R12 양 엔진).
   });
 
   it("스냅샷 실패가 성공과 구분된다(실패를 성공으로 오판하지 않는다)", async () => {
@@ -363,5 +320,34 @@ describe("P0-c — 진단 뷰 접근성 계약(AST)", () => {
       return r.includes("alert") && r.includes("status") && c.includes("err") && c.includes("muted");
     });
     expect(split, "실패와 성공이 같은 표기로 렌더된다 — 실패를 안내로 오판한다").toBeTruthy();
+  });
+});
+
+// ── 상태 문구(순수 함수) ──────────────────────────────────────────────────────
+// R12 양 엔진: AST 로 setter 를 추적하니 useState 구조분해에 결합돼 정상 리팩터링을
+// 거짓 실패시켰다. 로직을 순수 함수로 빼서 **입력→출력**으로 검증한다.
+describe("P0-c — diagLiveMessage(상태 문구)", () => {
+  const idle = { loading: false, data: null, err: null };            // 요청 시작 전(초기)
+  const loading = { loading: true, data: null, err: null };
+  const ok = { loading: false, data: {}, err: null };
+  const failed = { loading: false, data: null, err: "500" };
+
+  it("초기(요청 시작 전)에도 '불러오는 중' — '완료'가 먼저 방송되면 오판한다", () => {
+    // useApi 초기 loading 은 false 다. loading 만 보면 여기서 '완료'가 나간다.
+    expect(diagLiveMessage(idle, idle)).toContain("불러오는 중");
+  });
+  it("하나라도 로딩이면 '불러오는 중'", () => {
+    expect(diagLiveMessage(loading, ok)).toContain("불러오는 중");
+    expect(diagLiveMessage(ok, loading)).toContain("불러오는 중");
+  });
+  it("둘 다 도착하면 '완료'", () => {
+    expect(diagLiveMessage(ok, ok)).toContain("완료");
+  });
+  it("오류가 있으면 '실패' — 완료로 덮이지 않는다", () => {
+    expect(diagLiveMessage(failed, ok)).toContain("실패");
+    expect(diagLiveMessage(ok, failed)).toContain("실패");
+  });
+  it("로딩과 오류가 겹치면 로딩이 우선(재조회 중)", () => {
+    expect(diagLiveMessage({ loading: true, data: null, err: "500" }, ok)).toContain("불러오는 중");
   });
 });
