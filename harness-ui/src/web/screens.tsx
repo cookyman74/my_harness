@@ -2061,7 +2061,13 @@ function HarnessScorecardCard() {
   // R5 양 엔진: 실패가 성공과 시각적으로 구분되지 않아 사용자가 오판할 수 있었다.
   //   기존 관례대로 실패는 role="alert"+.err, 성공은 role="status" 로 나눈다.
   const [snapMsg, setSnapMsg] = useState<{ text: string; failed: boolean } | null>(null);
+  const [liveMsg, setLiveMsg] = useState("");   // 첫 커밋엔 빈 리전만(위 주석 참조)
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setLiveMsg(sc.loading || trend.loading ? "구성 건강도 진단 불러오는 중"
+      : sc.err || trend.err ? "구성 건강도 진단 불러오기 실패"
+      : "구성 건강도 진단 불러오기 완료");
+  }, [sc.loading, trend.loading, sc.err, trend.err]);
   const recordSnapshot = async () => {
     setBusy(true); setSnapMsg(null);
     try {
@@ -2077,10 +2083,11 @@ function HarnessScorecardCard() {
     //   감싸고 있어서, 로드가 끝나면 스크린리더가 **표 전체를 통째로 읽는다**(과다 방송).
     //   상태 통지는 아래 작은 전용 영역이 맡고, 여기엔 `aria-busy` 만 둔다.
     <div className="sc-diag-body" aria-busy={sc.loading || trend.loading}>
-      {/* 스크린리더 전용 상태 통지 — 짧은 문장만 방송한다. */}
-      <p className="sr-only" role="status">
-        {sc.loading || trend.loading ? "구성 건강도 진단 불러오는 중" : sc.err || trend.err ? "구성 건강도 진단 불러오기 실패" : "구성 건강도 진단 불러오기 완료"}
-      </p>
+      {/* 스크린리더 전용 상태 통지 — 짧은 문장만 방송한다.
+          ⚠ 라이브 리전은 **DOM 에 먼저 존재한 뒤 내용이 바뀔 때** 방송된다. 이 카드는 지연
+            마운트라 리전과 문구가 같은 커밋에 생기면 첫 문구가 안 읽힐 수 있다(R7 agy).
+            그래서 첫 렌더는 빈 리전만 두고, 마운트 후 다음 커밋에 문구를 채운다. */}
+      <p className="sr-only" role="status">{liveMsg}</p>
       <p className="muted">
         하네스 <b>구성 상태</b>(에이전트·스킬·오케스트레이터 연결)를 정적 파싱으로 측정. 아래 루프 평가는 보조 신호(loop_ref). ·
         <b>미선언(link_unknown)은 "아직 모름"</b>(감점 아님·마이그레이션 부채) — 고아(확실히 무연결)와 구분.

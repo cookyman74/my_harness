@@ -222,18 +222,34 @@ describe("P0-c — 진단 뷰 접근성 계약(AST)", () => {
     };
     visit(root); return out;
   };
-  const attr = (el: ts.JsxOpeningLikeElement, name: string): string | null => {
-    for (const a of el.attributes.properties) {
-      if (ts.isJsxAttribute(a) && a.name.getText() === name) return a.initializer?.getText() ?? "";
-    }
+  /** 속성 노드를 그대로 준다(리터럴/표현식 구분을 호출부가 정한다). */
+  const attrNode = (el: ts.JsxOpeningLikeElement, name: string): ts.JsxAttribute | null => {
+    for (const a of el.attributes.properties) if (ts.isJsxAttribute(a) && a.name.getText() === name) return a;
     return null;
+  };
+  /**
+   * **문자열 리터럴 속성만** 따옴표를 벗겨 정확히 돌려준다(R7 양 엔진).
+   * `getText()` 부분일치로 비교하면 `role="statusbar"`·`className="not-sr-only"` 도
+   * 통과해 계약을 보장하지 못한다.
+   */
+  const literalAttr = (el: ts.JsxOpeningLikeElement, name: string): string | null => {
+    const a = attrNode(el, name);
+    const init = a?.initializer;
+    return init && ts.isStringLiteral(init) ? init.text : null;
+  };
+  /** className 을 **토큰 단위**로 본다("sr-only-x" 가 "sr-only" 로 통과하지 않게). */
+  const hasClass = (el: ts.JsxOpeningLikeElement, name: string): boolean =>
+    (literalAttr(el, "className") ?? "").split(/\s+/).includes(name);
+  const attr = (el: ts.JsxOpeningLikeElement, name: string): string | null => {
+    const a = attrNode(el, name);
+    return a ? (a.initializer?.getText() ?? "") : null;
   };
   const cls = (el: ts.JsxOpeningLikeElement) => attr(el, "className") ?? "";
 
   it("상태 통지는 작은 전용 영역이 맡는다 — 표 컨테이너를 라이브로 만들지 않는다", async () => {
     const body = await cardBody();
     const els = opens(body);
-    const container = els.find((e) => cls(e).includes("sc-diag-body"));
+    const container = els.find((e) => hasClass(e, "sc-diag-body"));
     expect(container, "sc-diag-body 컨테이너가 없다").toBeTruthy();
 
     // 과다 방송 회귀 차단: 표 전체를 감싸는 컨테이너에 aria-live 를 걸면
@@ -242,8 +258,27 @@ describe("P0-c — 진단 뷰 접근성 계약(AST)", () => {
     expect(attr(container!, "aria-busy"), "aria-busy 가 없다").toBeTruthy();
 
     // 대신 짧은 문장만 방송하는 전용 영역이 있어야 한다.
-    const live = els.find((e) => (attr(e, "role") ?? "").includes("status") && cls(e).includes("sr-only"));
-    expect(live, "sr-only role=status 상태 영역이 없다 — 로딩·완료가 전달되지 않는다").toBeTruthy();
+    const live = els.find((e) => literalAttr(e, "role") === "status" && hasClass(e, "sr-only"));
+    expect(live, 'role="status" + .sr-only 상태 영역이 없다 — 로딩·완료가 전달되지 않는다').toBeTruthy();
+
+    // 리전의 **내용이 상태를 반영**해야 한다. 고정 문자열이면 노드 내용이 안 바뀌어
+    // 방송 자체가 일어나지 않는다(R7 codex: setLiveMsg 만 있어도 통과하던 구멍).
+    const el = live!.parent;
+    expect(ts.isJsxElement(el), "상태 영역이 자식을 갖지 않는다").toBe(true);
+    const kids = (el as ts.JsxElement).children.filter((c) => !ts.isJsxText(c) || c.getText().trim() !== "");
+    const dynamic = kids.some((c) => ts.isJsxExpression(c) && c.expression != null && !ts.isStringLiteral(c.expression));
+    expect(dynamic, "상태 영역 내용이 고정 문자열이다 — 내용이 안 바뀌면 방송되지 않는다").toBe(true);
+  });
+
+  it("상태 문구가 로딩·실패·완료를 실제로 구분한다(고정 문자열이면 방송이 무의미)", async () => {
+    const body = await cardBody();
+    const src = body.getText();
+    // 리전 문구가 상태에 따라 갈리는지 — loading 과 err 분기를 모두 참조해야 한다(R7 codex).
+    const i = src.indexOf("setLiveMsg(");
+    expect(i, "setLiveMsg 호출이 없다 — 리전이 상태를 반영하지 않는다").toBeGreaterThan(-1);
+    const call = src.slice(i, src.indexOf("}, [", i));
+    expect(call).toMatch(/loading/);
+    expect(call).toMatch(/err/);
   });
 
   it("스냅샷 실패가 성공과 구분된다(실패를 성공으로 오판하지 않는다)", async () => {
