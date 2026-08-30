@@ -200,3 +200,36 @@ describe("P0-e — draftInjectDecision", () => {
     expect(draftInjectDecision({ runId: "A", injectedRunId: "A", stale: false })).toBe("skip-already-injected");
   });
 });
+
+describe("P0-e — 큐 진행 상태 보존(왕복 동선의 정직성)", () => {
+  const load = async () => readFile(new URL("../src/web/screens.tsx", import.meta.url), "utf8");
+
+  it("적용됨/건너뜀이 세션에 보존된다 — 이탈·복귀로 초기화되면 안 된다", async () => {
+    const src = await load();
+    // 로컬 useState 면 초안 편집 딥링크로 이탈했다 돌아올 때 초기화돼,
+    // 방금 편집·저장을 마친 항목이 "미처리 + stale" 로 보인다(R6 양 엔진 HIGH).
+    expect(src).toContain("useSessionSet");
+    const i = src.indexOf("function BatchReviewQueue");
+    const body = src.slice(i, src.indexOf("\n}\n", i));
+    expect(body).toMatch(/useSessionSet\(`batch:\$\{batchId\}:applied`\)/);
+    expect(body).toMatch(/useSessionSet\(`batch:\$\{batchId\}:skipped`\)/);
+    expect(body, "applied 를 로컬 useState 로 되돌렸다").not.toMatch(/const \[applied, setApplied\] = useState/);
+  });
+
+  it("sessionStorage 접근을 감싼다(사생활 보호 모드에서 던진다)", async () => {
+    const src = await load();
+    const i = src.indexOf("function useSessionSet");
+    const body = src.slice(i, src.indexOf("\n}\n", i));
+    // 읽기·쓰기 둘 다 try/catch 여야 한다.
+    expect((body.match(/try \{/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(body).toContain("catch");
+  });
+
+  it("stale 카드가 '내가 편집한 경우'를 구분해 안내한다", async () => {
+    const src = await load();
+    // stale 은 충돌이 아니라 "초안 생성 후 정의 변경"이고, 원인이 사용자 자신의 편집일 수 있다.
+    expect(src).toContain("직접 편집해 저장했다면 이미 반영된 것");
+    // 적용된 항목엔 stale 경고 배지를 띄우지 않는다.
+    expect(src).toMatch(/item\.stale && item\.status === "ready" && !applied/);
+  });
+});

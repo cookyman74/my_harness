@@ -2593,11 +2593,37 @@ const BATCH_TERMINAL = new Set(["ready", "failed", "invalid", "cancelled", "skip
 function batchStatusKind(s: string): "ok" | "warn" | "err" {
   return s === "ready" ? "ok" : s === "running" || s === "queued" ? "warn" : "err";
 }
+/**
+ * 배치 진행 상태(적용됨/건너뜀)를 **세션에 보존**하는 Set.
+ *
+ * 왜 필요한가(P0-e R6 양 엔진 HIGH): 이 상태가 로컬이면 초안 편집 딥링크로 이탈했다
+ * 돌아올 때 초기화된다. 그러면 사용자가 방금 편집·저장을 마친 항목이 큐에서
+ * `ready + stale` 로 보여 **"적용(저장)" 버튼과 "stale N개 재생성"** 이 뜬다.
+ * 성공한 작업이 실패처럼 보이는 것이다. `batchId` 로 키를 나눠 배치별로 기억한다.
+ *
+ * sessionStorage 는 사생활 보호 모드 등에서 던질 수 있으므로 읽기·쓰기 모두 감싼다.
+ */
+function useSessionSet(key: string): [Set<string>, (add: string[]) => void] {
+  const [s, setS] = useState<Set<string>>(() => {
+    try {
+      const raw = sessionStorage.getItem(key);
+      return new Set<string>(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch { return new Set<string>(); }
+  });
+  const add = (keys: string[]) => setS((prev) => {
+    const next = new Set(prev); for (const k of keys) next.add(k);
+    try { sessionStorage.setItem(key, JSON.stringify([...next])); } catch { /* 저장 실패는 무시(메모리로는 동작) */ }
+    return next;
+  });
+  return [s, add];
+}
+
 function BatchReviewQueue({ batchId }: { batchId: string }) {
   const [view, setView] = useState<BatchView | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [applied, setApplied] = useState<Set<string>>(new Set());
-  const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  // 이탈·복귀·새로고침에도 유지된다(위 훅 주석 참조).
+  const [applied, addApplied] = useSessionSet(`batch:${batchId}:applied`);
+  const [skipped, addSkipped] = useSessionSet(`batch:${batchId}:skipped`);
   const keyOf = (it: BatchItemView) => it.runId ?? `${it.kind}:${it.name}`; // runId 우선(고유) — kind:name 은 배치 내 dedup 되나 방어적으로 runId 사용
   useEffect(() => {
     let live = true; let timer: ReturnType<typeof setTimeout> | null = null;
@@ -2622,7 +2648,7 @@ function BatchReviewQueue({ batchId }: { batchId: string }) {
   const bulkApply = async (items: BatchItemView[]) => {
     setBulking(true); setBulkMsg(null);
     const { okKeys, failed } = await bulkApplyItems(items, applyBatchItem);
-    if (okKeys.length) setApplied((s) => { const n = new Set(s); for (const k of okKeys) n.add(k); return n; });
+    if (okKeys.length) addApplied(okKeys);
     const failNote = failed.length ? ` · 실패 ${failed.length}: ${failed.map((f) => `${f.name}(${f.code})`).join(", ")}` : "";
     setBulking(false);
     setBulkMsg(`일괄 적용 완료 — 성공 ${okKeys.length}${failNote}${failed.length ? " · 실패분은 [stale 재생성] 또는 개별 검토" : ""}`);
@@ -2649,8 +2675,8 @@ function BatchReviewQueue({ batchId }: { batchId: string }) {
           </Card>
           {view.items.map((it) => (
             <BatchItemCard key={keyOf(it)} item={it} applied={applied.has(keyOf(it))} skipped={skipped.has(keyOf(it))} busy={bulking}
-              onApplied={() => setApplied((s) => new Set(s).add(keyOf(it)))}
-              onSkip={() => setSkipped((s) => new Set(s).add(keyOf(it)))} />
+              onApplied={() => addApplied([keyOf(it)])}
+              onSkip={() => addSkipped([keyOf(it)])} />
           ))}
         </>);
       })()}
@@ -2691,7 +2717,7 @@ function BatchItemCard({ item, applied, skipped, busy, onApplied, onSkip }: {
     <Card title={`${item.kind === "agent" ? "에이전트" : "스킬"} · ${item.name}`}>
       <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <Badge kind={batchStatusKind(item.status)}>{item.status}</Badge>
-        {item.stale && item.status === "ready" && <Badge kind="warn">stale(정의 변경됨)</Badge>}
+        {item.stale && item.status === "ready" && !applied && <Badge kind="warn">stale(정의 변경됨)</Badge>}
         {applied && <Badge kind="ok">적용됨</Badge>}
         {skipped && <Badge kind="err">건너뜀</Badge>}
         {item.error && <span className="muted">{item.error}</span>}
@@ -2720,6 +2746,15 @@ function BatchItemCard({ item, applied, skipped, busy, onApplied, onSkip }: {
           <p className="muted" style={{ marginTop: 6 }}>
             여기서는 초안을 <b>그대로</b> 적용합니다. 내용을 고치려면 <b>초안 고쳐서 적용</b>으로 편집기에서 수정 후 저장하세요.
           </p>
+          {item.stale && (
+            // stale 은 "충돌"이 아니라 "초안 생성 후 정의가 바뀜"이다. 그 원인이 **사용자 자신의
+            //   편집**일 수 있는데(초안 고쳐서 적용 → 저장), 구분 없이 경고만 띄우면 이미 끝낸
+            //   작업을 실패로 오인해 재생성을 누른다(R6 양 엔진).
+            <p className="warn-text" style={{ marginTop: 4 }}>
+              ⚠ 초안 생성 후 정의가 바뀌었습니다. <b>직접 편집해 저장했다면 이미 반영된 것</b>이니 건너뛰세요.
+              그렇지 않다면 <b>재생성</b> 후 다시 검토하세요. (이 상태에서 적용하면 거부됩니다)
+            </p>
+          )}
         </>
       )}
       {msg && <p className={`banner ${applied ? "ok" : "err"}`} role="status">{msg}</p>}
