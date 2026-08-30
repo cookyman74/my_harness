@@ -118,9 +118,24 @@ BEHAVIOR 를 안 쓰는 하네스가 정상이며(B1 은 권장이지 필수가 
 
 | 축 | 입력 | 왜 |
 |---|---|---|
-| `trigger` | **정의의 description 만** | 트리거는 정의의 frontmatter 계약이다. BEHAVIOR 는 트리거를 규정하지 않는다 |
-| `structure`(필수 섹션 검사) | **정의 body 만** | 필수 섹션은 정의 파일의 구조 계약이다. 참조로 바뀐 섹션도 heading 은 남으므로 그대로 통과한다 |
-| `structure`(줄 수 상한) · `induction` · `pruning` | **정의 body + 참조 BEHAVIOR body 합성** | 내용이 옮겨간 축들이다. 합성하지 않으면 줄 수 감점을 우회하고 중복 검출이 사라진다(R5) |
+| `trigger` (`scoreTrigger`) | **정의의 description 만** | 트리거는 정의의 frontmatter 계약이다. BEHAVIOR 는 트리거를 규정하지 않는다 |
+| `induction` (`scoreInduction`) · `pruning` (`scorePruning`) | **합성 body** | 내용이 옮겨간 축들이다. 합성하지 않으면 명령형 비율이 떨어지고(R4) 중복 검출이 사라진다(R5) |
+| `structure` (`scoreStructure`) | **검사마다 다르다 — 아래 표** | 한 함수 안에 성격이 다른 검사 6종이 있다(R7 양 엔진) |
+
+**`scoreStructure` 안의 검사별 입력(R7 양 엔진 — "필수 섹션 + 줄 수"로만 나눈 것이 부족했다):**
+
+| 검사 | 입력 | 왜 |
+|---|---|---|
+| **필수 섹션 누락**(`completenessMissing` 이 먼저 계산해 `missingReq` 로 전달·`:163`) | **정의 body**(합성 전) | 필수 섹션은 **정의 파일의 구조 계약**이다. 참조로 바뀐 섹션도 heading 이 남아 통과한다. BEHAVIOR 의 heading 을 정의 섹션으로 오인하면 안 된다 |
+| **본문 부실**(`n < 5` → 과락) | **정의 body**(합성 전) | "정의가 실체 있는가"를 본다. BEHAVIOR 가 정의의 빈 껍데기를 **대신 채워주면 안 된다** |
+| **줄 수 상한**(skill `>500`·`>800` · agent `>400`) | **합성 body** | 내용을 옮겨 감점을 우회하는 것을 막는 축이다(R5). 여기서 합산하지 않으면 D7 의 목적이 사라진다 |
+| **`references/` 분리**(`!hasRefs && n > 300`) | **합성 body 의 줄 수** + 정의의 `hasRefs` | 판단 대상은 "이 정의가 지고 있는 분량"이다. `hasRefs` 는 정의 파일의 구조 사실이라 그대로 |
+| **대용량 코드펜스**(`>60줄`) | **정의 body**(합성 전) | BEHAVIOR 안의 코드펜스 때문에 정의에 `move-to-references` finding 이 붙으면 **엉뚱한 파일을 고치라고** 지시하게 된다 |
+
+> 즉 **줄 수 계열만 합성**하고 나머지 구조 검사는 정의 원본을 본다. `scoreStructure` 는
+> 현재 `body` 하나만 받으므로 **B2 에서 "구조 검사용 body"와 "줄 수 계산용 body"를 나눠
+> 받도록 시그니처를 확장**해야 한다(함수를 쪼갤 필요는 없다 — 인자 추가로 충분).
+> `completenessMissing` 은 이미 별도 함수이고 호출 순서상 합성 전 body 를 넘길 수 있다(agy 확인).
 
 **합성 방식:** 정의 body 뒤에 참조 BEHAVIOR body 를 **그대로 이어 붙인다**(append).
 BEHAVIOR 의 heading 을 정의 구조로 오인하지 않도록 **필수 섹션 검사는 합성 전 body 로**
