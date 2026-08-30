@@ -51,6 +51,25 @@ function sc(configHash: string, orphan: number): HarnessScorecard {
   } satisfies HarnessScorecard;
 }
 
+/**
+ * `HarnessScorecardCard` 선언을 **형태 무관**으로 찾는다.
+ * `function X(){}` · `const X = () => {}` · `const X = memo(...)` 전부.
+ * (P0-d 의 collectDecls 에서 배운 교훈 — 형태를 고정하면 정상 리팩터링에 깨진다.)
+ */
+function findComponent(sf: ts.SourceFile, name: string): ts.Node | null {
+  let found: ts.Node | null = null;
+  const visit = (n: ts.Node): void => {
+    if (found) return;
+    if (ts.isFunctionDeclaration(n) && n.name?.text === name) { found = n; return; }
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name && n.initializer) {
+      found = n.initializer; return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  ts.forEachChild(sf, visit);
+  return found;
+}
+
 describe("P0-c — 스냅샷 축적과 추세 산출", () => {
   it("1회만 쌓이면 추세는 insufficient(2점 미만은 판정 불가·0 위장 금지)", async () => {
     const r1 = await writeHarnessScorecardSnapshot(sc("h1", 6), root, "2026-08-30T00:00:00Z");
@@ -187,11 +206,8 @@ describe("P0-c — 진단 뷰 배선 계약(AST)", () => {
 
   it("진단 뷰가 Card 를 중첩하지 않는다(호출부가 이미 Card 안이다)", async () => {
     const sf = await load();
-    let body: ts.FunctionDeclaration | null = null;
-    ts.forEachChild(sf, (n) => {
-      if (ts.isFunctionDeclaration(n) && n.name?.text === "HarnessScorecardCard") body = n;
-    });
-    expect(body, "HarnessScorecardCard 선언을 못 찾았다").not.toBeNull();
+    const body = findComponent(sf, "HarnessScorecardCard");
+    expect(body, "HarnessScorecardCard 선언을 못 찾았다(형태 무관 탐색)").not.toBeNull();
     let hasCard = false;
     const visit = (n: ts.Node): void => {
       if ((ts.isJsxElement(n) && n.openingElement.tagName.getText() === "Card") ||
@@ -206,12 +222,11 @@ describe("P0-c — 진단 뷰 배선 계약(AST)", () => {
 describe("P0-c — 진단 뷰 접근성 계약(AST)", () => {
   // R6 agy: 소스 문자열 정규식은 변수명·공백만 바뀌어도 깨지고, 계약이 아니라 표기를 검사한다.
   //   JSX 속성을 AST 로 확인해 **무엇이 어디에 붙어 있는가**를 계약으로 고정한다.
-  const cardBody = async (): Promise<ts.FunctionDeclaration> => {
+  const cardBody = async (): Promise<ts.Node> => {
     const src = await readFile(new URL("../src/web/screens.tsx", import.meta.url), "utf8");
     const sf = ts.createSourceFile("screens.tsx", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-    let fn: ts.FunctionDeclaration | null = null;
-    ts.forEachChild(sf, (n) => { if (ts.isFunctionDeclaration(n) && n.name?.text === "HarnessScorecardCard") fn = n; });
-    expect(fn, "HarnessScorecardCard 선언을 못 찾았다").not.toBeNull();
+    const fn = findComponent(sf, "HarnessScorecardCard");
+    expect(fn, "HarnessScorecardCard 선언을 못 찾았다(형태 무관 탐색)").not.toBeNull();
     return fn!;
   };
   const opens = (root: ts.Node): ts.JsxOpeningLikeElement[] => {
@@ -276,18 +291,27 @@ describe("P0-c — 진단 뷰 접근성 계약(AST)", () => {
 
   it("상태 문구가 로딩·실패·완료를 실제로 구분한다(고정 문자열이면 방송이 무의미)", async () => {
     const body = await cardBody();
-    const src = body.getText();
-    // 리전 문구가 상태에 따라 갈리는지 — loading 과 err 분기를 모두 참조해야 한다(R7 codex).
-    // effect **전체**를 본다 — setLiveMsg 호출부만 자르면 헬퍼(pending 등) 정의를 놓친다.
-    const i = src.indexOf("setLiveMsg(");
-    expect(i, "setLiveMsg 호출이 없다 — 리전이 상태를 반영하지 않는다").toBeGreaterThan(-1);
-    const effStart = src.lastIndexOf("useEffect(", i);
-    const call = src.slice(effStart, src.indexOf("}, [", i) + 40);
-    expect(call).toMatch(/loading/);
-    expect(call).toMatch(/err/);
-    // 첫 커밋에 "완료"가 방송되면 사용자가 로드 완료로 오판한다(R8 codex).
-    // `useApi` 초기 loading 이 false 라 **데이터 유무까지** 봐야 대기 상태를 안다.
-    expect(call, "loading 만 보면 첫 문구가 '완료'로 나간다 — data 미도착도 대기로 취급하라").toMatch(/data/);
+    // **AST 로 본다**(R10 agy) — 문자열 슬라이싱·정규식은 변수명·훅 추출 같은 정상
+    // 리팩터링에 깨지는 족쇄다. 여기서 지켜야 할 계약은 "리전 문구가 요청 상태
+    // (로딩/데이터/오류)에서 파생된다"이지 `setLiveMsg` 라는 이름이 아니다.
+    //
+    // 리전에 들어가는 식별자를 찾고, 그 값이 만들어지는 식이 세 상태를 모두 참조하는지 본다.
+    const els = opens(body);
+    const live = els.find((e) => literalAttr(e, "role") === "status" && hasClass(e, "sr-only"))!;
+    const kids = (live.parent as ts.JsxElement).children;
+    const expr = kids.find((c): c is ts.JsxExpression => ts.isJsxExpression(c) && c.expression != null)!;
+    expect(expr, "상태 영역 내용이 표현식이 아니다").toBeTruthy();
+
+    // 컴포넌트 전체에서 접근하는 프로퍼티 이름을 모아, 세 상태가 모두 쓰이는지 확인한다.
+    const props = new Set<string>();
+    const walkProps = (n: ts.Node): void => {
+      if (ts.isPropertyAccessExpression(n)) props.add(n.name.text);
+      ts.forEachChild(n, walkProps);
+    };
+    walkProps(body);
+    for (const need of ["loading", "data", "err"]) {
+      expect(props.has(need), `상태 통지가 '${need}' 를 반영하지 않는다 — 문구가 실제 상태를 따르지 않는다`).toBe(true);
+    }
   });
 
   it("스냅샷 실패가 성공과 구분된다(실패를 성공으로 오판하지 않는다)", async () => {
