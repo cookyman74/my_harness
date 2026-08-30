@@ -288,12 +288,14 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 - [ ] ⚠ `name` 정규식은 스펙 문구대로 `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` — **연속 하이픈 허용**. 원본 구현의 스펙↔코드 불일치(참고자료 §7 #3)를 그대로 베끼지 말 것
 - [ ] 구조적으로 무효한 스펙은 **건너뛰고 진단 노출**(부분 로드 금지 — 참고자료 §4)
 - [ ] `harness-update.sh` MANAGED_RELS 에 신규 스크립트 등록(등록 누락 시 생성 하네스에서 영영 미갱신)
+- [ ] **호출 경로 등록**(R5 양 엔진 — 만들어도 부르지 않으면 소용없다): `run-policy-audit.sh` 가 `check-behaviors.sh` 를 실행하도록 배선. 수동 실행에만 의존하면 끊긴 참조·고아를 시스템적으로 못 막는다
 - [ ] ⚠ **기존 하네스는 검증기만 받고 BEHAVIOR·포인터는 못 받는다**(R9 codex MED). 등록만 하고 완료로 처리하면 **검증기가 없는 정의를 검사해 전건 fail** 한다.
 - [ ] **기술적 대응이 먼저다(R13 agy HIGH):** `check-behaviors.sh` 는 `.agents/behaviors/` 가 **아예 없는 하네스에서 에러 없이 graceful skip** 하도록 구현한다(미적용 하네스임을 stdout 으로 알리되 종료코드 0). 문서에 "미적용"이라 적어두는 것은 **스크립트가 0 아닌 코드로 죽는 것을 막지 못한다** — 행정적 기록으로 기술적 실패를 대체하지 말 것.
 - [ ] 그 위에 **선택**: 소급 마이그레이션을 하거나, 안 하면 "기존 하네스는 B1 미적용"을 기록한다(위 skip 구현이 된 뒤에만 유효한 선택지)
 
 ### 게이트
-- [ ] 정책 감사 PASS · `tests/test-harness-update.sh` PASS
+- [ ] 정책 감사 PASS(`check-behaviors.sh` 호출 포함) · `tests/test-harness-update.sh` PASS
+- [ ] **픽스처 테스트**(R5 codex — 게이트에 없으면 빈 출력으로도 통과한다): ① 정의별 **참조 목록**이 출력되는가 ② **끊긴 참조**를 잡는가 ③ **고아 BEHAVIOR** 를 잡는가 ④ BEHAVIOR 가 없는 하네스에서 **graceful skip**(종료코드 0)
 - [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
 
 ---
@@ -303,7 +305,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 **목표:** 6차원(Intent·Evidence·Decision·Execution·Recovery·**Failure modes**)을 권장으로 추가.
 **등급:** 경량 · **근거:** 제안서 §3 B2
 
-> ⛔ **착수 전 필수(ADR-001 D7):** BEHAVIOR 를 도입한 정의가 **그 이유만으로 감점되지 않도록** 채점을 먼저 고친다. `scoreInduction` 은 명령형 줄 비율이라 판단 기준을 BEHAVIOR 로 옮기면 점수가 떨어진다(`artifacteval.ts:142-148`) — 행동 차원을 권장하면서 따르면 손해인 상태로 두면 안 된다. (a) 참조 대상 BEHAVIOR 를 함께 읽어 채점 / (b) 해당 정의는 `induction` 축 제외 중 실측으로 택일.
+> ⛔ **착수 전 필수(ADR-001 D7):** BEHAVIOR 를 도입한 정의가 **그 이유만으로 감점되지 않도록** 채점을 먼저 고친다. `scoreInduction` 은 명령형 줄 비율이라 판단 기준을 BEHAVIOR 로 옮기면 점수가 떨어진다(`artifacteval.ts:142-148`) — 행동 차원을 권장하면서 따르면 손해인 상태로 두면 안 된다. **참조 대상 BEHAVIOR 본문을 함께 읽어 4축을 계산한다**(단일안 — "induction 축만 제외"는 채점 우회 통로라 폐기했다: 내용을 옮기면 줄 수 감점·중복 감점을 함께 빠져나간다). 구현 시 BEHAVIOR 본문도 **사전 읽기**로 가져올 것(순회 안 비동기 읽기는 결정성·동시성 제한을 깬다).
 
 - [ ] 현행 필수 섹션(`SKILL.md:113` — 핵심 역할·작업 원칙·입출력 프로토콜·에러 핸들링·협업)과의 **매핑표** 작성 → `agent-design-patterns.md`
 - [ ] **강제하지 않고 권장**으로 추가(기존 5개 섹션과 충돌하지 않음: 에러 핸들링 ⊂ Recovery, 작업 원칙 ⊃ Intent/Decision)
