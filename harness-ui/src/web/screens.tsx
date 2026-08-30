@@ -2070,7 +2070,8 @@ function HarnessScorecardCard() {
     finally { setBusy(false); }
   };
   return (
-    <Card title="구성 자기평가 (harness_scorecard · 주축)">
+    // Card 로 감싸지 않는다 — 호출부가 이미 `<Card>` 안 `<details>` 다(중첩 방지·R1 agy MED).
+    <div className="sc-diag-body">
       <p className="muted">
         하네스 <b>구성 상태</b>(에이전트·스킬·오케스트레이터 연결)를 정적 파싱으로 측정. 아래 루프 평가는 보조 신호(loop_ref). ·
         <b>미선언(link_unknown)은 "아직 모름"</b>(감점 아님·마이그레이션 부채) — 고아(확실히 무연결)와 구분.
@@ -2157,7 +2158,7 @@ function HarnessScorecardCard() {
           </>
         );
       }}</Async>
-    </Card>
+    </div>
   );
 }
 
@@ -2317,6 +2318,7 @@ export function Eval() {
 }
 
 function EvalMain() {
+  const [diagOpen, setDiagOpen] = useState(false); // P0-c: 진단 패널 지연 마운트(펼칠 때만 API 호출)
   const st = useApi<ArtifactEvalResult>("/api/eval/artifacts");
   const editLink = (a: ArtifactScore) => `#/${a.kind === "agent" ? "agents" : "skills"}?sel=${encodeURIComponent(a.name)}`;
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -2414,9 +2416,13 @@ function EvalMain() {
             {/* P0-c: 구성 건강도 진단 — **접기로만** 제공한다(설계 §8 "노출은 하나" 불변).
                 위 `구성 관계` 칩은 집계 4개 숫자뿐이라, 개별 findings 대상·미선언(부채) 구분·
                 추세·스냅샷 기록은 여기서만 볼 수 있다. */}
-            <details className="tier-b sc-diagnostics">
+            <details className="tier-b sc-diagnostics" onToggle={(e) => (e.currentTarget as HTMLDetailsElement).open && setDiagOpen(true)}>
               <summary>구성 건강도 진단 (harness_scorecard · 개별 대상·추세·스냅샷)</summary>
-              <HarnessScorecardCard />
+              {/* **펼칠 때만 마운트**한다(기존 onToggle 관례). `<details>` 는 닫혀 있어도 자식을
+                  마운트하므로 그냥 넣으면 Eval 진입마다 scorecard GET 이 나간다 — 그런데
+                  4축 엔드포인트가 이미 `computeHarnessScorecard` 를 부르므로(artifacteval.ts:243)
+                  구성 파싱이 매번 **두 번** 돌게 된다(R1 양 엔진). */}
+              {diagOpen ? <HarnessScorecardCard /> : <p className="muted">펼치면 불러옵니다.</p>}
             </details>
           </Card>
           {/* M-y2 비용 합의 카드 — 선택 대상 N개·대상당 초안 잡 1개(claude run)·quota 확인 후에만 실행. */}

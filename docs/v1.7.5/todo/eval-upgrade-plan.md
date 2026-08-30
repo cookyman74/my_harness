@@ -110,11 +110,14 @@
 
 ### 구현
 - [x] `diagnostics` 접기 뷰로 `HarnessScorecardCard` 복원 — 4축 카드 안 `<details className="tier-b sc-diagnostics">` 로 배선(기존 접기 관례 재사용). **P0-d 고아 가드가 배선을 감지해 동결 목록에서 지우라고 알렸다**(9→8건)
-- [~] 설계 §8 데이터 모델(`{ artifacts, rollup, diagnostics }`) — **도입하지 않는다.** 진단은 별도 엔드포인트 3종(`/api/eval/harness-scorecard{,/trend,/snapshot}`)으로 이미 제공되고, 4축 응답(`{ artifacts, rollup }`)에 `diagnostics` 를 합치면 **매 4축 조회마다 구성 재계산이 딸려온다**(생명주기가 다르다 — 4축은 요청마다·구성은 변경 시점). 설계서 §8 을 코드에 맞춰 정정하는 것은 별도 문서 과제로 이월
+- [~] 설계 §8 데이터 모델(`{ artifacts, rollup, diagnostics }`) — **도입하지 않되, 근거를 정정한다.**
+  - ⚠ **처음 쓴 근거가 사실과 반대였다**(R1 codex): "합치면 매 4축 조회마다 구성 재계산이 딸려온다"고 적었으나, **4축 엔드포인트는 이미 `computeHarnessScorecard` 를 부른다**(`artifacteval.ts:243-245` — 관계 진단 흡수·fail-open). 즉 합치면 재계산이 **생기는** 게 아니라 이미 있는 계산을 **재사용**하게 된다.
+  - **실제 미도입 근거:** 지연 마운트로 중복 호출 문제가 해소됐다. 진단 패널을 펼칠 때만 scorecard GET 이 나가므로, 일반 진입 시 구성 파싱은 4축 경로 **1회**뿐이다. API 계약 변경(응답 shape 확대)은 그만한 이득이 없다.
+  - **이월:** 설계서 §8 을 코드에 맞춰 정정하는 문서 과제(별도). 합치는 쪽이 나은지는 계층B 도입 시 재검토.
 - [x] 사용자 노출 top-level 은 **4축 카드 1개 유지** — 진단은 그 카드 **안의 접기**로만 제공. 새 최상위 카드를 만들지 않았다
 
 ### 게이트
-- [x] 복원 후 스냅샷 2회 이상 축적 → 추세 렌더 실측 — `harness-scorecard-trend.test.ts` 4건: 1회=insufficient(0 위장 금지) · 2회=판정 산출 · 동일 구성 중복 append 없음 · 해소 결함 추적
+- [x] 복원 후 스냅샷 2회 이상 축적 → 추세 렌더 실측 — `harness-scorecard-trend.test.ts` **7건**: 추세 4건(1회=insufficient·2회=판정 산출·동일 구성 중복 append 없음·해소 결함 추적) + **배선 계약 3건**(details 안 배선·지연 마운트·Card 미중첩). *R1 지적 반영: 어댑터만 부르는 테스트는 배선을 지워도 통과해 "복원"을 검증하지 못했다. 픽스처도 `as unknown` 캐스팅을 걷어내 `satisfies HarnessScorecard` 로 계약을 컴파일러가 강제하게 했다(이전엔 `deriveSummary` 가 읽는 `config_hash` 가 undefined 였는데 아무도 몰랐다)*
 - [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
 
 ---
