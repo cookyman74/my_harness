@@ -57,17 +57,20 @@ function sc(configHash: string, orphan: number): HarnessScorecard {
  * (P0-d 의 collectDecls 에서 배운 교훈 — 형태를 고정하면 정상 리팩터링에 깨진다.)
  */
 function findComponent(sf: ts.SourceFile, name: string): ts.Node | null {
-  let found: ts.Node | null = null;
-  const visit = (n: ts.Node): void => {
-    if (found) return;
-    if (ts.isFunctionDeclaration(n) && n.name?.text === name) { found = n; return; }
-    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name && n.initializer) {
-      found = n.initializer; return;
+  // **최상위 선언만 본다**(R11 codex): 깊이 우선으로 훑으면 앞선 함수 안의 동명 지역변수를
+  // 실제 컴포넌트로 오인해, 이후 검사가 엉뚱한 노드를 보고 통과/실패한다.
+  const unwrap = (e: ts.Expression): ts.Node =>
+    // `memo(() => …)` · `forwardRef(...)` 같은 래퍼는 벗겨 실제 본문을 준다.
+    ts.isCallExpression(e) && e.arguments.length > 0 ? unwrap(e.arguments[0]!) : e;
+  for (const st of sf.statements) {
+    if (ts.isFunctionDeclaration(st) && st.name?.text === name) return st;
+    if (ts.isVariableStatement(st)) {
+      for (const d of st.declarationList.declarations) {
+        if (ts.isIdentifier(d.name) && d.name.text === name && d.initializer) return unwrap(d.initializer);
+      }
     }
-    ts.forEachChild(n, visit);
-  };
-  ts.forEachChild(sf, visit);
-  return found;
+  }
+  return null;
 }
 
 describe("P0-c — 스냅샷 축적과 추세 산출", () => {
@@ -291,24 +294,62 @@ describe("P0-c — 진단 뷰 접근성 계약(AST)", () => {
 
   it("상태 문구가 로딩·실패·완료를 실제로 구분한다(고정 문자열이면 방송이 무의미)", async () => {
     const body = await cardBody();
-    // **AST 로 본다**(R10 agy) — 문자열 슬라이싱·정규식은 변수명·훅 추출 같은 정상
-    // 리팩터링에 깨지는 족쇄다. 여기서 지켜야 할 계약은 "리전 문구가 요청 상태
-    // (로딩/데이터/오류)에서 파생된다"이지 `setLiveMsg` 라는 이름이 아니다.
-    //
-    // 리전에 들어가는 식별자를 찾고, 그 값이 만들어지는 식이 세 상태를 모두 참조하는지 본다.
+    // **리전에서 출발해 추적한다**(R11 codex): 컴포넌트 전체에서 loading/data/err 를
+    // 모으면 `Async` 사용부만 있어도 통과해 **존재 검증으로 후퇴**한다.
+    // 리전이 쓰는 식별자 → 그 setter → setter 인자가 세 상태를 참조하는지 본다.
     const els = opens(body);
     const live = els.find((e) => literalAttr(e, "role") === "status" && hasClass(e, "sr-only"))!;
     const kids = (live.parent as ts.JsxElement).children;
-    const expr = kids.find((c): c is ts.JsxExpression => ts.isJsxExpression(c) && c.expression != null)!;
-    expect(expr, "상태 영역 내용이 표현식이 아니다").toBeTruthy();
+    const expr = kids.find((c): c is ts.JsxExpression => ts.isJsxExpression(c) && c.expression != null);
+    expect(expr, "상태 영역 내용이 고정 문자열이다 — 내용이 안 바뀌면 방송되지 않는다").toBeTruthy();
+    expect(ts.isStringLiteral(expr!.expression!), "상태 영역 내용이 문자열 리터럴이다").toBe(false);
 
-    // 컴포넌트 전체에서 접근하는 프로퍼티 이름을 모아, 세 상태가 모두 쓰이는지 확인한다.
-    const props = new Set<string>();
-    const walkProps = (n: ts.Node): void => {
-      if (ts.isPropertyAccessExpression(n)) props.add(n.name.text);
-      ts.forEachChild(n, walkProps);
+    // 리전이 참조하는 식별자들
+    const regionIds = new Set<string>();
+    const collectIds = (n: ts.Node): void => {
+      if (ts.isIdentifier(n)) regionIds.add(n.text);
+      ts.forEachChild(n, collectIds);
     };
-    walkProps(body);
+    collectIds(expr!.expression!);
+
+    // `const [x, setX] = useState(...)` 에서 x 에 대응하는 setter 이름을 찾는다.
+    const setters = new Set<string>();
+    const findSetters = (n: ts.Node): void => {
+      if (ts.isVariableDeclaration(n) && ts.isArrayBindingPattern(n.name) && n.name.elements.length === 2) {
+        const [a, b] = n.name.elements;
+        if (a && ts.isBindingElement(a) && ts.isIdentifier(a.name) && regionIds.has(a.name.text) &&
+            b && ts.isBindingElement(b) && ts.isIdentifier(b.name)) setters.add(b.name.text);
+      }
+      ts.forEachChild(n, findSetters);
+    };
+    findSetters(body);
+    expect(setters.size, "상태 영역 식별자에 대응하는 setter 를 못 찾았다").toBeGreaterThan(0);
+
+    // setter 호출 인자에서 참조되는 프로퍼티만 모은다.
+    const props = new Set<string>();
+    const walkCalls = (n: ts.Node): void => {
+      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && setters.has(n.expression.text)) {
+        const walkProps = (m: ts.Node): void => {
+          if (ts.isPropertyAccessExpression(m)) props.add(m.name.text);
+          ts.forEachChild(m, walkProps);
+        };
+        n.arguments.forEach(walkProps);
+        // setter 인자가 헬퍼 호출이면(예: pending(sc)) 그 헬퍼 본문도 본다.
+        n.arguments.forEach(function inner(a: ts.Node) {
+          if (ts.isCallExpression(a) && ts.isIdentifier(a.expression)) {
+            const nm = a.expression.text;
+            const findHelper = (m: ts.Node): void => {
+              if (ts.isVariableDeclaration(m) && ts.isIdentifier(m.name) && m.name.text === nm && m.initializer) walkProps(m.initializer);
+              ts.forEachChild(m, findHelper);
+            };
+            findHelper(body);
+          }
+          ts.forEachChild(a, inner);
+        });
+      }
+      ts.forEachChild(n, walkCalls);
+    };
+    walkCalls(body);
     for (const need of ["loading", "data", "err"]) {
       expect(props.has(need), `상태 통지가 '${need}' 를 반영하지 않는다 — 문구가 실제 상태를 따르지 않는다`).toBe(true);
     }
