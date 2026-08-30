@@ -2064,10 +2064,16 @@ function HarnessScorecardCard() {
   const [liveMsg, setLiveMsg] = useState("");   // 첫 커밋엔 빈 리전만(위 주석 참조)
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    setLiveMsg(sc.loading || trend.loading ? "구성 건강도 진단 불러오는 중"
+    // ⚠ `loading` 만 보면 안 된다(R8 codex): `useApi` 의 초기 loading 은 false 이고
+    //   요청은 별도 effect 에서 시작한다. 그래서 첫 계산이 "완료"로 나가고 뒤이어
+    //   "불러오는 중"으로 뒤집혀, 스크린리더 사용자가 **로드 완료로 오판**한다.
+    //   아직 데이터도 오류도 없으면 = 대기 중이다.
+    const pending = (s: { loading: boolean; data: unknown; err: string | null }) =>
+      s.loading || (s.data == null && s.err == null);
+    setLiveMsg(pending(sc) || pending(trend) ? "구성 건강도 진단 불러오는 중"
       : sc.err || trend.err ? "구성 건강도 진단 불러오기 실패"
       : "구성 건강도 진단 불러오기 완료");
-  }, [sc.loading, trend.loading, sc.err, trend.err]);
+  }, [sc.loading, sc.data, sc.err, trend.loading, trend.data, trend.err]);
   const recordSnapshot = async () => {
     setBusy(true); setSnapMsg(null);
     try {

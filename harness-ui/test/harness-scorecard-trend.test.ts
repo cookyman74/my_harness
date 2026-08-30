@@ -235,7 +235,11 @@ describe("P0-c — 진단 뷰 접근성 계약(AST)", () => {
   const literalAttr = (el: ts.JsxOpeningLikeElement, name: string): string | null => {
     const a = attrNode(el, name);
     const init = a?.initializer;
-    return init && ts.isStringLiteral(init) ? init.text : null;
+    if (!init) return null;
+    if (ts.isStringLiteral(init)) return init.text;
+    // `role={"status"}` 도 의미가 같다 — 리터럴만 인정하면 유효한 리팩터링을 거짓 실패시킨다(R8 codex).
+    if (ts.isJsxExpression(init) && init.expression && ts.isStringLiteral(init.expression)) return init.expression.text;
+    return null;
   };
   /** className 을 **토큰 단위**로 본다("sr-only-x" 가 "sr-only" 로 통과하지 않게). */
   const hasClass = (el: ts.JsxOpeningLikeElement, name: string): boolean =>
@@ -274,11 +278,16 @@ describe("P0-c — 진단 뷰 접근성 계약(AST)", () => {
     const body = await cardBody();
     const src = body.getText();
     // 리전 문구가 상태에 따라 갈리는지 — loading 과 err 분기를 모두 참조해야 한다(R7 codex).
+    // effect **전체**를 본다 — setLiveMsg 호출부만 자르면 헬퍼(pending 등) 정의를 놓친다.
     const i = src.indexOf("setLiveMsg(");
     expect(i, "setLiveMsg 호출이 없다 — 리전이 상태를 반영하지 않는다").toBeGreaterThan(-1);
-    const call = src.slice(i, src.indexOf("}, [", i));
+    const effStart = src.lastIndexOf("useEffect(", i);
+    const call = src.slice(effStart, src.indexOf("}, [", i) + 40);
     expect(call).toMatch(/loading/);
     expect(call).toMatch(/err/);
+    // 첫 커밋에 "완료"가 방송되면 사용자가 로드 완료로 오판한다(R8 codex).
+    // `useApi` 초기 loading 이 false 라 **데이터 유무까지** 봐야 대기 상태를 안다.
+    expect(call, "loading 만 보면 첫 문구가 '완료'로 나간다 — data 미도착도 대기로 취급하라").toMatch(/data/);
   });
 
   it("스냅샷 실패가 성공과 구분된다(실패를 성공으로 오판하지 않는다)", async () => {
