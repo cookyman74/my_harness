@@ -295,7 +295,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 
 ### 게이트
 - [ ] 정책 감사 PASS(`check-behaviors.sh` 호출 포함) · `tests/test-harness-update.sh` PASS
-- [ ] **픽스처 테스트**(R5 codex — 게이트에 없으면 빈 출력으로도 통과한다): ① 정의별 **참조 목록**이 출력되는가 ② **끊긴 참조**를 잡는가 ③ **고아 BEHAVIOR** 를 잡는가 ④ BEHAVIOR 가 없는 하네스에서 **graceful skip**(종료코드 0)
+- [ ] **픽스처 테스트**(R5 codex·R6 codex — 게이트에 없으면 빈 출력·부분 출력으로도 통과한다): ① 정의별 **참조 목록** — **에이전트+스킬 둘 다** · **여러 정의→같은 BEHAVIOR** · **한 정의→여러 BEHAVIOR** 조합에서 **모든 (정의, BEHAVIOR) 간선이 정확히 한 번** 출력되는가 ② **끊긴 참조**를 잡는가 ③ **고아 BEHAVIOR** 를 잡는가 ④ BEHAVIOR 가 없는 하네스에서 **graceful skip**(종료코드 0)
 - [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
 
 ---
@@ -305,7 +305,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 **목표:** 6차원(Intent·Evidence·Decision·Execution·Recovery·**Failure modes**)을 권장으로 추가.
 **등급:** 경량 · **근거:** 제안서 §3 B2
 
-> ⛔ **착수 전 필수(ADR-001 D7):** BEHAVIOR 를 도입한 정의가 **그 이유만으로 감점되지 않도록** 채점을 먼저 고친다. `scoreInduction` 은 명령형 줄 비율이라 판단 기준을 BEHAVIOR 로 옮기면 점수가 떨어진다(`artifacteval.ts:142-148`) — 행동 차원을 권장하면서 따르면 손해인 상태로 두면 안 된다. **참조 대상 BEHAVIOR 본문을 함께 읽어 4축을 계산한다**(단일안 — "induction 축만 제외"는 채점 우회 통로라 폐기했다: 내용을 옮기면 줄 수 감점·중복 감점을 함께 빠져나간다). 구현 시 BEHAVIOR 본문도 **사전 읽기**로 가져올 것(순회 안 비동기 읽기는 결정성·동시성 제한을 깬다).
+> ⛔ **착수 전 필수(ADR-001 D7):** BEHAVIOR 를 도입한 정의가 **그 이유만으로 감점되지 않도록** 채점을 먼저 고친다. `scoreInduction` 은 명령형 줄 비율이라 판단 기준을 BEHAVIOR 로 옮기면 점수가 떨어진다(`artifacteval.ts:142-148`) — 행동 차원을 권장하면서 따르면 손해인 상태로 두면 안 된다. **참조 대상 BEHAVIOR 본문을 정의 채점 입력에 합성한다**(단일안 — "induction 축만 제외"는 채점 우회 통로라 폐기). **축별 입력이 다르다**(ADR D7 표): `trigger`=정의 description 만 · 필수 섹션 검사=정의 body 만 · **줄 수 상한·induction·pruning = 정의 body + BEHAVIOR body 합성**. 합성은 append 이고 필수 섹션 검사는 합성 **전** body 로 한다(BEHAVIOR heading 을 정의 구조로 오인 방지). 공유 BEHAVIOR 는 참조하는 정의마다 줄 수가 반복 계산되며 **이는 의도된 동작 — 테스트로 고정**할 것. 구현 시 BEHAVIOR 본문도 **사전 읽기**로 가져온다.
 
 - [ ] 현행 필수 섹션(`SKILL.md:113` — 핵심 역할·작업 원칙·입출력 프로토콜·에러 핸들링·협업)과의 **매핑표** 작성 → `agent-design-patterns.md`
 - [ ] **강제하지 않고 권장**으로 추가(기존 5개 섹션과 충돌하지 않음: 에러 핸들링 ⊂ Recovery, 작업 원칙 ⊃ Intent/Decision)
