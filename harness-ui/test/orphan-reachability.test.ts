@@ -119,7 +119,6 @@ const KNOWN_UNWIRED = new Set<string>([
   "CoverageNote",
   "EvalIndexBody",
   "FilterBar",
-  "HarnessScorecardCard", // P0-c 가 배선 예정
   "MetricsWindowBar",
   "ResultBar",
   "RunDetail",            // 전용 회귀 테스트 있음(webrundetail.test.ts)

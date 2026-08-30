@@ -2411,6 +2411,13 @@ function EvalMain() {
               </div>
             </div>
             <p className="muted" style={{ marginTop: 8 }}>정적 측정(계층A·참고용)·제안은 자동 적용 안 함(편집기 수동). 축·등급 근거는 위 <b>평가 기준</b> 참조.</p>
+            {/* P0-c: 구성 건강도 진단 — **접기로만** 제공한다(설계 §8 "노출은 하나" 불변).
+                위 `구성 관계` 칩은 집계 4개 숫자뿐이라, 개별 findings 대상·미선언(부채) 구분·
+                추세·스냅샷 기록은 여기서만 볼 수 있다. */}
+            <details className="tier-b sc-diagnostics">
+              <summary>구성 건강도 진단 (harness_scorecard · 개별 대상·추세·스냅샷)</summary>
+              <HarnessScorecardCard />
+            </details>
           </Card>
           {/* M-y2 비용 합의 카드 — 선택 대상 N개·대상당 초안 잡 1개(claude run)·quota 확인 후에만 실행. */}
           {selectable.length > 0 && (

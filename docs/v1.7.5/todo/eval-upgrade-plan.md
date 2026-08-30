@@ -95,7 +95,7 @@
 
 ---
 
-## P0-c — 구성 건강도 진단·추세 UI 복구 `⬜ 미착수`
+## P0-c — 구성 건강도 진단·추세 UI 복구 `🔍 리뷰중(R1)`
 
 **목표:** 설계 §8 이 "삭제 아님·강등"으로 정한 결정을 코드에 맞춰 재확정한다. **기본안 = 복원.**
 **등급:** 경량~표준 · **근거:** 제안서 §1-3
@@ -103,18 +103,18 @@
 > ⚠ **범위 주의:** 이 단계는 `harness_scorecard`(구성 건강도·`_workspace/evals/harness_summary.jsonl`) 전용이다. `loop_scorecard`(루프 효율·`alignment_score` 등)는 **P0-M 소관**이며 P0-c 로는 그 추세가 생기지 않는다.
 
 ### P0 선검증
-- [ ] `HarnessScorecardCard`(`screens.tsx:2058-2161`) 참조가 실제로 0건인지 전 소스 재확인
-- [ ] 서버 엔드포인트 3종(`api/index.ts:775,777,780`) 생존 확인
-- [ ] `harness_summary.jsonl` 스냅샷 경로가 살아 있어 **복원만으로 추세가 쌓이는지** 실측(미실재 의존 없는지)
-- [ ] `rollup.health`·`rel-health`(`artifacteval.ts:44,217-223`·`screens.tsx:2385-2392`)로 이미 노출되는 범위 확정 → **복원으로 실제로 되찾는 것**이 무엇인지 목록화
+- [x] `HarnessScorecardCard`(`screens.tsx:2058`) 참조가 실제로 0건인지 전 소스 재확인 — *실측: 선언 1줄 외 참조 0*
+- [x] 서버 엔드포인트 3종(`api/index.ts:775,777,780`) 생존 확인 — *실측: GET scorecard·GET trend·POST snapshot 전건 생존*
+- [x] `harness_summary.jsonl` 스냅샷 경로가 살아 있어 **복원만으로 추세가 쌓이는지** 실측 — *파일 실재(1건 축적)·`writeHarnessScorecardSnapshot`→`readHarnessTrend` 경로 정상. 미실재 의존 없음*
+- [x] `rollup.health`·`rel-health`로 이미 노출되는 범위 확정 → **복원으로 되찾는 것** 목록화 — *기존은 집계 4개 숫자(고아·끊긴링크·미배정·drift)뿐. 복원으로 되찾는 것: ① **개별 findings 와 그 대상**(어느 에이전트/스킬인지) ② **미선언(link_unknown) 부채 구분**(고아와 분리·감점 아님) ③ **추세**(개선/악화/보합·신규/해소 결함) ④ **스냅샷 기록 버튼**(현재 UI 트리거 없음) ⑤ state_key·runtime scope·억제(waived) 목록*
 
 ### 구현
-- [ ] `diagnostics` 접기 뷰로 `HarnessScorecardCard` 복원(전체 findings·추세·스냅샷 버튼)
-- [ ] 설계 §8 데이터 모델(`{ artifacts, rollup, diagnostics }`) 반영 여부 결정 — 도입하면 그 근거를, 안 하면 설계서를 코드에 맞춰 정정
-- [ ] 사용자 노출 top-level 은 **4축 카드 1개 유지**(§8 "노출은 하나" 불변 — 접기로만 제공)
+- [x] `diagnostics` 접기 뷰로 `HarnessScorecardCard` 복원 — 4축 카드 안 `<details className="tier-b sc-diagnostics">` 로 배선(기존 접기 관례 재사용). **P0-d 고아 가드가 배선을 감지해 동결 목록에서 지우라고 알렸다**(9→8건)
+- [~] 설계 §8 데이터 모델(`{ artifacts, rollup, diagnostics }`) — **도입하지 않는다.** 진단은 별도 엔드포인트 3종(`/api/eval/harness-scorecard{,/trend,/snapshot}`)으로 이미 제공되고, 4축 응답(`{ artifacts, rollup }`)에 `diagnostics` 를 합치면 **매 4축 조회마다 구성 재계산이 딸려온다**(생명주기가 다르다 — 4축은 요청마다·구성은 변경 시점). 설계서 §8 을 코드에 맞춰 정정하는 것은 별도 문서 과제로 이월
+- [x] 사용자 노출 top-level 은 **4축 카드 1개 유지** — 진단은 그 카드 **안의 접기**로만 제공. 새 최상위 카드를 만들지 않았다
 
 ### 게이트
-- [ ] 복원 후 스냅샷 2회 이상 축적 → 추세 렌더 실측
+- [x] 복원 후 스냅샷 2회 이상 축적 → 추세 렌더 실측 — `harness-scorecard-trend.test.ts` 4건: 1회=insufficient(0 위장 금지) · 2회=판정 산출 · 동일 구성 중복 append 없음 · 해소 결함 추적
 - [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
 
 ---
