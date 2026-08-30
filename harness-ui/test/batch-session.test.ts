@@ -136,3 +136,41 @@ describe("P0-e — batchApplyTransition", () => {
     expect(n.snap).toEqual({ batchId: "b1", runId: "r2", saves: 1 });
   });
 });
+
+describe("P0-e — 비배치 저장이 끼어드는 경우(R10)", () => {
+  const save = (batchId: string | null, runId: string | null) => ({ type: "save" as const, batchId, runId });
+  const rollback = { type: "rollback" as const };
+
+  it("비배치 저장이 들어오면 배치 추적을 폐기한다", () => {
+    const s = batchApplyTransition(null, save("A", "r1")).snap;
+    expect(s).not.toBeNull();
+    const n = batchApplyTransition(s, save(null, null));
+    expect(n.snap, "배치 스냅샷이 남으면 이후 롤백이 엉뚱한 항목을 지운다").toBeNull();
+    expect(n.effect, "비배치 저장은 배치 기록을 건드리지 않는다").toBeNull();
+  });
+
+  it("배치 저장 → 비배치 저장 → 롤백: 배치 기록은 그대로 남는다", () => {
+    // 롤백은 직전 백업(=비배치 저장분)만 되돌리므로 파일엔 배치 저장분이 남는다.
+    // 기록을 지우면 실제 적용된 작업이 미처리로 보인다(R10 양 엔진).
+    let s = batchApplyTransition(null, save("A", "r1")).snap;
+    s = batchApplyTransition(s, save(null, null)).snap;
+    const r = batchApplyTransition(s, rollback);
+    expect(r.effect, "적용된 배치 항목이 미처리로 강등된다").toBeNull();
+  });
+
+  it("배치 A → 배치 B 저장 → 롤백: B 만 되돌린다", () => {
+    let s = batchApplyTransition(null, save("A", "r1")).snap;
+    const b = batchApplyTransition(s, save("B", "r2"));
+    expect(b.effect).toEqual({ op: "add", batchId: "B", runId: "r2" });
+    const r = batchApplyTransition(b.snap, rollback);
+    expect(r.effect).toEqual({ op: "remove", batchId: "B", runId: "r2" });
+  });
+
+  it("롤백 두 번 연속이어도 음수로 내려가지 않는다", () => {
+    const s = batchApplyTransition(null, save("A", "r1")).snap;
+    const r1 = batchApplyTransition(s, rollback);
+    expect(r1.snap).toBeNull();
+    const r2 = batchApplyTransition(r1.snap, rollback);
+    expect(r2).toEqual({ snap: null, effect: null });
+  });
+});

@@ -436,7 +436,11 @@ export function batchApplyTransition(
   event: { type: "save"; batchId: string | null; runId: string | null } | { type: "rollback" },
 ): { snap: BatchApplySnapshot; effect: { op: "add" | "remove"; batchId: string; runId: string } | null } {
   if (event.type === "save") {
-    if (!event.batchId || !event.runId) return { snap, effect: null };   // 배치에서 온 편집이 아니다
+    // **비배치 저장이면 추적을 폐기한다**(R10 양 엔진). 그대로 유지하면
+    //   `배치 A 저장 → 비배치 저장 → 롤백` 에서 파일엔 A 가 남는데(롤백은 직전 백업만
+    //   되돌린다) 기록만 지워져, 실제 적용된 A 가 큐에서 미처리로 보인다.
+    //   새 저장이 백업 층을 덮었으므로 이 편집기는 더 이상 A 의 롤백 주체가 아니다.
+    if (!event.batchId || !event.runId) return { snap: null, effect: null };
     if (snap && snap.batchId === event.batchId && snap.runId === event.runId) {
       return { snap: { ...snap, saves: snap.saves + 1 }, effect: null };
     }
