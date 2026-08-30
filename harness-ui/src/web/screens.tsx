@@ -37,6 +37,7 @@ import {
   parseIntInput, thresholdError, thresholdDiff, thresholdsValid,
   stageNeedsHighRiskConfirm, adoptionStageLabel, buildConfigPatch, evalsConfigErrorText,
   diagLiveMessage, draftInjectDecision,
+  batchSessionKey, batchIdFromHash, readSessionSet, writeSessionSet,
 } from "./evals.js";
 import {
   defEditErrorText, diffLines, diffStats, hasChanges, isDiffCoarse, sideRows,
@@ -697,6 +698,15 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
       const res = await putDefinition(kind, name, { content: edited, baseHash, pathId: doc.pathId });
       setConfirmOpen(false); setConflict(null); setRolledBack(false);
       setSaveResult(res); setBaseHash(res.newHash);
+      // P0-e R7(codex HIGH): 이 저장이 **배치 검토 큐에서 온 초안 편집**이면 그 항목을
+      //   적용됨으로 기록한다. 이 연결이 없으면 큐로 돌아갔을 때 여전히 "미처리 + stale"
+      //   로 보여, 방금 끝낸 작업이 실패처럼 표시된다(R6 수정이 이 경로를 못 덮었다).
+      const bid = batchIdFromHash(returnTo);
+      if (bid && remediateRunId) {
+        const key = batchSessionKey(bid, "applied");
+        const cur = readSessionSet(key); cur.add(remediateRunId);
+        writeSessionSet(key, cur);
+      }
       // canonical 재직렬화본을 재조회해 diff 기준 갱신(실패해도 저장 성공 배너 유지·A83).
       try { const d = await getDefinition(kind, name); setDoc(d); setEdited(d.content); setBaseHash(d.baseHash); } catch { /* 재조회 실패 격리 */ }
     } catch (e) {
@@ -2604,15 +2614,14 @@ function batchStatusKind(s: string): "ok" | "warn" | "err" {
  * sessionStorage 는 사생활 보호 모드 등에서 던질 수 있으므로 읽기·쓰기 모두 감싼다.
  */
 function useSessionSet(key: string): [Set<string>, (add: string[]) => void] {
-  const [s, setS] = useState<Set<string>>(() => {
-    try {
-      const raw = sessionStorage.getItem(key);
-      return new Set<string>(raw ? (JSON.parse(raw) as string[]) : []);
-    } catch { return new Set<string>(); }
-  });
+  const [s, setS] = useState<Set<string>>(() => readSessionSet(key));
+  // ⚠ setState **updater 안에서 sessionStorage 를 쓰지 않는다**(R7 agy HIGH).
+  //   updater 는 순수해야 한다 — StrictMode·동시성에서 중복 호출되거나 렌더가 폐기되면
+  //   메모리 상태는 롤백되는데 저장소에는 값이 남아 **불일치**가 생긴다.
+  //   상태가 실제로 바뀐 뒤 effect 에서 동기화한다.
+  useEffect(() => { writeSessionSet(key, s); }, [key, s]);
   const add = (keys: string[]) => setS((prev) => {
     const next = new Set(prev); for (const k of keys) next.add(k);
-    try { sessionStorage.setItem(key, JSON.stringify([...next])); } catch { /* 저장 실패는 무시(메모리로는 동작) */ }
     return next;
   });
   return [s, add];
@@ -2717,7 +2726,10 @@ function BatchItemCard({ item, applied, skipped, busy, onApplied, onSkip }: {
     <Card title={`${item.kind === "agent" ? "에이전트" : "스킬"} · ${item.name}`}>
       <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <Badge kind={batchStatusKind(item.status)}>{item.status}</Badge>
-        {item.stale && item.status === "ready" && !applied && <Badge kind="warn">stale(정의 변경됨)</Badge>}
+        {/* 적용됨과 stale 은 **함께 보일 수 있다**(R7 codex MED): 세션 기록이 서버의 현재
+            상태를 가리면 적용 후 롤백·재변경을 사용자가 놓친다. 정보는 숨기지 않고,
+            아래 문구로 원인을 구분한다. */}
+        {item.stale && item.status === "ready" && <Badge kind="warn">stale(정의 변경됨)</Badge>}
         {applied && <Badge kind="ok">적용됨</Badge>}
         {skipped && <Badge kind="err">건너뜀</Badge>}
         {item.error && <span className="muted">{item.error}</span>}

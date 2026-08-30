@@ -216,20 +216,36 @@ describe("P0-e — 큐 진행 상태 보존(왕복 동선의 정직성)", () => 
     expect(body, "applied 를 로컬 useState 로 되돌렸다").not.toMatch(/const \[applied, setApplied\] = useState/);
   });
 
-  it("sessionStorage 접근을 감싼다(사생활 보호 모드에서 던진다)", async () => {
+  it("세션 접근이 예외 안전한 헬퍼를 통한다(직접 sessionStorage 호출 금지)", async () => {
     const src = await load();
     const i = src.indexOf("function useSessionSet");
     const body = src.slice(i, src.indexOf("\n}\n", i));
-    // 읽기·쓰기 둘 다 try/catch 여야 한다.
-    expect((body.match(/try \{/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect(body).toContain("catch");
+    // 읽기·쓰기 모두 evals.ts 의 예외 안전 헬퍼를 쓴다(그쪽에 try/catch 가 있다).
+    expect(body).toContain("readSessionSet");
+    expect(body).toContain("writeSessionSet");
+    // ⚠ setState updater 안에서 저장소를 쓰면 StrictMode·동시성에서 불일치가 생긴다(R7 agy).
+    expect(body, "updater 안에서 저장소를 쓴다 — 상태/저장소 불일치 위험").not.toMatch(/setS\(\(prev\)[\s\S]*?writeSessionSet/);
+    expect(body, "상태 변경 후 effect 로 동기화하지 않는다").toMatch(/useEffect\(\(\) => \{ writeSessionSet/);
   });
 
-  it("stale 카드가 '내가 편집한 경우'를 구분해 안내한다", async () => {
+  it("stale 정보를 적용 이력으로 은폐하지 않는다", async () => {
     const src = await load();
-    // stale 은 충돌이 아니라 "초안 생성 후 정의 변경"이고, 원인이 사용자 자신의 편집일 수 있다.
+    // 세션 기록이 서버의 현재 stale 을 가리면, 적용 후 롤백·재변경을 사용자가 놓친다(R7 codex).
+    expect(src, "applied 로 stale 배지를 숨긴다 — 서버 현재 상태 은폐")
+      .not.toMatch(/item\.stale && item\.status === "ready" && !applied/);
+    // 대신 문구로 원인을 구분한다.
     expect(src).toContain("직접 편집해 저장했다면 이미 반영된 것");
-    // 적용된 항목엔 stale 경고 배지를 띄우지 않는다.
-    expect(src).toMatch(/item\.stale && item\.status === "ready" && !applied/);
+  });
+
+  it("편집기 저장이 배치 진행에 기록된다(왕복 동선의 핵심 연결)", async () => {
+    const src = await load();
+    // 이 연결이 없으면 "초안 고쳐서 적용 → 저장 → 복귀" 에서 아무것도 기록되지 않아
+    // 방금 끝낸 작업이 큐에서 미처리로 보인다(R7 codex HIGH — R6 수정이 놓친 경로).
+    const i = src.indexOf("setSaveResult(res)");
+    expect(i, "저장 성공 처리부를 못 찾았다").toBeGreaterThan(-1);
+    const body = src.slice(i, i + 900);
+    expect(body, "저장 성공 시 배치 적용 기록이 없다").toContain("batchIdFromHash");
+    expect(body).toContain("batchSessionKey");
+    expect(body).toContain("remediateRunId");
   });
 });

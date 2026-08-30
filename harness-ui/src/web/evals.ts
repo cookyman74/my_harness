@@ -378,3 +378,30 @@ export function draftInjectDecision(a: {
   if (a.stale) return "skip-stale";
   return "inject";
 }
+
+// ── P0-e 배치 진행 상태(세션 보존) ───────────────────────────────────────────
+/**
+ * 배치 진행 상태 키. 편집기와 검토 큐가 **같은 키**를 써야 왕복 동선이 이어진다.
+ * (P0-e R7: 편집기 저장 경로가 배치를 몰라 기록이 안 됐고, 그래서 R6 수정이
+ *  정작 목표 시나리오 — 초안 고쳐서 적용 → 저장 → 복귀 — 를 해결하지 못했다.)
+ */
+export const batchSessionKey = (batchId: string, kind: "applied" | "skipped") => `batch:${batchId}:${kind}`;
+
+/** `#/eval?batch=<id>` 형태의 해시에서 배치 id 를 뽑는다. 아니면 null. */
+export function batchIdFromHash(hash: string | null | undefined): string | null {
+  if (!hash) return null;
+  const q = hash.indexOf("?");
+  if (q < 0 || !hash.slice(0, q).startsWith("#/eval")) return null;
+  return new URLSearchParams(hash.slice(q + 1)).get("batch");
+}
+
+/** 세션 Set 읽기·쓰기. sessionStorage 는 사생활 보호 모드 등에서 던지므로 전부 감싼다. */
+export function readSessionSet(key: string): Set<string> {
+  try {
+    const raw = sessionStorage.getItem(key);
+    return new Set<string>(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch { return new Set<string>(); }
+}
+export function writeSessionSet(key: string, values: Iterable<string>): void {
+  try { sessionStorage.setItem(key, JSON.stringify([...values])); } catch { /* 저장 실패는 무시(메모리로는 동작) */ }
+}
