@@ -2058,20 +2058,24 @@ const VERDICT: Record<string, { label: string; kind: "ok" | "warn" | "muted" }> 
 function HarnessScorecardCard() {
   const sc = useApi<HarnessScorecard>("/api/eval/harness-scorecard");
   const trend = useApi<ScTrend>("/api/eval/harness-scorecard/trend");
-  const [snapMsg, setSnapMsg] = useState<string | null>(null);
+  // R5 양 엔진: 실패가 성공과 시각적으로 구분되지 않아 사용자가 오판할 수 있었다.
+  //   기존 관례대로 실패는 role="alert"+.err, 성공은 role="status" 로 나눈다.
+  const [snapMsg, setSnapMsg] = useState<{ text: string; failed: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const recordSnapshot = async () => {
     setBusy(true); setSnapMsg(null);
     try {
       const r = await apiPost<{ written: boolean }>("/api/eval/harness-scorecard/snapshot", {});
-      setSnapMsg(r.written ? "스냅샷 기록됨 — 추세 갱신" : "변경 없음 — 구성 파일(.claude/agents·skills) 미변경이라 스킵(중복 방지). 정의가 바뀌면 자동 기록.");
+      setSnapMsg({ failed: false, text: r.written ? "스냅샷 기록됨 — 추세 갱신" : "변경 없음 — 구성 파일(.claude/agents·skills) 미변경이라 스킵(중복 방지). 정의가 바뀌면 자동 기록." });
       trend.reload();
-    } catch (e) { setSnapMsg("기록 실패: " + String(e)); }
+    } catch (e) { setSnapMsg({ failed: true, text: "기록 실패: " + String(e) }); }
     finally { setBusy(false); }
   };
   return (
     // Card 로 감싸지 않는다 — 호출부가 이미 `<Card>` 안 `<details>` 다(중첩 방지·R1 agy MED).
-    <div className="sc-diag-body">
+    // aria-live: 지연 마운트라 펼친 뒤 내용이 비동기로 채워진다 — 로딩·완료가
+    //   스크린리더에 전달되지 않으면 사용자는 무엇이 생겼는지 알 수 없다(R5 양 엔진).
+    <div className="sc-diag-body" aria-live="polite" aria-busy={sc.loading || trend.loading}>
       <p className="muted">
         하네스 <b>구성 상태</b>(에이전트·스킬·오케스트레이터 연결)를 정적 파싱으로 측정. 아래 루프 평가는 보조 신호(loop_ref). ·
         <b>미선언(link_unknown)은 "아직 모름"</b>(감점 아님·마이그레이션 부채) — 고아(확실히 무연결)와 구분.
@@ -2153,7 +2157,13 @@ function HarnessScorecardCard() {
             )}
             <div style={{ marginTop: 10 }}>
               <button type="button" className="primary" disabled={busy} onClick={recordSnapshot}>{busy ? "기록 중…" : "지금 스냅샷 기록"}</button>
-              {snapMsg && <span className="muted" style={{ marginLeft: 10 }}>{snapMsg}</span>}
+              {snapMsg && (
+                <span
+                  className={snapMsg.failed ? "err" : "muted"}
+                  role={snapMsg.failed ? "alert" : "status"}
+                  style={{ marginLeft: 10 }}
+                >{snapMsg.failed ? "⚠ " : ""}{snapMsg.text}</span>
+              )}
             </div>
           </>
         );

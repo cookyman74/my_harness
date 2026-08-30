@@ -202,3 +202,27 @@ describe("P0-c — 진단 뷰 배선 계약(AST)", () => {
     expect(hasCard, "Card 를 다시 감쌌다 — 호출부의 Card 와 중첩된다").toBe(false);
   });
 });
+
+describe("P0-c — 진단 뷰 접근성 계약", () => {
+  const load = async () => readFile(new URL("../src/web/screens.tsx", import.meta.url), "utf8");
+
+  it("스냅샷 실패가 성공과 구분된다(실패를 성공으로 오판하지 않는다)", async () => {
+    const src = await load();
+    const s = src.indexOf("function HarnessScorecardCard()");
+    const body = src.slice(s, src.indexOf("\n}\n", s));
+    // 실패 경로가 별도 상태로 분리돼 있어야 한다 — 같은 .muted span 이면 구분 불가.
+    expect(body).toMatch(/failed:\s*true/);
+    expect(body).toMatch(/role=\{snapMsg\.failed \? "alert" : "status"\}/);
+    expect(body).toMatch(/className=\{snapMsg\.failed \? "err" : "muted"\}/);
+  });
+
+  it("비동기 로딩·완료가 스크린리더에 전달된다", async () => {
+    const src = await load();
+    const s = src.indexOf("function HarnessScorecardCard()");
+    const body = src.slice(s, src.indexOf("\n}\n", s));
+    // 지연 마운트라 펼친 뒤 내용이 비동기로 채워진다 — aria-live 가 없으면 무엇이
+    // 생겼는지 알 수 없다.
+    expect(body).toContain('aria-live="polite"');
+    expect(body).toMatch(/aria-busy=/);
+  });
+});
