@@ -109,6 +109,14 @@ scan_defs(){
     [ -n "$fm_end" ] || continue
     fm="$(sed -n "2,$((fm_end-1))p" "$f")"
     printf '%s\n' "$fm" | grep -qE '^behaviors:' || continue
+    # YAML 은 들여쓰기에 tab 을 금지한다. 그런데 종료 판정 `[!\ -]` 은 **literal space** 만 보므로
+    # `\t- alpha` · `\t# x` 의 첫 글자(tab)가 "다음 키"로 오인돼 목록이 조용히 닫힌다
+    # — 앞에 유효 항목이 있으면 0참조 검사도 우회한다(R5 codex HIGH).
+    # 근사로 흡수하지 않고 **명시적으로 막는다**(fail-closed 일관).
+    if printf '%s' "$fm" | grep -q "$(printf '\t')"; then
+      no "$f: frontmatter 에 tab 이 있다 — YAML 은 들여쓰기에 tab 을 허용하지 않는다 (건너뜀)"
+      continue
+    fi
     # `behaviors:` 값 파싱 — YAML 의미를 bash 로 근사하는 대신 **인식한 두 형태만 받고
     # 나머지는 fail-closed** 한다. 근사는 계속 샜다:
     #   R3 codex HIGH — flow sequence `behaviors: [a, b]` 를 통째로 못 읽어 dead 참조가 exit 0.

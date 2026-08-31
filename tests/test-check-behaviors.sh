@@ -216,6 +216,17 @@ p=sys.argv[1]; t=io.open(p,encoding='utf-8').read()
 io.open(p,'w',encoding='utf-8').write(re.sub(r'^description:.*\$','description: 이슈 처리 규칙',t,count=1,flags=re.M))" "$CASE/.agents/behaviors/alpha/BEHAVIOR.md"
 [ "$(rc_of)" = 0 ] && ok "정상 description 통과(주석 제거가 오탐 안 냄)" || no "정상 description 오탐"
 
+# R5 codex HIGH — tab 줄이 목록을 닫아 뒤 참조가 통째로 스킵되던 것(YAML 은 tab 들여쓰기 금지)
+for pre in '\t- nosuch' '\t# 주석'; do
+  new_case tabbed; behavior . alpha '왜' '실패'
+  printf -- '---\nname: a1\ndescription: t\nbehaviors:\n  - alpha\n%b\n---\n## 역할\n내용\n' "$pre" > "$CASE/.claude/agents/a1.md"
+  OUT="$(run)"
+  hasi 'tab 이 있다' && ok "tab frontmatter 거부 [$pre]" || no "tab 을 조용히 통과 [$pre]: $OUT"
+  [ "$(rc_of)" != 0 ] && ok "tab frontmatter exit≠0 [$pre]" || no "tab 인데 exit 0 [$pre]"
+done
+new_case notab; behavior . alpha '왜' '실패'; agent a1 alpha
+[ "$(rc_of)" = 0 ] && ok "tab 없는 정상 정의는 통과" || no "tab 검사가 정상 정의를 오탐"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"
