@@ -257,6 +257,16 @@ new_case good-nextkey; behavior . alpha '왜' '실패'
 printf -- '---\nname: a1\ndescription: t\nbehaviors:\n  - alpha\nmodel: opus\n---\n## 역할\n내용\n' > "$CASE/.claude/agents/a1.md"
 [ "$(rc_of)" = 0 ] && ok "들여쓰기 없는 다음 키는 정상 종료(오탐 없음)" || no "정상 다음 키를 오탐"
 
+# R6 codex HIGH — block scalar 변형(`|2`·`>2-`)이 빈 값 열거를 우회하던 것
+for d in '|2' '>2-' '|2-' '>+' '|-' '&anchor' '*alias' '!!str'; do
+  new_case desc-bs; behavior . alpha '왜' '실패'; agent a1 alpha
+  python3 -c "
+import io,re,sys
+p,v=sys.argv[1],sys.argv[2]; t=io.open(p,encoding='utf-8').read()
+io.open(p,'w',encoding='utf-8').write(re.sub(r'^description:.*$','description: '+v,t,count=1,flags=re.M))" "$CASE/.agents/behaviors/alpha/BEHAVIOR.md" "$d"
+  [ "$(rc_of)" != 0 ] && ok "비-평문 description [$d] 거부" || no "[$d] 통과 — 거짓 통과"
+done
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"

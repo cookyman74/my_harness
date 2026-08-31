@@ -60,11 +60,14 @@ for d in "$BDIR"/*; do
   # 인라인 주석을 먼저 제거한다 — 안 하면 `description: "" # 설명` · `: null # x` · `: | # x` 가
   # raw 비교에서 살아남아 **빈 필수 필드가 통과**한다(R4 codex HIGH).
   bdesc="$(printf '%s\n' "$fm" | sed -n 's/^description:[[:space:]]*//p' | head -1 | sed 's/[[:space:]]*#.*$//' | sed 's/[[:space:]]*$//' | tr -d '\r')"
-  # YAML 의미로 빈 값인 것들을 빈 문자열로 낮춘다(R2 codex HIGH — raw non-empty 만 보면
-  # `description: ""` · `description: |` · `description: # 주석` 이 전부 통과한다).
+  # **허용 규칙으로 판정한다.** 빈 값 후보를 열거하는 방식은 네 번 뚫렸다:
+  #   R1 raw non-empty → R2 `""`·`|`·`~` → R4 인라인 주석 → R6 `|2`·`>2-` block scalar 변형.
+  # 열거는 끝나지 않는다. `description` 은 **한 줄 평문 스칼라**만 받고 나머지는 전부 빈 값으로
+  # 낮춘다(그러면 아래에서 fail 한다).
   case "$bdesc" in
-    '""'|"''"|'|'|'>'|'|-'|'>-'|'|+'|'>+'|'~'|'null'|'Null'|'NULL') bdesc="" ;;
-    '#'*) bdesc="" ;;
+    "~"|null|Null|NULL) bdesc="" ;;
+    [\|\>]*)  bdesc="" ;;   # block scalar 지시자(`|` `>` `|2` `>-` `|2-` `>+` …) — 지원하지 않는다
+    "&"*|"*"*|"!"*) bdesc="" ;;   # anchor·alias·tag — 한 줄 스칼라가 아니다
   esac
   # 따옴표만 벗겨 실제 내용이 있는지 본다.
   bdesc_core="$(printf '%s' "$bdesc" | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/" | tr -d '[:space:]')"
