@@ -79,6 +79,16 @@ for d in "$BDIR"/*; do
   fi
   f="$d/BEHAVIOR.md"
   if [ ! -f "$f" ]; then no "$dname: BEHAVIOR.md 없음 (건너뜀)"; continue; fi
+  # 심링크·과대 파일은 **읽지 않는다** — 서버(`readCappedDef`: `O_NOFOLLOW` + 256KB 캡)와
+  # 같은 정책이어야 한다. 한쪽만 관대하면 같은 스펙이 CLI 에선 유효한데 서버에선 사라져
+  # orphan/dead_link 로 뒤틀린다(B5 R2 codex HIGH).
+  if [ -L "$d" ] || [ -L "$f" ]; then
+    no "$dname: 심링크 스펙은 읽지 않는다 (서버 정책과 동일·건너뜀)"; continue
+  fi
+  fsize="$(wc -c < "$f" 2>/dev/null || echo 0)"
+  if [ "$fsize" -gt 262144 ]; then
+    no "$dname: BEHAVIOR.md 가 256KB 를 넘는다 (${fsize}B·건너뜀)"; continue
+  fi
 
   # frontmatter: 첫 줄이 --- 이고 이후 --- 로 닫혀야 한다.
   if [ "$(head -1 "$f" | tr -d '\r')" != "---" ]; then

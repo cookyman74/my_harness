@@ -299,12 +299,13 @@ hasi 'thin' && no "CRLF 스펙을 thin 으로 오탐" || ok "CRLF 스펙의 차�
 
 # R7 agy HIGH — `| grep -q` 가 조기 종료하면 왼쪽이 SIGPIPE(141)로 죽고 pipefail 이 그 141 을
 # 파이프라인 종료코드로 올려 if 가 뒤집힌다. **입력이 작을 땐 재현되지 않아** 큰 파일로 고정한다.
-# 실측: 30,008줄 스펙에서 구버전이 정상 파일을 "'## Intent' 차원 누락"으로 거짓 실패시켰다(rc=1).
+# 실측: 대용량 스펙에서 구버전이 정상 파일을 "'## Intent' 차원 누락"으로 거짓 실패시켰다(rc=1).
+# 크기는 **256KB 캡 아래**로 둔다 — 캡을 넘으면 스펙 자체가 건너뛰어져 이 경로를 못 탄다.
 new_case sigpipe
 mkdir -p "$CASE/.agents/behaviors/big"
 { echo '---'; echo 'name: big'; echo 'description: 긴 스펙'; echo '---'
   echo '## Intent'; echo '의도 본문'
-  awk 'BEGIN{for(i=1;i<=30000;i++) print "채우기 줄 " i}'
+  awk 'BEGIN{for(i=1;i<=12000;i++) print "fill " i}'   # 256KB 캡 아래(약 100KB)로 유지하되 SIGPIPE 는 재현된다
   echo '## Failure modes'; echo '실패 본문'; } > "$CASE/.agents/behaviors/big/BEHAVIOR.md"
 agent a1 big
 OUT="$(run)"
@@ -443,6 +444,22 @@ mkdir -p "$CASE/.agents/behaviors/f4"
 agent a1 f4
 OUT="$(run)"
 hasi 'Failure modes.*누락' && ok "4개 fence 안 heading 이 안 샌다" || no "짧은 fence 로 조기 종료 — 위장 통과: $OUT"
+
+# R2 codex HIGH — 심링크·과대 파일 정책을 서버(readCappedDef: O_NOFOLLOW + 256KB)와 맞춘다
+new_case symlink-spec; behavior . real '왜' '실패'
+ln -s real "$CASE/.agents/behaviors/linked"
+agent a1 linked
+OUT="$(run)"
+hasi '심링크' && ok "심링크 스펙 거부(서버 정책과 동일)" || no "심링크 스펙을 읽음: $OUT"
+
+new_case oversize-spec
+mkdir -p "$CASE/.agents/behaviors/huge"
+{ echo '---'; echo 'name: huge'; echo 'description: 과대'; echo '---'; echo '## Intent'
+  awk 'BEGIN{for(i=1;i<=40000;i++) print "padding line padding line padding line " i}'
+  echo '## Failure modes'; echo '실패'; } > "$CASE/.agents/behaviors/huge/BEHAVIOR.md"
+agent a1 huge
+OUT="$(run)"
+hasi '256KB' && ok "과대 스펙 거부(서버 정책과 동일)" || no "과대 스펙을 읽음: $OUT"
 
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"

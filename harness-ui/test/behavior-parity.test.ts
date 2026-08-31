@@ -73,6 +73,15 @@ describe("B5 — TS ↔ CLI 판정 일치", () => {
     ["정의 flow sequence", async () => { await writeAgentRaw(goodFm("behaviors: [gate, nosuch]")); await writeSpecRaw("gate", goodSpec("gate")); }],
     ["정의 목록 중간 주석", async () => { await writeAgentRaw(goodFm("behaviors:\n  - gate\n# 주석\n  - nosuch")); await writeSpecRaw("gate", goodSpec("gate")); }],
     ["정의 들여쓰기 없는 항목", async () => { await writeAgentRaw(goodFm("behaviors:\n- gate\n- nosuch")); await writeSpecRaw("gate", goodSpec("gate")); }],
+    // ── R2 codex 가 잡은 갈라짐 ──
+    ["정의 BOM", async () => { await writeFile(join(root, ".claude", "agents", "a1.md"), `\uFEFF---\n${goodFm("behaviors:\n  - gate")}\n---\n${BODY}`); await writeSpecRaw("gate", goodSpec("gate")); }],
+    ["정의 frontmatter 미종료", async () => { await writeFile(join(root, ".claude", "agents", "a1.md"), `---\n${goodFm("behaviors:\n  - gate")}\n${BODY}`); await writeSpecRaw("gate", goodSpec("gate")); }],
+    ["스펙 BOM", async () => { await writeAgentRaw(goodFm("behaviors:\n  - gate")); await writeSpecRaw("gate", "\uFEFF" + goodSpec("gate")); }],
+    ["스펙 과대(256KB 초과)", async () => {
+      await writeAgentRaw(goodFm("behaviors:\n  - big"));
+      const pad = Array.from({ length: 9000 }, (_, i) => `padding line padding line ${i}`).join("\n");
+      await writeSpecRaw("big", `---\nname: big\ndescription: 과대\n---\n## Intent\n${pad}\n## Failure modes\n실패.\n`);
+    }],
   ])("%s — 두 구현이 같은 판정을 낸다", async (_n, setup) => {
     await setup();
     const [cli, ts] = [await cliFails(), await tsFinds()];

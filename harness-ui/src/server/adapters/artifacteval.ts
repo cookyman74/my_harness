@@ -140,8 +140,10 @@ export function frontmatterShapeError(fm: string): string | null {
 // ⚠ **내용 충실도(Intent·Failure modes 본문)는 여기서 보지 않는다** — CLI 도 thin 은 fail 로
 // 보고하되 `VALID` 에서 빼지 않는다(참조는 해석된다). 채점은 `scoreStructure` 소관이다.
 export function isValidBehaviorSpec(raw: string, dirName: string): boolean {
-  if (!/^\uFEFF?---\r?\n/.test(raw)) return false;
-  const m = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(raw);
+  // ⚠ **BOM 을 허용하지 않는다** — CLI 의 `head -1` 은 `\uFEFF---` 를 `---` 로 보지 않아
+  // frontmatter 없음으로 fail 한다. 한쪽만 관용하면 그게 판정 갈라짐이다(B5 R2 codex HIGH).
+  if (!/^---\r?\n/.test(raw)) return false;
+  const m = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(raw);
   if (!m) return false;                       // frontmatter 미종료
   const fm = m[1]!;
   if (frontmatterShapeError(fm) !== null) return false;
