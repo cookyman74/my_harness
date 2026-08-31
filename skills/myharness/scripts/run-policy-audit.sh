@@ -98,11 +98,17 @@ for s in "$SK"/scripts/*.sh; do bash -n "$s" 2>/dev/null && ok "bash -n: $(basen
 CB="$SK/scripts/check-behaviors.sh"
 if [ -f "$CB" ]; then
   cb_out="$(bash "$CB" . 2>&1)"; cb_rc=$?
-  case "$cb_out" in
-    *"BEHAVIORS: skipped"*) ok "BEHAVIOR 검사: 미적용 하네스 — skip" ;;
-    *) [ "$cb_rc" -eq 0 ] && ok "BEHAVIOR 검사: $(printf '%s\n' "$cb_out" | grep '^BEHAVIORS:')" \
-         || no "BEHAVIOR 검사 실패 — $(printf '%s\n' "$cb_out" | grep '^✗' | head -3 | tr '\n' ' ')" ;;
-  esac
+  # ⚠ **종료코드를 먼저 본다**(R12 agy HIGH). 문자열만 매칭하면 결함 메시지에 우연히
+  # `BEHAVIORS: skipped` 가 섞였을 때(예: 그 문자열이 든 무효 참조명) rc=1 인데도 미적용으로
+  # 오판해 PASS 시킨다 — 조용한 축소다.
+  if [ "$cb_rc" -ne 0 ]; then
+    no "BEHAVIOR 검사 실패(rc=$cb_rc) — $(printf '%s\n' "$cb_out" | grep '^✗' | head -3 | tr '\n' ' ')"
+  else
+    case "$cb_out" in
+      *"BEHAVIORS: skipped"*) ok "BEHAVIOR 검사: 미적용 하네스 — skip" ;;
+      *) ok "BEHAVIOR 검사: $(printf '%s\n' "$cb_out" | grep '^BEHAVIORS:')" ;;
+    esac
+  fi
 else
   wn "check-behaviors.sh 없음 (B1 미배포 하네스)"
 fi

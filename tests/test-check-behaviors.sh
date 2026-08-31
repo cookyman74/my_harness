@@ -41,8 +41,12 @@ skill(){ local d="$CASE/.claude/skills/$1"; mkdir -p "$d"; local n="$1"; shift
 # ⚠ `run | grep` 을 쓰지 말 것 — `set -o pipefail` 이라 스크립트가 exit 1(=결함 검출)이면
 # grep 이 성공해도 파이프라인이 실패한다. 검출을 확인하려면 **출력을 먼저 담고** grep 한다.
 run(){ ( cd "$CASE" && bash "$SCRIPT" . 2>&1 ); }
-has(){ printf '%s\n' "$OUT" | grep -q "$1"; }
-hasi(){ printf '%s\n' "$OUT" | grep -qi "$1"; }
+# ⚠ `grep -q` 를 쓰지 말 것 — pipefail 아래서 조기 종료하면 왼쪽 printf 가 SIGPIPE(141)로 죽고
+# 그 141 이 파이프라인 종료코드가 돼 **찾았는데도 거짓을 반환**한다. 부정 단언
+# (`has && no || ok`)에서는 **실제 결함을 없는 것으로 오판**한다(R12 agy HIGH).
+# 정본이 금지한 규칙(check-behaviors.sh:14 · run-policy-audit.sh:41)을 테스트가 어기고 있었다.
+has(){ printf '%s\n' "$OUT" | grep "$1" >/dev/null; }
+hasi(){ printf '%s\n' "$OUT" | grep -i "$1" >/dev/null; }
 rc_of(){ ( cd "$CASE" && bash "$SCRIPT" . >/dev/null 2>&1; echo $? ); }
 
 echo "== A. graceful skip =="
