@@ -267,6 +267,23 @@ io.open(p,'w',encoding='utf-8').write(re.sub(r'^description:.*$','description: '
   [ "$(rc_of)" != 0 ] && ok "비-평문 description [$d] 거부" || no "[$d] 통과 — 거짓 통과"
 done
 
+# R6 agy HIGH — 스펙 디렉토리가 없으면 조기 exit 0 해서, 정의에 남은 dead 참조를 못 잡던 것
+new_case broken-migration; agent a1 alpha        # 스펙 없음 + 참조 있음 = 고장난 하네스
+OUT="$(run)"
+has 'dead' && ok "스펙 없어도 남은 참조를 dead 로 검출" || no "스펙 없다고 조기 종료 — 거짓 통과: $OUT"
+[ "$(rc_of)" != 0 ] && ok "고장난 마이그레이션 exit≠0" || no "고장난 하네스를 정상으로 둔갑"
+hasi 'B1 미적용' && no "고장난 하네스를 '미적용'으로 오판" || ok "미적용으로 오판하지 않음"
+
+# R6 agy HIGH — BEHAVIOR.md 의 CRLF 를 안 벗겨 정상 스펙을 오탐하던 것
+new_case spec-crlf
+mkdir -p "$CASE/.agents/behaviors/alpha"
+printf -- '---\r\nname: alpha\r\ndescription: 테스트\r\n---\r\n## Intent\r\n의도 본문\r\n## Failure modes\r\n실패 본문\r\n' > "$CASE/.agents/behaviors/alpha/BEHAVIOR.md"
+agent a1 alpha
+OUT="$(run)"
+hasi 'frontmatter 없음' && no "CRLF 스펙을 frontmatter 없음으로 오판" || ok "CRLF 스펙의 frontmatter 인식"
+hasi 'thin' && no "CRLF 스펙을 thin 으로 오탐" || ok "CRLF 스펙의 차원 본문 인식"
+[ "$(rc_of)" = 0 ] && ok "CRLF 정상 스펙 통과" || no "CRLF 정상 스펙 거부: $OUT"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"

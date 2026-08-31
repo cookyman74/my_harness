@@ -25,11 +25,12 @@ wn(){ echo "⚠ $1"; warn=$((warn+1)); }
 # --- graceful skip -----------------------------------------------------------
 # 기존 하네스는 검증기만 받고 BEHAVIOR·포인터는 못 받는다(R9 codex). 여기서 죽으면
 # 정책 감사가 전건 fail 한다 — 문서에 "미적용"이라 적는 것으로는 막지 못한다(R13 agy).
-if [ ! -d "$BDIR" ]; then
-  echo "· $BDIR 없음 — 이 하네스는 B1 미적용이다. 검사를 건너뛴다."
-  echo "BEHAVIORS: skipped (not-applicable)"
-  exit 0
-fi
+# ⚠ **조기 종료하지 않는다**(R6 agy HIGH). 여기서 exit 0 하면 정의에 `behaviors:` 참조가
+# 남아 있어도 스캔 자체를 건너뛰어 **끊긴 참조를 전혀 못 잡고 PASS** 한다 — 스펙이 실수로
+# 지워졌거나 마이그레이션이 덜 된 **고장난 하네스까지 정상으로 둔갑**시킨다.
+# 미적용 판정은 **정의를 스캔한 뒤** "스펙 0 + 참조 0" 일 때만 내린다.
+HAS_SPECS=1
+[ -d "$BDIR" ] || HAS_SPECS=0
 
 # --- 1) 스펙 수집 · 구조 검증 -------------------------------------------------
 # 구조적으로 무효한 스펙은 **건너뛰고 진단만 노출**한다(부분 로드 금지 — 참고자료 §4).
@@ -49,10 +50,10 @@ for d in "$BDIR"/*; do
   if [ ! -f "$f" ]; then no "$dname: BEHAVIOR.md 없음 (건너뜀)"; continue; fi
 
   # frontmatter: 첫 줄이 --- 이고 이후 --- 로 닫혀야 한다.
-  if [ "$(head -1 "$f")" != "---" ]; then
+  if [ "$(head -1 "$f" | tr -d '\r')" != "---" ]; then
     no "$dname: frontmatter 없음 — 첫 줄이 '---' 이어야 한다 (건너뜀)"; continue
   fi
-  fm_end="$(awk 'NR>1 && /^---[[:space:]]*$/ {print NR; exit}' "$f")"
+  fm_end="$(awk 'NR>1 { sub(/\r$/,""); if ($0 ~ /^---[[:space:]]*$/) { print NR; exit } }' "$f")"
   if [ -z "$fm_end" ]; then no "$dname: frontmatter 미종료 (건너뜀)"; continue; fi
   fm="$(sed -n "2,$((fm_end-1))p" "$f")"
 
@@ -86,17 +87,20 @@ for d in "$BDIR"/*; do
   # 내용 충실도 — 6차원 중 Intent·Failure modes 에 heading 외 본문이 있는가.
   # 빈 BEHAVIOR 를 가리켜 정의의 "본문 부실" 과락을 우회하는 통로를 막는다(ADR D7·R9).
   for dim in "Intent" "Failure modes"; do
-    if ! grep -qE "^##[[:space:]]+${dim}[[:space:]]*$" "$f"; then
+    if ! tr -d '\r' < "$f" | grep -qE "^##[[:space:]]+${dim}[[:space:]]*$"; then
       no "$dname: '## $dim' 차원 누락"; continue
     fi
+    # CRLF·후행 공백을 지우고 비교한다 — `"## Intent\r" == "## Intent"` 는 거짓이라
+    # Windows 파일에서 본문 추출이 실패하고 **정상 스펙을 thin 으로 오탐**한다(R6 agy HIGH).
     body="$(awk -v want="## $dim" '
-      $0 ~ /^## / { inside = ($0 == want) ? 1 : 0; next }
+      { sub(/\r$/, ""); sub(/[[:space:]]+$/, "") }
+      /^## / { inside = ($0 == want) ? 1 : 0; next }
       inside { print }' "$f" | tr -d '[:space:]')"
     [ -n "$body" ] || no "$dname: '## $dim' 이 thin — heading 외 본문이 없다(빈 BEHAVIOR 로 과락 우회)"
   done
   VALID+=("$bname")
 done
-[ "$found" -gt 0 ] || { echo "· $BDIR 이 비어 있다 — B1 미적용."; echo "BEHAVIORS: skipped (empty)"; exit 0; }
+[ "$found" -gt 0 ] || HAS_SPECS=0
 
 is_valid(){ local n; for n in ${VALID+"${VALID[@]}"}; do [ "$n" = "$1" ] && return 0; done; return 1; }
 
@@ -200,6 +204,15 @@ for n in ${VALID+"${VALID[@]}"}; do
   hit=0; for u in ${USED+"${USED[@]}"}; do [ "$u" = "$n" ] && { hit=1; break; }; done
   [ "$hit" = 1 ] || wn "orphan: '$n' 을 참조하는 정의가 없다"
 done
+
+# 미적용 판정은 **스캔을 마친 뒤** 내린다 — 스펙도 없고 참조도 없어야 한다.
+# 스펙이 없는데 참조가 남아 있으면 그건 미적용이 아니라 **고장난 하네스**이고,
+# 위 scan_defs 가 이미 dead 참조로 fail 시켰다.
+if [ "$HAS_SPECS" -eq 0 ] && [ "${#USED[@]}" -eq 0 ]; then
+  echo "· $BDIR 에 스펙이 없고 참조하는 정의도 없다 — 이 하네스는 B1 미적용이다."
+  echo "BEHAVIORS: skipped (not-applicable)"
+  exit 0
+fi
 
 echo "BEHAVIORS: specs=$found valid=${#VALID[@]} refs=${#USED[@]} fail=$fail warn=$warn"
 [ "$fail" -eq 0 ]

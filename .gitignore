@@ -23,3 +23,11 @@ _workspace/
 /test_*.ts
 /scratch*
 /diff.txt
+
+# 외부 리뷰어(--add-dir + --dangerously-skip-permissions)가 레포에 만드는 임시 검증 파일.
+# 실측 반복: `test-*.sh`·`test_*.sh`·`.agents/behaviors/{alpha,beta}` 등. 커밋에 섞이면
+# `git add -A` 한 번에 원장이 오염된다.
+/test-*.sh
+/test_*.sh
+/test-*.ts
+/test-*.js
