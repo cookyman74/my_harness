@@ -165,15 +165,21 @@ scan_defs(){
       no "$f: frontmatter 가 닫히지 않았다 (참조 검사 불가)"; continue
     fi
     fm="$(sed -n "2,$((fm_end-1))p" "$f")"
+    # 형식 검사는 **`behaviors:` 를 선언한 파일에만** 적용한다 — 이 스크립트의 관심사는
+    # BEHAVIOR 참조다. 선언도 안 한 파일의 frontmatter 형식까지 막으면 서버 진단(scorecard)과
+    # 범위가 갈라지고(B5 R1 파생) 기존 하네스에 무관한 fail 이 쏟아진다.
+    # ⚠ 게이트는 **관대하게** 본다 — `^behaviors:` 로만 보면 `behaviors :`(콜론 앞 공백)·
+    # `  behaviors:`(들여쓰기)·`"behaviors":`(따옴표) 가 **형식 검사에 닿기도 전에** 걸러져
+    # R10·R12 가 막은 우회가 되살아난다. "선언하려 한 흔적"을 잡고 형식은 아래에서 판정한다.
+    printf '%s\n' "$fm" | grep -Ei '^[[:space:]]*"?'"'"'?behaviors"?'"'"'?[[:space:]]*:' >/dev/null || continue
     odds="$(odd_keys "$fm")"
-  if [ -n "$odds" ]; then
-    no "$f: frontmatter 키 표기가 비정규다 — $odds (정규 'key:' 형태만 받는다·참조 검사 불가)"; continue
-  fi
-  dups="$(dup_keys "$fm")"
+    if [ -n "$odds" ]; then
+      no "$f: frontmatter 키 표기가 비정규다 — $odds (정규 'key:' 형태만 받는다·참조 검사 불가)"; continue
+    fi
+    dups="$(dup_keys "$fm")"
     if [ -n "$dups" ]; then
       no "$f: frontmatter 에 중복 키가 있다 — $dups (뒤 값이 무시된다·참조 검사 불가)"; continue
     fi
-    printf '%s\n' "$fm" | grep -E '^behaviors:' >/dev/null || continue
     # YAML 은 들여쓰기에 tab 을 금지한다. 그런데 종료 판정 `[!\ -]` 은 **literal space** 만 보므로
     # `\t- alpha` · `\t# x` 의 첫 글자(tab)가 "다음 키"로 오인돼 목록이 조용히 닫힌다
     # — 앞에 유효 항목이 있으면 0참조 검사도 우회한다(R5 codex HIGH).

@@ -108,7 +108,60 @@ function bodyLineCount(body: string): number { return lines(body).filter((l) => 
 // 지원 형태는 `check-behaviors.sh` 와 같다: 블록 시퀀스 · `[a, b]` flow. 그 외는 참조 0개로 본다
 // (채점기는 검사기가 아니다 — 형식 위반은 `check-behaviors.sh` 가 fail 시킨다).
 const BEHAVIOR_NAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
-export function parseBehaviorRefs(fm: string): string[] {
+
+// frontmatter **형태** 검증 — `check-behaviors.sh` 와 **같은 규칙**이어야 한다.
+// 두 구현이 같은 질문("이 참조가 해석되는가")에 다른 답을 내면 그 자체가 결함이다
+// (B5 R1 agy HIGH: CLI 는 형식 오류 파일의 참조를 무시하는데 TS 는 그대로 읽었다).
+//   금지: tab(YAML 들여쓰기 불가) · 중복 최상위 키(뒤 값이 조용히 무시된다) ·
+//         비정규 키 표기(`name :` · `"name":` · 들여쓴 키 — 정규식에 안 걸려 숨는다)
+export function frontmatterShapeError(fm: string): string | null {
+  if (fm.includes("\t")) return "frontmatter 에 tab";
+  const ls = fm.split(/\r?\n/).map((l) => l.replace(/\r$/, ""));
+  let inBlock = false;
+  const keys: string[] = [];
+  for (const l of ls) {
+    if (/^behaviors:/.test(l)) { inBlock = true; keys.push("behaviors"); continue; }
+    if (inBlock) {
+      if (/^\s*$/.test(l) || /^\s*#/.test(l) || /^\s*-/.test(l)) continue;
+      inBlock = false;
+    }
+    if (/^[A-Za-z_][A-Za-z0-9_-]*[ \t]+:/.test(l)) return "비정규 키(콜론 앞 공백)";
+    if (/^["'][^"']*["'][ \t]*:/.test(l)) return "비정규 키(따옴표)";
+    if (/^\s+[A-Za-z_"'][^:]*:/.test(l)) return "비정규 키(들여쓰기)";
+    const m = /^([A-Za-z_][A-Za-z0-9_-]*):/.exec(l);
+    if (m) keys.push(m[1]!);
+  }
+  const dup = keys.filter((k, i) => keys.indexOf(k) !== i);
+  if (dup.length) return `중복 키 ${[...new Set(dup)].join(",")}`;
+  return null;
+}
+
+// BEHAVIOR 스펙이 **구조적으로 유효한가** — `check-behaviors.sh` 가 `VALID` 에 넣는 조건과 같다.
+// ⚠ **내용 충실도(Intent·Failure modes 본문)는 여기서 보지 않는다** — CLI 도 thin 은 fail 로
+// 보고하되 `VALID` 에서 빼지 않는다(참조는 해석된다). 채점은 `scoreStructure` 소관이다.
+export function isValidBehaviorSpec(raw: string, dirName: string): boolean {
+  if (!/^\uFEFF?---\r?\n/.test(raw)) return false;
+  const m = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(raw);
+  if (!m) return false;                       // frontmatter 미종료
+  const fm = m[1]!;
+  if (frontmatterShapeError(fm) !== null) return false;
+  const field = (k: string): string =>
+    (new RegExp(`^${k}:[ \\t]*(.*)$`, "m").exec(fm)?.[1] ?? "").replace(/[ \t]*#.*$/, "").trim();
+  const name = field("name").replace(/^["']|["']$/g, "").trim();
+  const desc = field("description");
+  if (!name || !BEHAVIOR_NAME.test(name) || name !== dirName) return false;
+  // description 필수 — 허용 규칙(한 줄 평문 스칼라 · 따옴표)만 받는다.
+  if (!desc) return false;
+  if (/^["'].*["']$/.test(desc)) return desc.slice(1, -1).trim().length > 0;
+  if (/^[-?:,[\]{}#&*!|>'"%@`]/.test(desc)) return false;
+  return !["~", "null", "Null", "NULL"].includes(desc);
+}
+// `keepInvalid` — 이름 규칙을 어긴 참조도 **그대로 돌려준다**. 채점(false)은 해석 가능한 참조만
+// 보면 되지만, 진단(true)은 **해석 불가한 참조도 결함으로 보고**해야 한다. 조용히 버리면
+// CLI 는 잡는데 서버는 통과시키는 갈라짐이 생긴다(B5 R1 agy HIGH 계열).
+export function parseBehaviorRefs(fm: string, keepInvalid = false): string[] {
+  // 형식 오류 파일의 참조는 읽지 않는다 — CLI 와 같은 규칙(B5 R1 agy HIGH).
+  if (frontmatterShapeError(fm) !== null) return [];
   const ls = lines(fm).map((l) => l.replace(/\r$/, ""));
   const i = ls.findIndex((l) => /^behaviors:/.test(l));
   if (i < 0) return [];
@@ -116,7 +169,9 @@ export function parseBehaviorRefs(fm: string): string[] {
   const out: string[] = [];
   const push = (v: string): void => {
     const s = v.replace(/[ \t]*#.*$/, "").trim().replace(/^["']|["']$/g, "").trim();
-    if (s && BEHAVIOR_NAME.test(s)) out.push(s);
+    if (!s) return;
+    if (keepInvalid) { out.push(s); return; }
+    if (BEHAVIOR_NAME.test(s)) out.push(s);
   };
   if (inline.startsWith("[") && inline.endsWith("]")) {
     for (const part of inline.slice(1, -1).split(",")) push(part);
