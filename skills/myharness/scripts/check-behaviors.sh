@@ -248,7 +248,11 @@ done
 # 미적용 판정은 **스캔을 마친 뒤** 내린다 — 스펙도 없고 참조도 없어야 한다.
 # 스펙이 없는데 참조가 남아 있으면 그건 미적용이 아니라 **고장난 하네스**이고,
 # 위 scan_defs 가 이미 dead 참조로 fail 시켰다.
-if [ "$HAS_SPECS" -eq 0 ] && [ "${#USED[@]}" -eq 0 ]; then
+# ⚠ `fail` 이 하나라도 있으면 **절대 skip 하지 않는다**(R11 codex HIGH). 스펙 디렉토리가 없는
+# 상태에서 `behaviors: alpha` 같은 fail-closed 실패가 나도 `USED` 는 비어 있어(참조로 세지
+# 않으므로) skip 조건을 만족해 **미적용 PASS 로 둔갑**했다. 정책 감사는 그 마커를 그대로
+# PASS 로 받으므로 거짓 통과가 끝까지 전파된다.
+if [ "$fail" -eq 0 ] && [ "$HAS_SPECS" -eq 0 ] && [ "${#USED[@]}" -eq 0 ]; then
   echo "· $BDIR 에 스펙이 없고 참조하는 정의도 없다 — 이 하네스는 B1 미적용이다."
   echo "BEHAVIORS: skipped (not-applicable)"
   exit 0

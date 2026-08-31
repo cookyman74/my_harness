@@ -352,6 +352,19 @@ new_case canon; behavior . alpha '왜' '실패'; agent a1 alpha
 OUT="$(run)"
 hasi '비정규' && no "정규 표기를 오탐" || ok "정규 `key:` 표기는 통과"
 
+# R11 codex HIGH — 스펙 디렉토리가 없을 때 fail 이 있어도 "미적용 skip" 으로 둔갑하던 것
+for bad in 'behaviors: alpha' 'behaviors : [x]'; do
+  new_case skip-with-fail                      # 스펙 디렉토리 없음
+  printf -- '---\nname: a1\ndescription: t\n%s\n---\n## 역할\n내용\n' "$bad" > "$CASE/.claude/agents/a1.md"
+  OUT="$(run)"
+  has 'BEHAVIORS: skipped' && no "fail 이 있는데 skip 으로 둔갑 [$bad]: $OUT" || ok "fail 있으면 skip 안 함 [$bad]"
+  [ "$(rc_of)" != 0 ] && ok "fail 있는 미적용 하네스 exit≠0 [$bad]" || no "exit 0 — 거짓 통과 [$bad]"
+done
+new_case skip-clean                            # 스펙 없음 + 참조 없음 + fail 없음 = 진짜 미적용
+OUT="$(run)"
+has 'BEHAVIORS: skipped' && ok "진짜 미적용은 여전히 skip" || no "정상 미적용을 skip 안 함: $OUT"
+[ "$(rc_of)" = 0 ] && ok "진짜 미적용 exit 0" || no "미적용인데 exit≠0"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"
