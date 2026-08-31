@@ -92,5 +92,20 @@ done
 # 9) scripts 문법
 for s in "$SK"/scripts/*.sh; do bash -n "$s" 2>/dev/null && ok "bash -n: $(basename "$s")" || no "스크립트 문법 오류: $s"; done
 
+# 10) BEHAVIOR 스펙 구조 검사(ADR-001 D3·B1)
+# 만들어도 부르지 않으면 소용없다(R5 양 엔진) — 수동 실행에만 의존하면 끊긴 참조·고아를
+# 시스템적으로 막지 못한다. BEHAVIOR 미적용 하네스에서는 스크립트가 종료코드 0 으로 skip 한다.
+CB="$SK/scripts/check-behaviors.sh"
+if [ -f "$CB" ]; then
+  cb_out="$(bash "$CB" . 2>&1)"; cb_rc=$?
+  case "$cb_out" in
+    *"BEHAVIORS: skipped"*) ok "BEHAVIOR 검사: 미적용 하네스 — skip" ;;
+    *) [ "$cb_rc" -eq 0 ] && ok "BEHAVIOR 검사: $(printf '%s\n' "$cb_out" | grep '^BEHAVIORS:')" \
+         || no "BEHAVIOR 검사 실패 — $(printf '%s\n' "$cb_out" | grep '^✗' | head -3 | tr '\n' ' ')" ;;
+  esac
+else
+  wn "check-behaviors.sh 없음 (B1 미배포 하네스)"
+fi
+
 echo "=== POLICY AUDIT: $([ $fail -eq 0 ] && echo PASS || echo FAIL) (fail $fail, warn $warn) ==="
 [ "$fail" -eq 0 ]

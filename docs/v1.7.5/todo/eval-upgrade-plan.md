@@ -277,14 +277,14 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 
 ---
 
-## B1 — BEHAVIOR.md 포맷 채택 `⬜ 미착수`
+## B1 — BEHAVIOR.md 포맷 채택 `🔨 구현중`
 
 **목표:** 팩토리가 `.agents/behaviors/<name>/BEHAVIOR.md` 를 출력하고 자체 스크립트로 검증한다.
 **등급:** **중대**(ⓐ 검증기 전파분 — `stabilizer` 3층) · ⓑ 정의·포인터 신설분은 경량 · **근거:** 제안서 §3 B1 · 참고자료 §2·§4 · 전파 실측(§게이트·순서 요약 표)
 
 ### P0 선검증
-- [ ] `.agents/skills/` 듀얼런타임 출력이 실재하는지 확인(같은 관례 계열이라 비용이 낮다는 전제의 근거)
-- [ ] agentbehavior CLI **비채택** 재확인 — 참고자료 §7(온보딩 경로 성숙도 MED~HIGH / LOW~MED·패키지 CI 없음)
+- [x] `.agents/skills/` 듀얼런타임 출력이 실재하는지 확인 — **실재한다.** 이 레포에 `.agents/skills/myharness/` 가 있고, SKILL.md 가 Phase 5-4(`:134`)·external-review-loop 배포(`:205`)·drift 동기(`:464`)·완료 체크(`:485`)에서 일관되게 양쪽 출력을 지시한다. **같은 관례 계열이라는 전제는 성립**한다(`.agents/behaviors/` 는 형제 디렉토리)
+- [x] agentbehavior CLI **비채택** 재확인 — 참고자료 §7 실측 결함 6건(#1 온보딩 MED~HIGH · #3 **스펙↔코드 `name` 불일치** MED · #4 패키지 CI 부재로 main 에서 `pnpm check` 실패 MED). **포맷은 채택하고 도구는 안 쓴다**가 유효하다. #3 은 우리 구현이 스펙 문구대로 `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`(연속 하이픈 허용)를 쓰는 근거이기도 하다
 
 ### 구현
 - [ ] myharness Phase 5 산출물에 `.agents/behaviors/` 편입 · `CLAUDE.md`/`AGENTS.md` 포인터 1줄

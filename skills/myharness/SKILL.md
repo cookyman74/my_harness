@@ -244,6 +244,7 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 - 작업 디렉토리 하위에 `_workspace/` 폴더를 만들어 중간 산출물 저장
 - 파일명 컨벤션: `{phase}_{agent}_{artifact}.{ext}` (예: `01_analyst_requirements.md`)
 - **2층 분리(문서 체계):** 영속 산출물(설계서·작업계획서·**결과서**)은 `docs/{project}/`(커밋·감사 원장), 휘발(중간물·리뷰 raw·status·마커)은 `_workspace/`(gitignore). 검증·승인 통과분만 `git add`/commit(미검증은 워킹트리에 남되 원장 미오염 — 커스텀 promote 발명 금지). 무게는 티어로(T0 `_workspace`만 / Tμ commit digest / T1 결과서 1장 / T2 풀=보류). 상세·티어·골격: `references/orchestrator-template.md`·`references/templates/`, `references/factory-map.md`.
+- **행동 명세(선택):** 에이전트·스킬의 **판단 기준**(왜·언제 하나, 실패 시 어떻게 하나)을 정의에서 분리해 `.agents/behaviors/<name>/BEHAVIOR.md` 로 둘 수 있다. **권장이지 필수 아님**(미선언 정의는 정의가 정본). 참조는 frontmatter `behaviors:` 가 **단일 출처**, 검증은 `scripts/check-behaviors.sh`(정책감사 자동 호출·미적용 하네스는 rc 0 skip). ⚠ **런타임 프롬프트에 주입하지 않는다**(교리 주입과 달리 이건 판정 기준). 소유 경계 2축·6차원·검사·비목표: `references/behavior-specs.md`
 - **결과서-RAG 연속성:** 각 결과서에 `## 다음 단계 참조` 블록 의무 — 미해결·핵심 결정과 이유·다음 단계. 다음 단계 사전작업은 `docs/{project}/working_history/`의 **최신 결과서** 이 블록을 먼저 읽고 시작(판단 연속성, 비용 ~0). 자기완결(`_workspace` 없어도 재구성).
 
 #### 5-2. 에러 핸들링
@@ -474,20 +475,19 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 - [ ] 오케스트레이터 스킬 1개 (데이터 흐름 + 에러 핸들링 + 테스트 시나리오 포함)
 - [ ] 실행 모드 명시 (에이전트 팀 / 서브 에이전트 / 하이브리드 중 선택, 하이브리드면 Phase별 모드 기재)
 - [ ] 모델 라우팅 — 고추론만 `opus`, 단순 작업은 경량 모델 (비용 통제) / Codex는 런타임 모델
-- [ ] 신규 에이전트·스킬 생성 전 기존 중복 검토 완료 (Phase 3-0, 4-0)
+- [ ] 신규 에이전트·스킬 생성 전 기존 중복 검토 완료 + 기존 에이전트/스킬과 충돌 없음 (Phase 3-0, 4-0)
 - [ ] `.claude/commands/` — 아무것도 생성하지 않음
-- [ ] 기존 에이전트/스킬과 충돌 없음
 - [ ] 스킬 description이 적극적("pushy")으로 작성됨 — **후속 작업 키워드 포함**
 - [ ] SKILL.md 본문이 500줄 이내, 초과 시 references/ 분리
 - [ ] 테스트 프롬프트 2~3개 실행 검증 + 트리거 검증(should/should-NOT) 완료
 - [ ] **CLAUDE.md 포인터 등록 + 변경 이력에 에이전트/스킬 추가·삭제·수정 기록**
 - [ ] **오케스트레이터 Phase 0에 컨텍스트 확인 단계** (초기/후속/부분 재실행 판별)
-- [ ] (듀얼 런타임) `.codex/agents/*.toml` 생성 + `.claude`↔`.codex` 역할 동등성 + `.agents/skills/` references/scripts 동봉 검증
+- [ ] **듀얼 런타임:** 루트 `AGENTS.md` + `.agents/skills/` 출력(references/scripts 동봉) + `.codex/agents/*.toml` 생성 + `.claude`↔`.codex` 역할 동등성 + 오케스트레이터에 어댑터(Agent 팀원 spawn / Codex subagents·subprocess) 명시 (`references/runtime-adapters.md`)
 - [ ] (코드/설계) 코드/수정 에이전트에 dev-rules·tdd-doctrine **타겟상대 실경로** 주입 (`[[ ]]` 금지) + 교리 파일 타겟 복사 (Phase 3-1) + 생성 직후 `harness-update.sh manifest`로 기준선 기록(후속 `update` 사용자 수정 감지용, 7-7)
 - [ ] (코드/설계) **외부 리뷰어 연동 점검**(`check-review-tools.sh` — 러너 제외 `REVIEWERS:`) 후 `external-review-loop` 스킬 생성 — 도구 전무면 생략(불필요 스킬 방지) + 단계 게이트 배선, 단계마다 리스크 등급 판정 (Phase 4-6, 5-6)
 - [ ] (코드/설계) 커밋 순서·자율 노브(`_workspace/.autonomous`)·push 별도 게이트 반영
 - [ ] 결과서 `docs/{project}/working_history/` 기록 + `## 다음 단계 참조` 블록 + `check-artifacts.sh` PASS (생성 하네스 `pre-commit` hook 배선 권장 — 방치 물리 차단)
-- [ ] **듀얼 런타임:** 루트 `AGENTS.md` + 스킬 `.agents/skills/` 출력, 오케스트레이터에 어댑터(Agent 팀원 spawn / Codex subagents·subprocess) 명시 (`references/runtime-adapters.md`)
+- [ ] (선택) 행동 명세 `.agents/behaviors/` 출력 + 정의 `behaviors:` 참조 + `check-behaviors.sh` 동봉·정책감사 PASS (미선언 하네스는 skip 이 정상)
 
 ## 참고
 
@@ -497,4 +497,4 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 - **자기평가**: **주축** `references/harness-scorecard.md`(하네스 구성 상태 개선·계층A 정적 SSOT·frontmatter 연결 계약·2 cadence·분류 orphan/link_unknown/dead_link) + 보조 `references/loop-self-eval.md`(루프 효율 `loop_ref`·alignment·단계적) + `references/self-improvement-loop.md`(산출물 벤치·설계만). 용어: `harness_scorecard`(구성·주축) ⊃ `loop_scorecard`(루프) · `artifact_benchmark`(산출물).
 - **외부 리뷰 루프**: `references/external-review-loop.md` — 외부 독립 AI(러너 엔진 제외) 검증 단계 게이트. 방법론 겸 생성 템플릿. **루프 제어(loop-until-dry·MAX_ROUNDS·라운드 카운터)·판정 원장(verdicts.json, dedup vs seen)·수정본 재리뷰·근거수집 위임/확정 비위임**·기각 사유표·커밋 순서·자율 노브 포함.
 - **TDD 교리 / 개발 규칙 / 하네스 업데이트**: `references/tdd-doctrine.md`, `references/dev-rules.md`(작업 원칙 주입), `references/harness-update.md`(빌드 산출물 재전파·사용자 수정 보존).
-- **런타임 어댑터**: `references/runtime-adapters.md` — Claude Code/Codex 듀얼 런타임 설계. 진입점·오케스트레이션 매핑, AGENTS.md·`.agents/skills/` 생성, 설치(Codex 공식 docs 검증).
+- **런타임 어댑터 / 행동 명세**: `references/runtime-adapters.md` — Claude Code/Codex 듀얼 런타임 설계. 진입점·오케스트레이션 매핑, AGENTS.md·`.agents/skills/` 생성, 설치(Codex 공식 docs 검증). · `references/behavior-specs.md` — `.agents/behaviors/` 소유 경계 2축·6차원·`check-behaviors.sh` 검사 항목·비목표.
