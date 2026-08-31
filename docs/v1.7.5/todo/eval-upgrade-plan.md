@@ -277,7 +277,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 
 ---
 
-## B1 — BEHAVIOR.md 포맷 채택 `🔨 구현중`
+## B1 — BEHAVIOR.md 포맷 채택 `🔍 리뷰중(R1)`
 
 **목표:** 팩토리가 `.agents/behaviors/<name>/BEHAVIOR.md` 를 출력하고 자체 스크립트로 검증한다.
 **등급:** **중대**(ⓐ 검증기 전파분 — `stabilizer` 3층) · ⓑ 정의·포인터 신설분은 경량 · **근거:** 제안서 §3 B1 · 참고자료 §2·§4 · 전파 실측(§게이트·순서 요약 표)
@@ -287,25 +287,25 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 - [x] agentbehavior CLI **비채택** 재확인 — 참고자료 §7 실측 결함 6건(#1 온보딩 MED~HIGH · #3 **스펙↔코드 `name` 불일치** MED · #4 패키지 CI 부재로 main 에서 `pnpm check` 실패 MED). **포맷은 채택하고 도구는 안 쓴다**가 유효하다. #3 은 우리 구현이 스펙 문구대로 `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`(연속 하이픈 허용)를 쓰는 근거이기도 하다
 
 ### 구현
-- [ ] myharness Phase 5 산출물에 `.agents/behaviors/` 편입 · `CLAUDE.md`/`AGENTS.md` 포인터 1줄
-- [ ] `check-behaviors.sh` 신설(자체 검증) — 위치·frontmatter 필수 필드(`name`·`description`)·**디렉토리명 일치**
+- [x] myharness Phase 5 산출물에 `.agents/behaviors/` 편입 — SKILL.md Phase 5-1 에 한 줄 + 완료 체크리스트 항목 + `references/behavior-specs.md` 신설. **SKILL.md 가 이미 500줄 상한이라** 상세는 reference 로 빼고 실제 중복 2건(듀얼런타임 체크 2줄·중복검토/충돌 2줄)을 병합해 500줄 유지
+- [x] `check-behaviors.sh` 신설 — 위치·frontmatter 필수 필드(`name`·`description`)·**디렉토리명 일치**. *`description` 은 R1 codex HIGH 로 warn→**fail** 승격(warn 이면 빈 description 이 정책감사를 통과하는 거짓 통과 경로다)*
 > ⚠ **섹션 포인터 파싱은 B1 소관이 아니다**(R21 agy HIGH). `check-behaviors.sh` 는 frontmatter `behaviors:` 만 읽으면 참조 무결성(ADR D3)을 확인할 수 있다. 본문의 섹션 포인터(코드펜스·중첩 인용 경계 포함)를 판독해야 하는 곳은 **B2 의 `scoreStructure`(TypeScript)** 뿐이다. bash 에 markdown AST 수준 파싱을 강제하면 구현이 사실상 불가능하고, B2 에서 **같은 것을 다시 구현**하게 된다. 관련 이월 2건(닫히지 않은 코드펜스 종료코드·`~~~` fence)도 **B2 로 이관**했다.
-- [ ] **BEHAVIOR 내용 충실도 검사**(ADR D7·R9 양 엔진): 6차원 중 최소 `Intent`·`Failure modes` 에 **heading 외 본문이 있는가**. 없으면 빈 BEHAVIOR 를 가리켜 정의의 "본문 부실" 과락을 우회할 수 있다
-- [ ] **`behaviors:` 참조 목록을 정의 파일별로 출력**(ADR-001 D5 요구·R4 codex MED — 계획서에 없으면 구현자가 빼먹고 D5 의 역인덱스 수단이 사라진다). 끊긴 참조·고아도 함께
-- [ ] ⚠ `name` 정규식은 스펙 문구대로 `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` — **연속 하이픈 허용**. 원본 구현의 스펙↔코드 불일치(참고자료 §7 #3)를 그대로 베끼지 말 것
-- [ ] 구조적으로 무효한 스펙은 **건너뛰고 진단 노출**(부분 로드 금지 — 참고자료 §4)
-- [ ] `harness-update.sh` MANAGED_RELS 에 신규 스크립트 등록(등록 누락 시 생성 하네스에서 영영 미갱신)
-- [ ] **호출 경로 등록**(R5 양 엔진 — 만들어도 부르지 않으면 소용없다): `run-policy-audit.sh` 가 `check-behaviors.sh` 를 실행하도록 배선. 수동 실행에만 의존하면 끊긴 참조·고아를 시스템적으로 못 막는다
-- [ ] ⚠ **기존 하네스는 검증기만 받고 BEHAVIOR·포인터는 못 받는다**(R9 codex MED). 등록만 하고 완료로 처리하면 **검증기가 없는 정의를 검사해 전건 fail** 한다.
-- [ ] **기술적 대응이 먼저다(R13 agy HIGH):** `check-behaviors.sh` 는 `.agents/behaviors/` 가 **아예 없는 하네스에서 에러 없이 graceful skip** 하도록 구현한다(미적용 하네스임을 stdout 으로 알리되 종료코드 0). 문서에 "미적용"이라 적어두는 것은 **스크립트가 0 아닌 코드로 죽는 것을 막지 못한다** — 행정적 기록으로 기술적 실패를 대체하지 말 것.
-- [ ] 그 위에 **선택**: 소급 마이그레이션을 하거나, 안 하면 "기존 하네스는 B1 미적용"을 기록한다(위 skip 구현이 된 뒤에만 유효한 선택지)
+- [x] **BEHAVIOR 내용 충실도 검사**(ADR D7·R9 양 엔진): 6차원 중 최소 `Intent`·`Failure modes` 에 **heading 외 본문이 있는가**. 없으면 빈 BEHAVIOR 를 가리켜 정의의 "본문 부실" 과락을 우회할 수 있다
+- [x] **`behaviors:` 참조 목록을 정의 파일별로 출력** — `REF <정의> -> <behavior>` 줄. 원문:(ADR-001 D5 요구·R4 codex MED — 계획서에 없으면 구현자가 빼먹고 D5 의 역인덱스 수단이 사라진다). 끊긴 참조·고아도 함께
+- [x] ⚠ `name` 정규식은 스펙 문구대로 `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` — **연속 하이픈 허용**. 원본 구현의 스펙↔코드 불일치(참고자료 §7 #3)를 그대로 베끼지 말 것
+- [x] 구조적으로 무효한 스펙은 **건너뛰고 진단 노출**(부분 로드 금지 — 참고자료 §4)
+- [x] `harness-update.sh` MANAGED_RELS 에 신규 스크립트 등록(등록 누락 시 생성 하네스에서 영영 미갱신)
+- [x] **호출 경로 등록**(R5 양 엔진 — 만들어도 부르지 않으면 소용없다): `run-policy-audit.sh` 가 `check-behaviors.sh` 를 실행하도록 배선. 수동 실행에만 의존하면 끊긴 참조·고아를 시스템적으로 못 막는다
+- [x] ⚠ **기존 하네스는 검증기만 받고 BEHAVIOR·포인터는 못 받는다**(R9 codex MED). 등록만 하고 완료로 처리하면 **검증기가 없는 정의를 검사해 전건 fail** 한다.
+- [x] **기술적 대응이 먼저다(R13 agy HIGH):** `check-behaviors.sh` 는 `.agents/behaviors/` 가 **아예 없는 하네스에서 에러 없이 graceful skip** 하도록 구현한다(미적용 하네스임을 stdout 으로 알리되 종료코드 0). 문서에 "미적용"이라 적어두는 것은 **스크립트가 0 아닌 코드로 죽는 것을 막지 못한다** — 행정적 기록으로 기술적 실패를 대체하지 말 것.
+- [x] 그 위에 **선택**: 소급 마이그레이션을 하거나, 안 하면 "기존 하네스는 B1 미적용"을 기록한다(위 skip 구현이 된 뒤에만 유효한 선택지)
 
 ### 게이트
-- [ ] 정책 감사 PASS(`check-behaviors.sh` 호출 포함) · `tests/test-harness-update.sh` PASS
-- [ ] **`Axis` 유니온 4개 유지 타입 테스트**(ADR D6 코드 계약·R23 agy HIGH — ADR 이 "B1 착수 조건"으로 명시했는데 체크리스트에 없었다): 5번째 축이 조용히 추가되는 것을 막는다
-- [ ] **참조 무결성 픽스처**(frontmatter 기반 — 본문 파싱 없음): `behaviors:` 미선언 · 실재하지 않는 BEHAVIOR · **경로 탈출 시도**(`../x`·특수문자 → 디렉토리명 규칙 불일치로 거부)
-- [ ] **내용 충실도 픽스처**(R10 codex): `Intent`·`Failure modes` 각각에 대해 **누락 / heading 만 / 공백만 / 정상 본문** 4케이스. *"포인터만" 케이스는 뺐다 — **BEHAVIOR 파일은 참조 대상이라 섹션 포인터를 갖지 않는다**(R21 agy HIGH). 판정은 "heading 외 내용 존재" 단순 검사이고 B2 의 "실체 줄" 잣대와 연동하지 않는다*. *⚠ **"정의에 실체 1줄" 검사는 B1 소관이 아니다** — ADR D7 이 검사 주체를 `scoreStructure`(B2)로 명시했다. B1 게이트에서 그 픽스처를 요구하면 B1 이 범위 밖을 구현하거나 B2 에 막힌다(R20 agy HIGH). 해당 픽스처는 **§B2 게이트**에 둔다*
-- [ ] **픽스처 테스트**(R5 codex·R6 codex — 게이트에 없으면 빈 출력·부분 출력으로도 통과한다): ① 정의별 **참조 목록** — **에이전트+스킬 둘 다** · **여러 정의→같은 BEHAVIOR** · **한 정의→여러 BEHAVIOR** 조합에서 **모든 (정의, BEHAVIOR) 간선이 정확히 한 번** 출력되는가 ② **끊긴 참조**를 잡는가 ③ **고아 BEHAVIOR** 를 잡는가 ④ BEHAVIOR 가 없는 하네스에서 **graceful skip**(종료코드 0)
+- [x] 정책 감사 **PASS**(fail 0·warn 0 · `check-behaviors.sh` 호출 포함) · `tests/test-harness-update.sh` **PASS**
+- [x] **`Axis` 유니온 4개 유지 타입 테스트** — `harness-ui/test/adr-axis-contract.test.ts`. **가드 실효성 실측**: 5번째 축을 임시 추가하면 tsc 2건·vitest 1건이 깨진다.(ADR D6 코드 계약·R23 agy HIGH — ADR 이 "B1 착수 조건"으로 명시했는데 체크리스트에 없었다): 5번째 축이 조용히 추가되는 것을 막는다
+- [x] **참조 무결성 픽스처**(frontmatter 기반 — 본문 파싱 없음): `behaviors:` 미선언 · 실재하지 않는 BEHAVIOR · **경로 탈출 시도**(`../x`·특수문자 → 디렉토리명 규칙 불일치로 거부)
+- [x] **내용 충실도 픽스처**(R10 codex): `Intent`·`Failure modes` 각각에 대해 **누락 / heading 만 / 공백만 / 정상 본문** 4케이스. *"포인터만" 케이스는 뺐다 — **BEHAVIOR 파일은 참조 대상이라 섹션 포인터를 갖지 않는다**(R21 agy HIGH). 판정은 "heading 외 내용 존재" 단순 검사이고 B2 의 "실체 줄" 잣대와 연동하지 않는다*. *⚠ **"정의에 실체 1줄" 검사는 B1 소관이 아니다** — ADR D7 이 검사 주체를 `scoreStructure`(B2)로 명시했다. B1 게이트에서 그 픽스처를 요구하면 B1 이 범위 밖을 구현하거나 B2 에 막힌다(R20 agy HIGH). 해당 픽스처는 **§B2 게이트**에 둔다*
+- [x] **픽스처 테스트**(R5 codex·R6 codex — 게이트에 없으면 빈 출력·부분 출력으로도 통과한다): ① 정의별 **참조 목록** — **에이전트+스킬 둘 다** · **여러 정의→같은 BEHAVIOR** · **한 정의→여러 BEHAVIOR** 조합에서 **모든 (정의, BEHAVIOR) 간선이 정확히 한 번** 출력되는가 ② **끊긴 참조**를 잡는가 ③ **고아 BEHAVIOR** 를 잡는가 ④ BEHAVIOR 가 없는 하네스에서 **graceful skip**(종료코드 0)
 - [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
 
 ---
