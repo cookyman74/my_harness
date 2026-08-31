@@ -53,7 +53,9 @@ for d in "$BDIR"/*/; do
   bname="$(printf '%s\n' "$fm" | sed -n 's/^name:[[:space:]]*//p' | head -1 | tr -d '\r' | sed 's/[[:space:]]*$//')"
   bdesc="$(printf '%s\n' "$fm" | sed -n 's/^description:[[:space:]]*//p' | head -1)"
   [ -n "$bname" ] || { no "$dname: frontmatter 에 name 없음 (건너뜀)"; continue; }
-  [ -n "$bdesc" ] || wn "$dname: frontmatter 에 description 없음"
+  # description 은 **필수 필드**다(계획서 §B1·behavior-specs §2). warn 으로 두면
+  # description 이 빈 BEHAVIOR 가 정책 감사까지 통과한다 — 거짓 통과 경로(R1 codex HIGH).
+  [ -n "$bdesc" ] || { no "$dname: frontmatter 에 description 없음 (필수·건너뜀)"; continue; }
   if ! printf '%s' "$bname" | grep -qE "$NAME_RE"; then
     no "$dname: name '$bname' 이 규칙 위반 — $NAME_RE (건너뜀)"; continue
   fi

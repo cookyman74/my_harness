@@ -106,6 +106,13 @@ new_case name-ok; behavior . 'foo--bar' '왜' '실패'; agent a1 'foo--bar'
 new_case name-bad; mkdir -p "$CASE/.agents/behaviors/-bad"
 printf -- '---\nname: -bad\ndescription: t\n---\n## Intent\nx\n## Failure modes\ny\n' > "$CASE/.agents/behaviors/-bad/BEHAVIOR.md"
 OUT="$(run)"; hasi 'name .* 규칙 위반' && ok "하이픈 시작은 거부" || no "-bad 를 통과시킴: $OUT"
+new_case no-desc; behavior . alpha '왜' '실패'
+sed -i.bak '/^description:/d' "$CASE/.agents/behaviors/alpha/BEHAVIOR.md"; rm -f "$CASE/.agents/behaviors/alpha/BEHAVIOR.md.bak"
+agent a1 alpha
+OUT="$(run)"
+hasi 'description 없음' && ok "description 누락 검출" || no "description 누락 미검출: $OUT"
+[ "$(rc_of)" != 0 ] && ok "description 누락 exit≠0(warn 이 아니라 fail)" || no "description 없는데 exit 0 — 거짓 통과"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"
