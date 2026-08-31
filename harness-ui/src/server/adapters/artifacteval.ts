@@ -467,8 +467,16 @@ function scoreStructure(body: string, hasRefs: boolean, kind: "agent" | "skill",
     // ① 물결표 펜스(`~~~`) ② 들여쓴 펜스 를 놓쳤다 — 60줄 넘는 블록을 그대로 두고 감점을
     // 피하는 우회 통로였다. 닫는 펜스가 들여쓰이면 종료를 놓쳐 엉뚱한 블록을 하나로 묶어
     // **거짓 감점**도 났다. 여는 토큰과 같은 토큰으로만 닫는다(짝맞춤).
-    const ls = lines(merged); let fenceStart = -1; let open: FenceTok = null;
+    // 주석도 인식한다 — `scanPointers`·`splitSections` 는 주석을 아는데 여기만 모르면
+    // **주석 안의 줄 시작 펜스가 실제 대용량 블록 탐지를 삼킨다**(자체 점검으로 재현).
+    // 같은 파일 안의 파서가 서로 다른 경계를 쓰면 그 차이가 곧 구멍이다(R7 과 같은 계열).
+    const ls = lines(merged); let fenceStart = -1; let open: FenceTok = null, inC = false;
     for (let i = 0; i < ls.length; i++) {
+      if (!open) {
+        const c = commentStep(inC, ls[i]!);
+        inC = c.inComment;
+        if (c.skip) continue;                    // 주석 전용 줄 — 펜스 판정 대상이 아니다
+      }
       const st = fenceStep(open, ls[i]!);
       if (!st.isFenceLine) { open = st.open; continue; }
       if (open === null) { fenceStart = i; open = st.open; continue; }   // 열었다

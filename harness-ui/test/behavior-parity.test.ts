@@ -129,6 +129,14 @@ describe("B5 — TS ↔ CLI 판정 일치", () => {
       await writeAgentRaw(goodFm());
       await writeSpecRaw("lonely-ok", goodSpec("lonely-ok"));
     }],
+    ["스펙 주석 안 줄 시작 펜스", async () => {
+      await writeAgentRaw(goodFm("behaviors:\n  - cf"));
+      await writeSpecRaw("cf", "---\nname: cf\ndescription: 주석펜스\n---\n## Intent\n<!--\n```\n-->\n의도.\n## Failure modes\n실패.\n");
+    }],
+    ["스펙 펜스 안 주석 시작", async () => {
+      await writeAgentRaw(goodFm("behaviors:\n  - fc"));
+      await writeSpecRaw("fc", "---\nname: fc\ndescription: 펜스주석\n---\n## Intent\n```\n<!--\n```\n의도.\n## Failure modes\n실패.\n");
+    }],
     ["스펙 과대(256KB 초과)", async () => {
       await writeAgentRaw(goodFm("behaviors:\n  - big"));
       const pad = Array.from({ length: 9000 }, (_, i) => `padding line padding line ${i}`).join("\n");

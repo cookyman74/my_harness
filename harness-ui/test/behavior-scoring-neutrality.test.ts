@@ -343,6 +343,29 @@ describe("파서 — parseBehaviorRefs · scanPointers · splitSections", () => 
     expect(secs[0]!.substantive).toBe(1);
   });
 
+  it("주석 안의 펜스 마커가 대용량 블록 탐지를 교란하지 않는다(내부 파서 일관성)", async () => {
+    await mkdir(join(root, ".claude", "skills", "cf"), { recursive: true });
+    const big = ["```", ...Array.from({ length: 80 }, (_, i) => `줄 ${i}`), "```"].join("\n");
+    await writeFile(join(root, ".claude", "skills", "cf", "SKILL.md"),
+      "---\nname: cf\ndescription: 주석 펜스를 쓸 때 사용, 다른 것과 달리\n---\n# cf\n## 트리거\n조건.\n## 절차\n<!-- ``` -->\n" + big + "\n");
+    const r = await evaluateArtifacts(root);
+    const s = r.artifacts.find((x) => x.name === "cf")!;
+    expect(s.findings.some((f) => f.why.includes("대용량 인라인 블록")),
+      "주석 안 펜스 마커가 실제 대용량 블록 탐지를 삼켰다").toBe(true);
+  });
+
+  it("주석 **안의 줄 시작 펜스**도 대용량 블록 탐지를 교란하지 않는다", async () => {
+    await mkdir(join(root, ".claude", "skills", "cf2"), { recursive: true });
+    const big = ["```", ...Array.from({ length: 80 }, (_, i) => `줄 ${i}`), "```"].join("\n");
+    // 주석 안에 줄 시작 펜스가 있다 — 주석을 모르는 스캐너는 여기서 펜스를 연다.
+    await writeFile(join(root, ".claude", "skills", "cf2", "SKILL.md"),
+      "---\nname: cf2\ndescription: 주석 펜스를 쓸 때 사용, 다른 것과 달리\n---\n# cf2\n## 트리거\n조건.\n## 절차\n<!--\n```\n-->\n" + big + "\n");
+    const r = await evaluateArtifacts(root);
+    const s = r.artifacts.find((x) => x.name === "cf2")!;
+    expect(s.findings.some((f) => f.why.includes("대용량 인라인 블록")),
+      "주석 안 펜스가 실제 대용량 블록 탐지를 삼켰다").toBe(true);
+  });
+
   it("섹션별 실체/포인터를 나눠 센다·펜스 안 heading 은 heading 이 아니다", () => {
     const secs = splitSections("## A\n본문\n## B\n> BEHAVIOR: x\n## C\n```\n## 가짜\n```\n");
     expect(secs.map((s) => s.heading.trim())).toEqual(["## A", "## B", "## C"]);

@@ -160,6 +160,25 @@ for d in "$BDIR"/*; do
     fence_aware="$(awk '
       { sub(/\r$/, ""); sub(/[[:space:]]+$/, "") }
       {
+        # ⚠ **주석을 먼저 본다**(TS 와 같은 순서·자체 점검으로 재현). 펜스 판정이 앞에 있으면
+        # **주석 안의 줄 시작 펜스**가 실제 펜스로 열려 그 뒤 heading·본문을 통째로 삼킨다.
+        # 펜스가 열려 있는 동안은 주석을 해석하지 않는다(펜스 안의 `<!--` 는 코드 예시다).
+        if (!inf) {
+          line = $0; touched = (inc ? 1 : 0)
+          while (1) {
+            if (!inc) {
+              i = index(line, "<!--")
+              if (i == 0) break
+              line = substr(line, i + 4); inc = 1; touched = 1
+            } else {
+              j = index(line, "-->")
+              if (j == 0) { line = ""; break }
+              line = substr(line, j + 3); inc = 0; touched = 1
+            }
+          }
+          # **주석이 관여한 줄만** 걸러낸다 — 평범한 빈 줄을 주석으로 처리하면 본문 판정이 깨진다.
+          if (touched) { if (line ~ /^[[:space:]]*$/) { print "@@COMMENT@@" $0; next } ; $0 = line }
+        }
         # CommonMark: fence 는 **3개 이상**이고 **여는 것보다 짧은 fence 로는 닫히지 않는다**.
         # 3개로 축약하면 ````` ```` ````` 안의 ` ``` ` 이 조기 종료로 읽혀 코드가 본문으로 풀린다
         # (TS 와 같은 취약점이었다·R2 codex HIGH). 문자와 길이를 그대로 비교한다.
@@ -170,22 +189,6 @@ for d in "$BDIR"/*; do
           if (ch == opench && len >= openlen) { inf = 0; opench = ""; openlen = 0; print "@@FENCE@@"; next }
         }
         if (inf) { print "@@CODE@@" $0; next }
-        # HTML 주석 안은 마크다운이 아니다 — 추적하지 않으면 `<!-- ## Intent ... -->` 로
-        # 빈 스펙을 통과시킬 수 있다(R4 codex HIGH·TS 와 같은 규칙).
-        line = $0; touched = (inc ? 1 : 0)
-        while (1) {
-          if (!inc) {
-            i = index(line, "<!--")
-            if (i == 0) break
-            line = substr(line, i + 4); inc = 1; touched = 1
-          } else {
-            j = index(line, "-->")
-            if (j == 0) { line = ""; break }
-            line = substr(line, j + 3); inc = 0; touched = 1
-          }
-        }
-        # **주석이 관여한 줄만** 걸러낸다 — 평범한 빈 줄을 주석으로 처리하면 본문 판정이 깨진다.
-        if (touched) { if (line ~ /^[[:space:]]*$/) { print "@@COMMENT@@" $0; next } ; print line; next }
         print
       }' "$f")"
     if ! printf '%s\n' "$fence_aware" | grep -E "^##[[:space:]]+${dim}\$" >/dev/null; then

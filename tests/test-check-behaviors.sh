@@ -531,6 +531,25 @@ mkdir -p "$CASE/.agents/behaviors/hr2"
 agent a1 hr2
 [ "$(rc_of)" = 0 ] && ok "수평선 뒤 실제 본문은 실체로 센다" || no "정상 스펙 오탐: $(run)"
 
+# 자체 점검 — 주석 안의 줄 시작 펜스가 실제 펜스로 열려 뒤 heading 을 삼키던 것
+new_case comment-fence
+mkdir -p "$CASE/.agents/behaviors/cf"
+{ echo '---'; echo 'name: cf'; echo 'description: 주석펜스'; echo '---'
+  echo '## Intent'; echo '<!--'; echo '```'; echo '-->'; echo '의도 본문'
+  echo '## Failure modes'; echo '실패 본문'; } > "$CASE/.agents/behaviors/cf/BEHAVIOR.md"
+agent a1 cf
+OUT="$(run)"
+hasi '차원 누락' && no "주석 안 펜스가 뒤 heading 을 삼킴: $OUT" || ok "주석 안 펜스가 heading 을 안 삼킴"
+[ "$(rc_of)" = 0 ] && ok "주석 안 펜스가 있는 정상 스펙 통과" || no "정상 스펙 거부"
+# 펜스 안의 `<!--` 는 코드다 — 주석으로 해석하면 안 된다
+new_case fence-comment
+mkdir -p "$CASE/.agents/behaviors/fc"
+{ echo '---'; echo 'name: fc'; echo 'description: 펜스주석'; echo '---'
+  echo '## Intent'; echo '```'; echo '<!--'; echo '```'; echo '의도 본문'
+  echo '## Failure modes'; echo '실패 본문'; } > "$CASE/.agents/behaviors/fc/BEHAVIOR.md"
+agent a1 fc
+[ "$(rc_of)" = 0 ] && ok "펜스 안 주석 시작이 밖으로 안 샘" || no "펜스 안 <!-- 가 주석으로 해석됨: $(run)"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"
