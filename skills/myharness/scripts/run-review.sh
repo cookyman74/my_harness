@@ -39,6 +39,9 @@ D=_workspace/reviews
 #  ⚠️ AGY_MODEL은 반드시 Gemini 계열만 — agy를 Claude/GPT로 돌리면 러너와 엔진 충돌(자기검증).
 AGY_MODEL="${AGY_MODEL:-Gemini 3.1 Pro (High)}"   # 경량: "Gemini 3.5 Flash (High)" / 중대: "Gemini 3.1 Pro (High)"
 CODEX_MODEL="${CODEX_MODEL:-}"                     # 비우면 codex 기본. 중대 시 고추론 모델명 지정.
+# 추론 강도(codex 전용). 작은 모델을 쓸 때 high 로 올려 판정 품질을 보전한다.
+#   예: CODEX_MODEL="gpt-5.4-mini" CODEX_REASONING=high  ← 사용량 절약 + 고추론
+CODEX_REASONING="${CODEX_REASONING:-}"
 # 리뷰 대상 루트 — 하위 디렉토리서 실행돼도 repo 루트 보장(agy --add-dir용). git 밖이면 pwd 폴백.
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
@@ -146,7 +149,7 @@ write_status "$(printf '{"status":"running","reviewers":"%s","degraded":"%s","st
 
 # 일반/정합성 리뷰어 = REVIEWERS 중 러너 아닌 쪽(codex|claude). 든 것만 실행. 둘 다 stdin 규약.
 case " $REVIEWERS " in
-  *" codex "*)  run_reviewer_stdin codex "$GEN" codex exec ${CODEX_MODEL:+-m "$CODEX_MODEL"} --sandbox read-only & ;;
+  *" codex "*)  run_reviewer_stdin codex "$GEN" codex exec ${CODEX_MODEL:+-m "$CODEX_MODEL"} ${CODEX_REASONING:+-c model_reasoning_effort="$CODEX_REASONING"} --sandbox read-only & ;;
   *" claude "*) run_reviewer_stdin claude "$GEN" claude -p \
       --permission-mode plan --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(rg:*)" & ;;
 esac
