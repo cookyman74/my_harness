@@ -475,6 +475,24 @@ for h in '##  Intent' '##   Intent'; do
   [ "$(rc_of)" = 0 ] && ok "다중 공백 정상 스펙 통과 [$h]" || no "거짓 실패 [$h]"
 done
 
+# R4 codex HIGH — 여러 줄 HTML 주석으로 빈 스펙을 통과시키던 우회
+new_case html-comment
+mkdir -p "$CASE/.agents/behaviors/hc"
+{ echo '---'; echo 'name: hc'; echo 'description: 위장'; echo '---'
+  echo '## Intent'; echo
+  echo '<!--'; echo '## Failure modes'; echo '주석 안의 가짜'; echo '-->'; } \
+  > "$CASE/.agents/behaviors/hc/BEHAVIOR.md"
+agent a1 hc
+OUT="$(run)"
+hasi 'Failure modes.*누락' && ok "여러 줄 주석 안 heading 이 안 샌다" || no "주석 위장 통과: $OUT"
+new_case html-comment-ok
+mkdir -p "$CASE/.agents/behaviors/hc2"
+{ echo '---'; echo 'name: hc2'; echo 'description: 정상'; echo '---'
+  echo '## Intent'; echo '<!-- 참고 -->실제 의도 본문'
+  echo '## Failure modes'; echo '실패 본문'; } > "$CASE/.agents/behaviors/hc2/BEHAVIOR.md"
+agent a1 hc2
+[ "$(rc_of)" = 0 ] && ok "주석 뒤 실제 내용은 본문으로 센다" || no "정상 스펙 오탐: $(run)"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"

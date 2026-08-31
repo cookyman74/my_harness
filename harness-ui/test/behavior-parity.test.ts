@@ -97,6 +97,10 @@ describe("B5 — TS ↔ CLI 판정 일치", () => {
       await mkdir(join(root, ".claude", "agents"), { recursive: true });
       await writeFile(join(root, ".claude", "agents", "a2.md"), `---\n${goodFm("behaviors:\n  - gate")}\n---\n${BODY}`);
     }],
+    ["스펙 주석 뒤 실제 내용", async () => {
+      await writeAgentRaw(goodFm("behaviors:\n  - hc2"));
+      await writeSpecRaw("hc2", "---\nname: hc2\ndescription: 정상\n---\n## Intent\n<!-- 참고 -->실제 의도\n## Failure modes\n실패\n");
+    }],
     ["스펙 과대(256KB 초과)", async () => {
       await writeAgentRaw(goodFm("behaviors:\n  - big"));
       const pad = Array.from({ length: 9000 }, (_, i) => `padding line padding line ${i}`).join("\n");
@@ -114,6 +118,21 @@ describe("B5 — TS ↔ CLI 판정 일치", () => {
     expect(await cliFails(), "CLI 가 고아로 차단했다").toBe(false);
     expect(await tsFinds(), "TS 가 고아를 차단 수준으로 올렸다").toBe(false);
     expect(await tsNotices(), "TS 가 고아를 아예 알리지 않았다").toBe(true);
+  });
+
+  it("여러 줄 주석으로 차원을 위장해도 **양쪽 다 안 속는다** — CLI 는 fail, TS 채점은 thin 으로 잡는다", async () => {
+    await writeAgentRaw(goodFm("behaviors:\n  - hc"));
+    await writeSpecRaw("hc", "---\nname: hc\ndescription: 위장\n---\n## Intent\n\n<!--\n## Failure modes\n가짜\n-->\n");
+    // CLI: 차원 누락으로 fail.
+    expect(await cliFails(), "CLI 가 주석 위장을 통과시켰다").toBe(true);
+    // TS 진단(scorecard)은 **참조 해석**만 본다 — 차원 충실도는 채점(scoreStructure) 소관이라
+    // 여기서 finding 을 내지 않는 것이 맞다(같은 사실에 두 번 감점 금지·R31).
+    expect(await tsFinds()).toBe(false);
+    // 그러나 **채점기는 반드시 잡아야 한다** — 그래야 위장이 어디서도 통하지 않는다.
+    const { evaluateArtifacts } = await import("../src/server/adapters/artifacteval.js");
+    const r = await evaluateArtifacts(root);
+    const a = r.artifacts.find((x) => x.name === "a1")!;
+    expect(a.findings.some((f) => f.why.includes("참조 BEHAVIOR 부실")), "채점기가 주석 위장을 놓쳤다").toBe(true);
   });
 
   it("내용 충실도(thin BEHAVIOR)는 **둘 다 참조를 해석한다** — 채점(scoreStructure) 소관이라 여기선 안 본다", async () => {

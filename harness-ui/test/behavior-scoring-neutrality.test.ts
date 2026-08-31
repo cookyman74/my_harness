@@ -278,6 +278,33 @@ describe("파서 — parseBehaviorRefs · scanPointers · splitSections", () => 
     expect(r.unclosedFence).toBe(false);
   });
 
+  // R4 codex HIGH — 여러 줄 HTML 주석 안은 마크다운이 아니다.
+  it("여러 줄 주석 안의 포인터·본문은 집계되지 않는다", () => {
+    const r = scanPointers("<!--\n> BEHAVIOR: hidden\n숨긴 본문\n-->\n");
+    expect(r.pointers).toEqual([]);
+    expect(r.nonPointerLines, "주석 내용이 실체로 세어졌다").toBe(0);
+  });
+
+  it("여러 줄 주석 안의 heading 은 heading 이 아니다", () => {
+    const secs = splitSections("## A\n본문\n<!--\n## 가짜\n내용\n-->\n");
+    expect(secs.map((s) => s.heading.trim())).toEqual(["## A"]);
+  });
+
+  it("한 줄에 열고 닫는 주석은 상태를 남기지 않는다", () => {
+    const r = scanPointers("<!-- 주석 --> \n> BEHAVIOR: real\n");
+    expect(r.pointers).toEqual(["real"]);
+  });
+
+  it("주석 뒤에 실제 내용이 있으면 그 부분은 센다", () => {
+    const r = scanPointers("<!-- 주석 -->실제 내용\n");
+    expect(r.nonPointerLines).toBe(1);
+  });
+
+  it("코드펜스 안의 `<!--` 는 주석이 아니라 코드다", () => {
+    const r = scanPointers("```\n<!--\n```\n> BEHAVIOR: after\n");
+    expect(r.pointers, "펜스 안 주석 시작이 밖으로 샜다").toEqual(["after"]);
+  });
+
   it("섹션별 실체/포인터를 나눠 센다·펜스 안 heading 은 heading 이 아니다", () => {
     const secs = splitSections("## A\n본문\n## B\n> BEHAVIOR: x\n## C\n```\n## 가짜\n```\n");
     expect(secs.map((s) => s.heading.trim())).toEqual(["## A", "## B", "## C"]);

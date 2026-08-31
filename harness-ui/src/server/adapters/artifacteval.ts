@@ -220,6 +220,28 @@ export function fenceToken(line: string): FenceTok {
   const m = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
   return m ? { ch: m[1]![0]!, len: m[1]!.length } : null;
 }
+// HTML 주석 상태 — **여러 줄 주석 안은 마크다운이 아니다**(R4 codex HIGH).
+// 추적하지 않으면 `<!-- ... -->` 안의 `## heading`·`> BEHAVIOR:`·본문이 전부 실체로 집계돼,
+// 빈 정의를 주석으로 채워 `completenessMissing`·조건 ⓔ 를 통과시키는 우회가 열린다.
+// 한 줄 주석(`<!-- x -->`)은 열고 닫히므로 상태가 남지 않는다.
+export function commentStep(inComment: boolean, line: string): { inComment: boolean; skip: boolean } {
+  let s = line, open = inComment, sawContent = false;
+  for (;;) {
+    if (!open) {
+      const i = s.indexOf("<!--");
+      if (i < 0) { if (s.trim()) sawContent = true; break; }
+      if (s.slice(0, i).trim()) sawContent = true;
+      s = s.slice(i + 4); open = true;
+    } else {
+      const j = s.indexOf("-->");
+      if (j < 0) { s = ""; break; }
+      s = s.slice(j + 3); open = false;
+    }
+  }
+  // 주석 밖 내용이 하나도 없으면 그 줄은 통째로 건너뛴다.
+  return { inComment: open, skip: !sawContent };
+}
+
 /** fence 상태 전이. 열려 있으면 `open`, 아니면 null 을 넘긴다. 반환값이 새 상태다. */
 export function fenceStep(open: FenceTok, line: string): { open: FenceTok; isFenceLine: boolean } {
   const tok = fenceToken(line);
@@ -231,11 +253,17 @@ export function fenceStep(open: FenceTok, line: string): { open: FenceTok; isFen
 export type PointerScan = { pointers: string[]; unclosedFence: boolean; nonPointerLines: number };
 export function scanPointers(body: string): PointerScan {
   const ls = lines(body);
-  let open: FenceTok = null;
+  let open: FenceTok = null, inComment = false;
   const pointers: string[] = [];
   let nonPointerLines = 0;
   for (const raw of ls) {
     const l = raw.replace(/\r$/, "");
+    // 펜스 **밖**에서만 주석을 해석한다 — 펜스 안의 `<!--` 는 코드 예시다.
+    if (!open) {
+      const c = commentStep(inComment, l);
+      inComment = c.inComment;
+      if (c.skip) continue;                      // 주석 전용 줄 — 실체로 세지 않는다
+    }
     const wasOpen = open;
     const st = fenceStep(open, l);
     open = st.open;
@@ -260,9 +288,14 @@ export function splitSections(body: string): Section[] {
     const sc = scanPointers(cur.join("\n"));
     out.push({ heading: head, pointers: sc.pointers, substantive: sc.nonPointerLines, lines: [...cur] });
   };
-  let open: FenceTok = null;
+  let open: FenceTok = null, inComment = false;
   for (const raw of ls) {
     const l = raw.replace(/\r$/, "");
+    if (!open) {
+      const c = commentStep(inComment, l);
+      inComment = c.inComment;
+      if (c.skip) { cur.push(l); continue; }     // 주석 줄은 섹션에 담되 heading 판정은 안 한다
+    }
     const wasOpen = open;
     open = fenceStep(open, l).open;
     // 펜스 안의 `## …` 는 heading 이 아니다(예제 코드). 여는 줄 자체도 안이 아니므로

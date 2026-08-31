@@ -157,6 +157,22 @@ for d in "$BDIR"/*; do
           if (ch == opench && len >= openlen) { inf = 0; opench = ""; openlen = 0; print "@@FENCE@@"; next }
         }
         if (inf) { print "@@CODE@@" $0; next }
+        # HTML 주석 안은 마크다운이 아니다 — 추적하지 않으면 `<!-- ## Intent ... -->` 로
+        # 빈 스펙을 통과시킬 수 있다(R4 codex HIGH·TS 와 같은 규칙).
+        line = $0; touched = (inc ? 1 : 0)
+        while (1) {
+          if (!inc) {
+            i = index(line, "<!--")
+            if (i == 0) break
+            line = substr(line, i + 4); inc = 1; touched = 1
+          } else {
+            j = index(line, "-->")
+            if (j == 0) { line = ""; break }
+            line = substr(line, j + 3); inc = 0; touched = 1
+          }
+        }
+        # **주석이 관여한 줄만** 걸러낸다 — 평범한 빈 줄을 주석으로 처리하면 본문 판정이 깨진다.
+        if (touched) { if (line ~ /^[[:space:]]*$/) { print "@@COMMENT@@" $0; next } ; print line; next }
         print
       }' "$f")"
     if ! printf '%s\n' "$fence_aware" | grep -E "^##[[:space:]]+${dim}\$" >/dev/null; then
