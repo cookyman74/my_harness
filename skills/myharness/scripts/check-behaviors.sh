@@ -192,9 +192,15 @@ for d in "$BDIR"/*; do
     # `grep` 은 `^##[[:space:]]+${dim}$`(다중 공백 허용)인데 `awk` 는 `$0 == "## " dim`(단일 공백
     # 엄격 일치)이었다 → `##  Intent` 처럼 공백이 둘이면 **존재 검사는 통과하고 본문 추출은 실패**해
     # 정상 스펙이 thin 으로 **거짓 실패**한다(R7 의 긴 파일 거짓 실패와 같은 계열).
+    # ADR-001 "실체 줄" 정의를 따른다 — heading·**수평선**·주석·펜스 경계는 실체가 아니다
+    # (R5 agy HIGH: `## Intent` 아래 `---` 한 줄만 넣으면 thin 검사를 우회했다·TS 와 같은 규칙).
     body="$(printf '%s\n' "$fence_aware" | awk -v dim="$dim" '
       /^## / { inside = ($0 ~ "^##[[:space:]]+" dim "$") ? 1 : 0; next }
-      inside { print }' | tr -d '[:space:]')"
+      !inside { next }
+      /^@@COMMENT@@/ { next }
+      /^@@FENCE@@/   { next }
+      /^[[:space:]]{0,3}(-([[:space:]]*-){2,}|_([[:space:]]*_){2,}|\*([[:space:]]*\*){2,})[[:space:]]*$/ { next }
+      { print }' | tr -d '[:space:]')"
     [ -n "$body" ] || no "$dname: '## $dim' 이 thin — heading 외 본문이 없다(빈 BEHAVIOR 로 과락 우회)"
   done
   VALID+=("$bname")

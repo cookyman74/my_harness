@@ -305,6 +305,19 @@ describe("파서 — parseBehaviorRefs · scanPointers · splitSections", () => 
     expect(r.pointers, "펜스 안 주석 시작이 밖으로 샜다").toEqual(["after"]);
   });
 
+  it.each([["---"], ["***"], ["___"], ["- - -"]])(
+    "수평선 %s 은 실체 줄이 아니다(ADR 정의)", (hr) => {
+      expect(scanPointers(hr + "\n").nonPointerLines, "수평선이 실체로 세어졌다").toBe(0);
+    });
+
+  it("heading 은 실체 줄이 아니다(ADR 정의)", () => {
+    expect(scanPointers("## 제목\n### 소제목\n").nonPointerLines).toBe(0);
+  });
+
+  it("수평선 뒤 실제 본문은 센다", () => {
+    expect(scanPointers("---\n실제 본문\n").nonPointerLines).toBe(1);
+  });
+
   it("섹션별 실체/포인터를 나눠 센다·펜스 안 heading 은 heading 이 아니다", () => {
     const secs = splitSections("## A\n본문\n## B\n> BEHAVIOR: x\n## C\n```\n## 가짜\n```\n");
     expect(secs.map((s) => s.heading.trim())).toEqual(["## A", "## B", "## C"]);

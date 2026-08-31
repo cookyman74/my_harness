@@ -511,6 +511,26 @@ agent a1 alpha
 OUT="$(run)"
 hasi '미지원' && ok "TOML behaviors 를 미지원으로 명시 보고" || no "TOML behaviors 조용히 통과: $OUT"
 
+# R5 agy HIGH — ADR "실체 줄" 정의에서 수평선·heading 은 실체가 아니다.
+# `## Intent` 아래 `---` 한 줄만 넣어 thin 검사를 우회하던 것.
+for filler in '---' '***' '___' '- - -'; do
+  new_case hr-filler
+  mkdir -p "$CASE/.agents/behaviors/hr"
+  { echo '---'; echo 'name: hr'; echo 'description: 수평선 위장'; echo '---'
+    echo '## Intent'; echo "$filler"; echo '## Failure modes'; echo "$filler"; } \
+    > "$CASE/.agents/behaviors/hr/BEHAVIOR.md"
+  agent a1 hr
+  OUT="$(run)"
+  hasi 'thin' && ok "수평선만 있는 차원을 thin 으로 잡음 [$filler]" || no "수평선 위장 통과 [$filler]: $OUT"
+done
+new_case hr-ok
+mkdir -p "$CASE/.agents/behaviors/hr2"
+{ echo '---'; echo 'name: hr2'; echo 'description: 정상'; echo '---'
+  echo '## Intent'; echo '---'; echo '실제 본문이 수평선 뒤에 있다'
+  echo '## Failure modes'; echo '실패 본문'; } > "$CASE/.agents/behaviors/hr2/BEHAVIOR.md"
+agent a1 hr2
+[ "$(rc_of)" = 0 ] && ok "수평선 뒤 실제 본문은 실체로 센다" || no "정상 스펙 오탐: $(run)"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"

@@ -251,6 +251,21 @@ export function fenceStep(open: FenceTok, line: string): { open: FenceTok; isFen
   return { open, isFenceLine: false };   // 다른 문자이거나 더 짧다 → 닫지 않는다(본문이다)
 }
 export type PointerScan = { pointers: string[]; unclosedFence: boolean; nonPointerLines: number };
+
+// ADR-001 "실체 줄"의 정의 — 아래를 **모두 제외**하고 남은 줄이 실체다.
+//   공백만 · markdown heading · 섹션 포인터 · 주석 · **수평선** · 코드펜스 **경계**
+// (펜스 **안의 내용은 실체로 센다** — 그래서 펜스 미종료는 별도로 과락시킨다·R26)
+// ⚠ 처음엔 `l.trim()` 만 봐서 **heading 과 수평선이 실체로 세어졌다**(R5 agy HIGH):
+// 빈 껍데기 정의도 필수 섹션에 `---` 한 줄만 넣으면 조건 ⓔ 과락을 우회한다.
+// 포인터·주석·펜스 경계는 호출부에서 이미 걸러지므로 여기서는 나머지를 본다.
+const HR = /^\s{0,3}([-_*])(?:\s*\1){2,}\s*$/;    // --- · *** · ___ (공백 섞임 허용)
+function isSubstantive(l: string): boolean {
+  const s = l.trim();
+  if (!s) return false;
+  if (/^#{1,6}(\s|$)/.test(s)) return false;        // heading
+  if (HR.test(l)) return false;                     // 수평선
+  return true;
+}
 export function scanPointers(body: string): PointerScan {
   const ls = lines(body);
   let open: FenceTok = null, inComment = false;
@@ -271,7 +286,7 @@ export function scanPointers(body: string): PointerScan {
     if (wasOpen) { if (l.trim()) nonPointerLines++; continue; }   // 펜스 안 내용도 **실체로 센다**
     const pm = POINTER.exec(l);
     if (pm) { pointers.push(pm[1]!); continue; }
-    if (l.trim()) nonPointerLines++;
+    if (isSubstantive(l)) nonPointerLines++;
   }
   return { pointers, unclosedFence: open !== null, nonPointerLines };
 }

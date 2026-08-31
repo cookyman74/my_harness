@@ -136,6 +136,16 @@ describe("B5 — TS ↔ CLI 판정 일치", () => {
     expect(await tsNotices(), "TS 가 고아를 아예 알리지 않았다").toBe(true);
   });
 
+  it("수평선으로 차원을 위장해도 **양쪽 다 안 속는다**", async () => {
+    await writeAgentRaw(goodFm("behaviors:\n  - hr"));
+    await writeSpecRaw("hr", "---\nname: hr\ndescription: 위장\n---\n## Intent\n---\n## Failure modes\n---\n");
+    expect(await cliFails(), "CLI 가 수평선 위장을 통과시켰다").toBe(true);
+    const { evaluateArtifacts } = await import("../src/server/adapters/artifacteval.js");
+    const r = await evaluateArtifacts(root);
+    const a = r.artifacts.find((x) => x.name === "a1")!;
+    expect(a.findings.some((f) => f.why.includes("참조 BEHAVIOR 부실")), "채점기가 수평선 위장을 놓쳤다").toBe(true);
+  });
+
   it("여러 줄 주석으로 차원을 위장해도 **양쪽 다 안 속는다** — CLI 는 fail, TS 채점은 thin 으로 잡는다", async () => {
     await writeAgentRaw(goodFm("behaviors:\n  - hc"));
     await writeSpecRaw("hc", "---\nname: hc\ndescription: 위장\n---\n## Intent\n\n<!--\n## Failure modes\n가짜\n-->\n");
