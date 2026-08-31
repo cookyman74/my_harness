@@ -50,7 +50,7 @@
 ```json
 {
   "schema_version": 1,
-  "loop_instance_id": "b1-behavior-format@2026-08-31T06:12:03.417Z@9f3a1c07",
+  "loop_instance_id": "b1-behavior-format@2026-08-31T06:12:03.417Z@9f3a1c07b4e25d816a0c3f7291de4b58",
   "stage_id": "b1-behavior-format",
   "risk": "critical",
   "risk_source": "docs/v1.7.5/todo/eval-upgrade-plan.md#B1",
@@ -111,7 +111,7 @@ risk 를 판단하면 중대 단계가 우회된다.
 - **유일성 계약**(R2 codex HIGH — 처음엔 `{stage_id}@{opened_at}` 뿐이라 **유일성 보장이 없었다**):
   - `opened_at` 은 **UTC ISO-8601 밀리초**(`2026-08-31T06:12:03.417Z`)로 고정한다. 정밀도를 안 정하면
     같은 초에 두 루프가 열릴 때 충돌한다.
-  - 그것으로도 부족하다 — 같은 밀리초·재개·동시 재진입이 있다. **`nonce`(128bit 랜덤 hex 8자)** 를
+  - 그것으로도 부족하다 — 같은 밀리초·재개·동시 재진입이 있다. **`nonce`(128bit 랜덤 = hex **32자**)** 를
     붙여 `{stage_id}@{opened_at}@{nonce}` 로 만든다. 파일명이 곧 유일 키다.
   - **덮어쓰기 금지 — 단 같은 루프의 재발급은 허용한다**(R5 agy HIGH): 파일명이 이미 있고
     **`loop_instance_id` 가 다르면** 충돌이므로 실패(`O_EXCL` 취지). **같으면 재발급**이다 —
@@ -183,7 +183,7 @@ R4~R11 의 왕복이 여기서 수렴했다. 둘을 하나로 묶으려 할 때�
 > 적어 **hook 이 diff 만으로 1:1 대조**할 수 있게 한다:
 >
 > ```markdown
-> - [x] 외부리뷰 R1~R16 · 2연속 HIGH 0 · `stage: b2-behavior-dims` · `loop: b2-behavior-dims@2026-09-01T02:40:11.902Z@9f3a1c07`
+> - [x] 외부리뷰 R1~R16 · 2연속 HIGH 0 · `stage: b2-behavior-dims` · `loop: b2-behavior-dims@2026-09-01T02:40:11.902Z@9f3a1c07b4e25d816a0c3f7291de4b58`
 > ```
 >
 > hook 은 그 값으로 attestation 파일을 **정확히 지목**한다. 값이 없거나 파일이 없으면 차단한다.
