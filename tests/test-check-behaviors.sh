@@ -191,6 +191,31 @@ new_case no-key; behavior . alpha '왜' '실패'; agent a1
 OUT="$(run)"
 hasi '참조가 0개' && no "미선언 정의를 0참조로 오판" || ok "`behaviors:` 미선언은 정상(부채 아님)"
 
+# R4 양 엔진 HIGH — 주석 줄이 목록을 닫아 그 뒤 참조가 통째로 누락되던 것
+new_case list-comment; behavior . alpha '왜' '실패'
+printf -- '---\nname: a1\ndescription: t\nbehaviors:\n  - alpha\n# 왜 이 조합인지\n  - nosuch\nmodel: opus\n---\n## 역할\n내용\n' > "$CASE/.claude/agents/a1.md"
+OUT="$(run)"
+has 'REF .claude/agents/a1.md -> alpha' && ok "주석 앞 항목 읽음" || no "주석 앞 항목 누락: $OUT"
+has 'REF .claude/agents/a1.md -> nosuch' && ok "주석 **뒤** 항목도 읽음" || no "주석이 목록을 닫음 — 조용한 축소"
+has 'dead' && ok "주석 뒤 끊긴 참조 검출" || no "주석 뒤 dead 미검출"
+[ "$(rc_of)" != 0 ] && ok "주석 뒤 dead 참조 exit≠0" || no "exit 0 — 거짓 통과"
+
+# R4 codex HIGH — description 인라인 주석이 빈 값 판정을 우회하던 것
+for d in '"" # 설명' 'null # x' '| # x' '~ # x'; do
+  new_case desc-inline; behavior . alpha '왜' '실패'; agent a1 alpha
+  python3 -c "
+import io,re,sys
+p,v=sys.argv[1],sys.argv[2]; t=io.open(p,encoding='utf-8').read()
+io.open(p,'w',encoding='utf-8').write(re.sub(r'^description:.*\$','description: '+v,t,count=1,flags=re.M))" "$CASE/.agents/behaviors/alpha/BEHAVIOR.md" "$d"
+  [ "$(rc_of)" != 0 ] && ok "인라인 주석 붙은 빈 description [$d] 거부" || no "[$d] 통과 — 거짓 통과"
+done
+new_case desc-hash-ok; behavior . alpha '왜' '실패'; agent a1 alpha
+python3 -c "
+import io,re,sys
+p=sys.argv[1]; t=io.open(p,encoding='utf-8').read()
+io.open(p,'w',encoding='utf-8').write(re.sub(r'^description:.*\$','description: 이슈 처리 규칙',t,count=1,flags=re.M))" "$CASE/.agents/behaviors/alpha/BEHAVIOR.md"
+[ "$(rc_of)" = 0 ] && ok "정상 description 통과(주석 제거가 오탐 안 냄)" || no "정상 description 오탐"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"

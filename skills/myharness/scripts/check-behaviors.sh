@@ -57,7 +57,9 @@ for d in "$BDIR"/*; do
   fm="$(sed -n "2,$((fm_end-1))p" "$f")"
 
   bname="$(printf '%s\n' "$fm" | sed -n 's/^name:[[:space:]]*//p' | head -1 | tr -d '\r' | sed 's/[[:space:]]*$//')"
-  bdesc="$(printf '%s\n' "$fm" | sed -n 's/^description:[[:space:]]*//p' | head -1 | tr -d '\r')"
+  # 인라인 주석을 먼저 제거한다 — 안 하면 `description: "" # 설명` · `: null # x` · `: | # x` 가
+  # raw 비교에서 살아남아 **빈 필수 필드가 통과**한다(R4 codex HIGH).
+  bdesc="$(printf '%s\n' "$fm" | sed -n 's/^description:[[:space:]]*//p' | head -1 | sed 's/[[:space:]]*#.*$//' | sed 's/[[:space:]]*$//' | tr -d '\r')"
   # YAML 의미로 빈 값인 것들을 빈 문자열로 낮춘다(R2 codex HIGH — raw non-empty 만 보면
   # `description: ""` · `description: |` · `description: # 주석` 이 전부 통과한다).
   case "$bdesc" in
@@ -125,6 +127,10 @@ scan_defs(){
       while IFS= read -r line; do
         case "$line" in
           behaviors:*) inlist=1; continue ;;
+          "#"*)        continue ;;                       # 들여쓰기 없는 주석은 **목록을 닫지 않는다**
+                                                        # (R4 양 엔진 HIGH — `[!\ -]*` 에 매치돼
+                                                        #  주석 하나로 그 뒤 참조가 통째로 누락됐다.
+                                                        #  앞 항목 덕에 0참조 검사도 우회한다)
           [!\ -]*)    [ "$inlist" = 1 ] && inlist=0 ;;   # 들여쓰기 없는 **다음 키** → 목록 종료.
                                                         # `-` 로 시작하는 줄은 들여쓰지 않아도 항목이다.
         esac
