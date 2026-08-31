@@ -318,6 +318,19 @@ describe("파서 — parseBehaviorRefs · scanPointers · splitSections", () => 
     expect(scanPointers("---\n실제 본문\n").nonPointerLines).toBe(1);
   });
 
+  // R7 agy HIGH — heading 줄에서 주석이 열리면 다음 섹션이 주석 상태를 이어받아야 한다.
+  it("heading 줄에서 열린 주석이 다음 섹션으로 이어진다 — 주석 내용이 실체로 안 세어진다", () => {
+    const secs = splitSections("## A\n본문\n## B <!--\n숨긴 내용\n> BEHAVIOR: hidden\n-->\n");
+    const b = secs.find((s) => s.heading.includes("B"))!;
+    expect(b.substantive, "주석 안 내용이 실체로 세어졌다").toBe(0);
+    expect(b.pointers, "주석 안 포인터가 유효로 읽혔다").toEqual([]);
+  });
+
+  it("주석이 닫힌 뒤 내용은 정상으로 센다", () => {
+    const secs = splitSections("## A <!--\n숨김\n-->\n실제 본문\n");
+    expect(secs[0]!.substantive).toBe(1);
+  });
+
   it("섹션별 실체/포인터를 나눠 센다·펜스 안 heading 은 heading 이 아니다", () => {
     const secs = splitSections("## A\n본문\n## B\n> BEHAVIOR: x\n## C\n```\n## 가짜\n```\n");
     expect(secs.map((s) => s.heading.trim())).toEqual(["## A", "## B", "## C"]);

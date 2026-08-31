@@ -273,7 +273,7 @@ export function fenceStep(open: FenceTok, line: string): { open: FenceTok; isFen
   if (tok.ch === open.ch && tok.len >= open.len) return { open: null, isFenceLine: true }; // 닫는다
   return { open, isFenceLine: false };   // 다른 문자이거나 더 짧다 → 닫지 않는다(본문이다)
 }
-export type PointerScan = { pointers: string[]; unclosedFence: boolean; nonPointerLines: number };
+export type PointerScan = { pointers: string[]; unclosedFence: boolean; nonPointerLines: number; endInComment: boolean };
 
 // ADR-001 "실체 줄"의 정의 — 아래를 **모두 제외**하고 남은 줄이 실체다.
 //   공백만 · markdown heading · 섹션 포인터 · 주석 · **수평선** · 코드펜스 **경계**
@@ -289,9 +289,13 @@ function isSubstantive(l: string): boolean {
   if (HR.test(l)) return false;                     // 수평선
   return true;
 }
-export function scanPointers(body: string): PointerScan {
+// `startInComment` — 섹션 경계에서 **주석 상태를 이어받는다**(R7 agy HIGH).
+// `splitSections` 가 `## 역할 <!--` 같은 줄에서 새 섹션을 열면 주석이 열린 채로 넘어가는데,
+// `scanPointers` 가 항상 `false` 로 시작하면 **주석 안 내용이 실체·포인터로 오판**돼
+// `completenessMissing`·조건 ⓔ 를 무력화하는 우회가 열린다.
+export function scanPointers(body: string, startInComment = false): PointerScan {
   const ls = lines(body);
-  let open: FenceTok = null, inComment = false;
+  let open: FenceTok = null, inComment = startInComment;
   const pointers: string[] = [];
   let nonPointerLines = 0;
   for (const raw of ls) {
@@ -311,7 +315,7 @@ export function scanPointers(body: string): PointerScan {
     if (pm) { pointers.push(pm[1]!); continue; }
     if (isSubstantive(l)) nonPointerLines++;
   }
-  return { pointers, unclosedFence: open !== null, nonPointerLines };
+  return { pointers, unclosedFence: open !== null, nonPointerLines, endInComment: inComment };
 }
 
 // 본문을 heading 단위로 쪼갠다(R11 양 엔진 — 현행엔 "특정 heading 에 속한 본문"을 보는 로직이
@@ -321,10 +325,13 @@ export function splitSections(body: string): Section[] {
   const ls = lines(body);
   const out: Section[] = [];
   let cur: string[] = [], head = "";
+  // 섹션 진입 시점의 주석 상태를 이어 넘긴다 — 끊으면 주석 안 내용이 실체로 오판된다.
+  let secStartInComment = false, nextStartInComment = false;
   const flush = (): void => {
-    if (!head && cur.length === 0) return;
-    const sc = scanPointers(cur.join("\n"));
+    if (!head && cur.length === 0) { secStartInComment = nextStartInComment; return; }
+    const sc = scanPointers(cur.join("\n"), secStartInComment);
     out.push({ heading: head, pointers: sc.pointers, substantive: sc.nonPointerLines, lines: [...cur] });
+    secStartInComment = nextStartInComment;
   };
   let open: FenceTok = null, inComment = false;
   for (const raw of ls) {
@@ -336,6 +343,7 @@ export function splitSections(body: string): Section[] {
     }
     const wasOpen = open;
     open = fenceStep(open, l).open;
+    nextStartInComment = inComment;              // 이 줄까지 처리한 뒤의 주석 상태
     // 펜스 안의 `## …` 는 heading 이 아니다(예제 코드). 여는 줄 자체도 안이 아니므로
     // `wasOpen || open` 로 "여는 줄 ~ 닫는 줄" 전 구간을 덮는다.
     if (!wasOpen && !open && /^#{1,6}\s/.test(l)) { flush(); head = l; cur = []; continue; }
