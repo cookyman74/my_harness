@@ -73,9 +73,16 @@ HAS_SPECS=1
 # 구조적으로 무효한 스펙은 **건너뛰고 진단만 노출**한다(부분 로드 금지 — 참고자료 §4).
 declare -a VALID=()
 found=0
+# 순회 상한 — 서버(`MAX_BEHAVIOR_DIRS = 500`)와 **같은 값·같은 계약**이어야 한다.
+# 한쪽만 끊으면 500+ 입력에서 판정이 갈린다(유효 참조를 dead 로 오탐하거나 고아를 놓친다·R8 codex).
+MAX_SPECS=500
 for d in "$BDIR"/*; do
   [ -e "$d" ] || continue          # glob 미매치(빈 디렉토리)면 리터럴이 남는다
   found=$((found+1))
+  if [ "$found" -gt "$MAX_SPECS" ]; then
+    no "스펙 디렉토리가 상한(${MAX_SPECS})을 넘는다 — 초과분은 검사하지 않는다(서버와 동일 계약)"
+    break
+  fi
   dname="$(basename "$d")"
   # 디렉토리가 아니면 무효 스펙이다. `*/` 로 순회하면 사용자가 실수로
   # `.agents/behaviors/foo.md` 를 만들었을 때 found=0 → "미적용" 으로 **조용히 통과**한다
