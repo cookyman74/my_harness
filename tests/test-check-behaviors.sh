@@ -461,6 +461,20 @@ agent a1 huge
 OUT="$(run)"
 hasi '256KB' && ok "과대 스펙 거부(서버 정책과 동일)" || no "과대 스펙을 읽음: $OUT"
 
+# R15 agy HIGH — 존재 검사(grep)와 본문 추출(awk)의 매칭 규칙이 달라 다중 공백 heading 에서
+# 정상 스펙이 thin 으로 거짓 실패하던 것
+for h in '##  Intent' '##   Intent'; do
+  new_case multispace
+  mkdir -p "$CASE/.agents/behaviors/ms"
+  { echo '---'; echo 'name: ms'; echo 'description: 다중 공백'; echo '---'
+    echo "$h"; echo '의도 본문이 분명히 있다'; echo '## Failure modes'; echo '실패 본문'; } \
+    > "$CASE/.agents/behaviors/ms/BEHAVIOR.md"
+  agent a1 ms
+  OUT="$(run)"
+  hasi 'thin' && no "다중 공백 heading 을 thin 으로 거짓 실패 [$h]: $OUT" || ok "다중 공백 heading 정상 인식 [$h]"
+  [ "$(rc_of)" = 0 ] && ok "다중 공백 정상 스펙 통과 [$h]" || no "거짓 실패 [$h]"
+done
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"
