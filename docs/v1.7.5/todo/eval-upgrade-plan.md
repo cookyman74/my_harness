@@ -407,7 +407,7 @@ B3 구현을 중단하고 이 과제로 분리한다.
 
 ---
 
-## B5 — BEHAVIOR 진단 UI 연결 `⬜ 미착수`
+## B5 — BEHAVIOR 진단 UI 연결 `🔨 구현중`
 
 **목표:** ADR-001 D6 이 채택한 "진단 접기 안에 보인다"를 **실제로 구현**한다. B1 후속.
 **등급:** 표준 · **근거:** ADR-001 D6 · *B0 R2 양 엔진 — 채택된 결정의 관찰 가능한 결과가
@@ -417,20 +417,22 @@ B3 구현을 중단하고 이 과제로 분리한다.
 > 끝나야 "보인다"가 사실이 된다. 그 전까지 D6 은 **미래 목표**로 읽어야 한다.
 
 ### P0 선검증
-- [ ] `harness_scorecard` 의 `FindingType` 유니온과 `subject_kind` 현재 값 확인
-- [ ] P0-c 가 만든 진단 뷰(`sc-diagnostics` 접기)가 새 finding 종류를 **분류 추가 없이** 렌더하는지 확인
-- [ ] `check-behaviors.sh`(B1 산출물)의 출력 형식이 서버가 소비 가능한 형태인지 확인
+- [x] `FindingType` **7종**(orphan·link_unknown·dead_link·unknown_scope·coverage_gap·oversize·incomplete_def) · `SubjectKind` **4종**(agent·skill·pointer·runtime) 확인
+- [x] **렌더 가능 확인** — 진단 ② 분류표는 `order` 배열의 `f.type` 으로만 묶고 `f.subject`/`f.target` 을 일반 렌더한다. `subject_kind` 분기는 요약의 고아 카운트에만 있다 → **분류 추가 없이 얹힌다. ADR D6 의 가정이 성립한다**
+- [x] **소비 불가 — 계획서 항목을 뒤집었다.** `check-behaviors.sh` 출력은 산문 진단(`✗ …`·`⚠ orphan: '<name>' 을 …`)이라 파싱이 취약할 뿐 아니라, **매 요청 셸 실행 자체가 불가능**하다: `computeHarnessScorecard` 는 요청마다 도는 **순수·결정적 TS**(`child_process` 0건 실측)이고 그 스크립트는 CLI 배치 셸이다. Windows·bash 부재 환경에서 깨지고 결정성도 잃는다.
+  → **ADR D5 가 이미 같은 형태를 "아키텍처상 불가능"으로 판정했다**(R27 agy HIGH — `scoreStructure` 가 B1 결과를 소비할 수 없다는 그 결론). **같은 규칙을 TS 로 따로 검사**한다. B1 의 CLI 는 CI·수동 게이트용으로 그대로 남는다.
+  *선검증이 계획 항목을 뒤집은 두 번째 사례다(첫 번째는 B3 착수 금지).*
 
 ### 구현
-- [ ] **새 `FindingType` 을 만들지 않는다**(ADR-001 D6 **확정**) — 기존 `dead_link`·`orphan` 에
+- [x] **새 `FindingType` 을 만들지 않았다**(ADR-001 D6) — `SubjectKind` 에 `behavior` 만 추가. 유니온 7종 유지·`counts` 키 불변을 **테스트로 고정**. 원문: — 기존 `dead_link`·`orphan` 에
       `subject_kind: "behavior"` 로 얹는다. 분류를 늘리면 `FindingType` 소비처(집계·UI·테스트)가 전부 갈라진다.
       *단 위 선검증에서 이 가정이 깨지면(기존 UI 가 `subject_kind` 분기 렌더 불가 등) ADR 을 개정한 뒤 진행 — 선검증이 결정을 뒤집을 수 있다*
-- [ ] 서버 어댑터가 `check-behaviors.sh` 결과를 읽어 finding 으로 합류
-- [ ] **`Axis` 유니온 4개 유지**(ADR-001 D6 코드 계약) — 테스트로 고정
-- [ ] 최상위 노출 불변: 4축 카드 1개 · BEHAVIOR 는 진단 접기 안에만
+- [x] ~~서버 어댑터가 `check-behaviors.sh` 결과를 읽어~~ → **`addBehaviorFindings` 로 TS 네이티브 합류**(위 선검증 ③ 참조). 끊긴 참조 → `dead_link`(subject=정의·target=behavior) · 참조 없는 스펙 → `orphan`(subject_kind=behavior). **내용 충실도는 여기서 안 본다** — `scoreStructure` 가 이미 판정하므로 같은 사실에 두 번 감점된다(R31 과 같은 이유)
+- [x] **`Axis` 유니온 4개 유지** — `adr-axis-contract.test.ts`(B1)가 이미 고정 중이며 5번째 축 추가 시 tsc·vitest 가 깨지는 것을 실측했다
+- [x] **최상위 노출 불변** — 진단 접기 요약에 "고아 — BEHAVIOR" 행(0건이면 미표시) + 분류표 항목에 `behavior` 배지. 최상위 4축 카드는 손대지 않았다
 
 ### 게이트
-- [ ] `npx vitest run` · `npx tsc --noEmit` 통과
+- [x] `npx vitest run` **1323 pass** · `npx tsc --noEmit` 클린
 - [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
 
 ---

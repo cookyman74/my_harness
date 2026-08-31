@@ -2186,6 +2186,9 @@ function HarnessScorecardCard() {
               ["범위(runtime)", <Badge kind={d.scope.runtime === "factory" ? "ok" : "muted"}>{d.scope.runtime}</Badge>],
               ["에이전트 / 스킬", `${d.counts.agents} / ${d.counts.skills}`],
               ["고아 — 에이전트 / 스킬", `${orphanBy("agent")} / ${orphanBy("skill")}`],
+              // B5(ADR-001 D6): BEHAVIOR 는 **진단 접기 안에만** 보인다. 최상위 4축 카드는 불변이고
+              // 5번째 축도 새 분류도 만들지 않는다 — 기존 orphan/dead_link 에 subject_kind 로 얹혔다.
+              ...(orphanBy("behavior") > 0 ? [["고아 — BEHAVIOR", `${orphanBy("behavior")}`]] : []),
               ["namespace", <>
                 <Badge kind={d.factory ? "ok" : "muted"}>factory {d.factory ? "policy-audit" : "n/a"}</Badge>{" "}
                 <Badge kind="muted">built portable</Badge>{" "}
@@ -2209,7 +2212,7 @@ function HarnessScorecardCard() {
                 items.length ? (
                   <details className="tier-b"><summary>{items.slice(0, 4).map((f) => f.subject + (f.target ? `→${f.target}` : "")).join(", ")}{items.length > 4 ? " …" : ""}</summary>
                     <ul style={{ margin: "4px 0 0", paddingLeft: 16 }}>
-                      {items.map((f) => <li key={f.id}><code>{f.subject}{f.target ? `→${f.target}` : ""}</code> <span className="muted">· {f.provenance}{f.detail ? ` · ${f.detail}` : ""}</span></li>)}
+                      {items.map((f) => <li key={f.id}><code>{f.subject}{f.target ? `→${f.target}` : ""}</code>{f.subject_kind === "behavior" && <> <Badge kind="muted">behavior</Badge></>} <span className="muted">· {f.provenance}{f.detail ? ` · ${f.detail}` : ""}</span></li>)}
                     </ul>
                   </details>
                 ) : "—",
