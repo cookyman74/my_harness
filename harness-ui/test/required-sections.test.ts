@@ -23,6 +23,16 @@ describe("B2 선결 ① — 필수 섹션 5종", () => {
     for (const key of REQUIRED_SECTIONS.agent) expect(line!).toContain(key);
   });
 
+  it("설계서(`eval-v1-design.md`)의 필수 섹션 서술이 코드와 일치한다 — 세 번째 출처가 갈라지지 않게", () => {
+    const design = readFileSync(join(REPO, "docs/harness-eval/design/eval-v1-design.md"), "utf8");
+    const line = design.split("\n").find((l) => l.includes("완전성(over-pruning 가드) 필수 섹션 목록"));
+    expect(line, "설계서에서 필수 섹션 줄을 찾지 못했다").toBeTruthy();
+    for (const key of REQUIRED_SECTIONS.agent) expect(line!, `agent '${key}'`).toContain(key);
+    for (const key of REQUIRED_SECTIONS.skill) expect(line!, `skill '${key}'`).toContain(key);
+    // `why` 는 실재하지 않는 관례였다 — 되살아나지 않게 고정한다.
+    expect(line!.toLowerCase()).not.toMatch(/skill:[^/]*why/);
+  });
+
   it("이 레포의 에이전트 정의가 전부 5종을 갖춘다(도그푸드)", () => {
     const dir = join(REPO, ".claude/agents");
     if (!existsSync(dir)) return;
