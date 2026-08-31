@@ -172,6 +172,25 @@ describe("파서 — parseBehaviorRefs · scanPointers · splitSections", () => 
     expect(r.unclosedFence).toBe(true);
   });
 
+  // 계획서 §B2 가 요구한 **13케이스 픽스처** — 판독 규칙 전체를 고정한다.
+  it.each([
+    ["평문 포인터", "> BEHAVIOR: alpha", ["alpha"]],
+    ["들여쓰기 3칸", "   > BEHAVIOR: alpha", ["alpha"]],
+    ["들여쓰기 4칸(코드블록)", "    > BEHAVIOR: alpha", []],
+    ["백틱 펜스 안", "```\n> BEHAVIOR: alpha\n```", []],
+    ["물결표 펜스 안", "~~~\n> BEHAVIOR: alpha\n~~~", []],
+    ["중첩 blockquote", "> > BEHAVIOR: alpha", []],
+    ["HTML 주석", "<!-- > BEHAVIOR: alpha -->", []],
+    ["리스트 안 blockquote", "- > BEHAVIOR: alpha", []],
+    ["뒤에 문자 더 있음", "> BEHAVIOR: alpha 그리고 더", []],
+    ["대문자 이름", "> BEHAVIOR: Alpha", []],
+    ["경로 탈출 시도", "> BEHAVIOR: ../etc/passwd", []],
+    ["하이픈 시작", "> BEHAVIOR: -alpha", []],
+    ["연속 하이픈(유효)", "> BEHAVIOR: foo--bar", ["foo--bar"]],
+  ])("포인터 판독 — %s", (_n, input, want) => {
+    expect(scanPointers(input as string).pointers).toEqual(want);
+  });
+
   it("섹션별 실체/포인터를 나눠 센다·펜스 안 heading 은 heading 이 아니다", () => {
     const secs = splitSections("## A\n본문\n## B\n> BEHAVIOR: x\n## C\n```\n## 가짜\n```\n");
     expect(secs.map((s) => s.heading.trim())).toEqual(["## A", "## B", "## C"]);
