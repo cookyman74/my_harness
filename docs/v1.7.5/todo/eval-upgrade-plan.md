@@ -334,17 +334,25 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 
 ---
 
-## B3 — holdout 기준선을 BEHAVIOR 로 `⬜ 미착수`
+## B3 — holdout 기준선을 BEHAVIOR 로 `⛔ 착수 불가(선검증 ① 미통과)`
 
 **목표:** rubric 과 **독립된** 성공 기준을 세운다(동어반복 차단).
 **등급:** 표준~중대 · **근거:** 제안서 §3 B3
 
 ### P0 선검증 (착수 前 필수 · 미통과 시 착수 금지)
-- [ ] **궤적 수집 인프라 실재 확인** — repo-wide 조사. 없으면 **여기서 멈추고** 인프라 과제를 먼저 뺀다(가정 위 구현 금지)
-- [ ] `run-benchmark.sh` 미구현 상태 확인(`factory-map.md:28` — "현재 실행 불가")
-- [ ] **워크스페이스 격리 수단 실측** — git worktree 또는 샌드박스 reset 이 이 저장소에서 실제로 되는가
+- [x] **궤적 수집 인프라 실재 확인** — **미실재. 여기서 멈춘다.** repo-wide 실측:
+  - `holdout` 은 `self-improvement-loop.md`(**설계 문서**)에만 등장한다. 실행 코드 0건.
+  - `trace`/`궤적` 검색 결과는 `working-history-skeleton.md` 의 "stack trace" 한 건뿐 — 궤적 수집과 무관.
+  - `_workspace/runs/` 11개는 **harness-ui 의 audit/remediate 실행 스캐폴드**다(`manifest.json` 의 `mode: audit|remediate`). **`events.jsonl` 이 전부 0줄** — 에이전트 궤적 데이터가 아니다.
+  → **B3 은 "트레이스 × BEHAVIOR → verdict" 판정을 전제하는데 그 트레이스를 만들 수단이 없다.** 계획서 규정대로 **가정 위에 구현하지 않는다.**
+- [x] `run-benchmark.sh` 미구현 상태 확인 — **미실재 확정**(`find` 0건 · `factory-map.md:28` 이 "현재 실행 불가"로 이미 기록)
+- [x] **워크스페이스 격리 수단 실측** — **git worktree 통과**(`git worktree add /tmp/b3-probe HEAD` → 파일 확인 → `remove --force` 정상). 격리 수단은 **있다** — 막힌 것은 궤적 수집뿐이다
 
-### 구현
+### 구현 — **착수 금지(선검증 ① 미통과)**
+
+> ⛔ 아래 항목은 **궤적 수집 인프라가 생긴 뒤에만** 유효하다. 지금 구현하면 존재하지 않는
+> 입력을 가정한 코드가 된다. **선행 과제를 아래 §B3-pre 로 분리했다.**
+
 - [ ] 판정 규약: 트레이스 × BEHAVIOR → `{behavior, verdict: true|false|na, evidence}` — **`na`(해당 행동 미적용)를 실패로 세지 않는다**
 - [ ] **동일 holdout 요청 세트**로 before/after 를 **각각 실행**해 두 트레이스 세트 생성. ⚠ 같은 트레이스를 두 번 판정하는 것이 아니다(입력이 같으면 결과도 같아야 하며, 다르면 그건 판정기 변동이다)
 - [ ] **워크스페이스 격리 필수** — 격리 없이 before 후 after 를 돌리면 before 의 파일 변경이 after 를 오염시킨다. **격리 수단 없으면 실행 금지**
@@ -357,20 +365,45 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 
 ---
 
-## B4 — 삭제 테스트 가드 강화 `⬜ 미착수`
+## B3-pre — 궤적 수집 인프라 `⬜ 미착수(B3 선행)`
+
+**왜 분리했나:** B3 선검증 ①에서 **궤적 수집 수단이 실재하지 않음**이 실측으로 확인됐다.
+계획서가 "없으면 여기서 멈추고 인프라 과제를 먼저 뺀다(가정 위 구현 금지)"고 규정했으므로
+B3 구현을 중단하고 이 과제로 분리한다.
+
+**실측 근거(2026-08-31):**
+| 확인 | 결과 |
+|---|---|
+| `holdout` 검색 | `self-improvement-loop.md`(설계 문서)에만 존재 · 실행 코드 0건 |
+| `run-benchmark.sh` | 파일 없음(`factory-map.md:28` 이 이미 "현재 실행 불가"로 기록) |
+| `trace`/`궤적` 검색 | `working-history-skeleton.md` 의 "stack trace" 1건 — 무관 |
+| `_workspace/runs/` 11개 | harness-ui audit/remediate 스캐폴드(`mode: audit\|remediate`) · **`events.jsonl` 전부 0줄** |
+| git worktree 격리 | **가능**(add → 확인 → remove 실측 통과) — 격리는 병목이 아니다 |
+
+**필요한 것(범위만 — 설계는 별도):**
+- [ ] 동일 요청 세트를 실행해 **에이전트 궤적을 남기는 러너**(`self-improvement-loop.md` §4 러너 계약이 입력)
+- [ ] 궤적 스키마 — B3 판정 규약(`{behavior, verdict, evidence}`)이 소비할 수 있는 형태
+- [ ] before/after **각각 실행**(같은 트레이스 재판정이 아니다) · worktree 격리 배선(수단은 실측 확인됨)
+- [ ] 비용 통제 — 궤적 수집은 실제 모델 실행이라 라운드마다 과금된다
+
+**등급:** 중대(새 실행 경로) · **선행:** 없음 · **후행:** B3
+
+---
+
+## B4 — 삭제 테스트 가드 강화 `🔨 구현중`
 
 **목표:** 기존 결정적 가드를 **유지한 채** behavior 보존 가드를 AND 로 추가한다. **E3 선결.**
 **등급:** 중대 · **근거:** 제안서 §3 B4
 
 > ⚠ **교체가 아니라 추가다.** 결정적 heading 가드를 검증되지 않은 의미 매핑으로 바꾸면 안전성이 **낮아진다**. 가장 위험한 경우는 필수 문장인데 매핑기가 "대응 없음"으로 판정하는 false negative 다.
 
-- [ ] 기존 heading/필수 제약 가드(`artifacteval.ts:138-145` · `eval-v1-design.md:134`) **그대로 유지** — 접촉 시 자동 거부 불변
-- [ ] 그 위에 AND 추가 — 삭제 후보가 BEHAVIOR 의 **Evidence/Decision/Recovery/`Failure modes`** 에 대응하면 추가 거부
-- [ ] ⚠ **`Failure modes` 누락 금지** — 빠뜨리면 금지·제약 문장이 방어선을 우회한다(6차원 중 안전 직결)
-- [ ] **불확실은 전부 거부** — 매핑 불확실 · BEHAVIOR 미포괄 · 판정기 부재 → 자동 삭제 불가(제안만)
-- [ ] behavior 판정은 3중 게이트의 **게이트 2(동적 테스트)를 대체하지 않는다**
+- [x] 기존 heading/필수 제약 가드 **그대로 유지** — `deletionGuard` 의 **1층(deterministic)**: 필수 섹션 5종 내부 + 핵심 제약 어휘(금지·필수·must not·never) → 자동 거부. **동적 테스트가 통과해도 이 층이 이긴다**(AND 이지 대체가 아님·테스트로 고정). *줄 번호 앵커(`artifacteval.ts:138-145`)는 B2 편집으로 무효가 됐다 — 식별자 앵커로 대체*
+- [x] 그 위에 AND 추가 — **2층(behavior)**: `PRESERVED_DIMENSIONS` = Evidence·Decision·Recovery·**Failure modes**. 토큰 자카드 ≥0.35 로 대응 판정(결정적·LLM 없음)
+- [x] ⚠ **`Failure modes` 누락 금지** — 상수에 포함 + **누락 시 깨지는 테스트**로 고정
+- [x] **불확실은 전부 거부** — BEHAVIOR 미포괄(**"대응 없음"으로 읽지 않는다** — 그게 계획서가 경고한 false negative) · 대응 미발견 · 게이트 2 결과 없음 · 게이트 2 실패 → 전부 `autoApply:false`. **막는 것은 자동 적용이지 제안이 아니다**
+- [x] behavior 판정은 **게이트 2를 대체하지 않는다** — `dynamicGate`(트리거 eval·outcome holdout)를 **AND 로 요구**한다. E3 전에는 항상 `undefined` 이므로 **어느 문장도 자동 삭제되지 않는다**(테스트로 고정) — 가드 먼저, 삭제 판정은 그 다음
 - [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
-- [ ] **B4 완료 전 E3 착수 금지** — 가드 없이 삭제 판정을 켜면 설계가 R1 에서 막은 위험이 되살아난다
+- [x] **B4 완료 전 E3 착수 금지** — 가드가 먼저 섰다. E3 는 `dynamicGate` 를 채우는 쪽으로 붙는다(가드를 우회하는 게 아니라)
 
 ---
 
