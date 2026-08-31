@@ -5,7 +5,15 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="$ROOT/skills/myharness/scripts/check-behaviors.sh"
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+# mktemp 실패를 감지한다 — 안 하면 모든 케이스가 존재하지 않는 경로에서 돌아
+# **유령 실패 수십 건**을 낸다(실측: 리뷰어 샌드박스의 TMPDIR 이 무효라 37통과/55실패가
+# 나왔고, 그 원인을 찾느라 리뷰어가 타임아웃했다).
+TMP="$(mktemp -d 2>/dev/null)" || TMP=""
+if [ -z "$TMP" ] || [ ! -d "$TMP" ] || [ ! -w "$TMP" ]; then
+  echo "SKIP: 임시 디렉토리를 만들 수 없다(TMPDIR=${TMPDIR:-unset}) — 테스트 환경 문제다." >&2
+  exit 2
+fi
+trap 'rm -rf "$TMP"' EXIT
 pass=0; failed=0
 ok(){ echo "  ✓ $1"; pass=$((pass+1)); }
 no(){ echo "  ✗ FAIL: $1"; failed=$((failed+1)); }
@@ -189,7 +197,7 @@ for form in 'behaviors: []' 'behaviors:'; do
 done
 new_case no-key; behavior . alpha '왜' '실패'; agent a1
 OUT="$(run)"
-hasi '참조가 0개' && no "미선언 정의를 0참조로 오판" || ok "`behaviors:` 미선언은 정상(부채 아님)"
+hasi '참조가 0개' && no "미선언 정의를 0참조로 오판" || ok "'behaviors:' 미선언은 정상(부채 아님)"
 
 # R4 양 엔진 HIGH — 주석 줄이 목록을 닫아 그 뒤 참조가 통째로 누락되던 것
 new_case list-comment; behavior . alpha '왜' '실패'
