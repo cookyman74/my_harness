@@ -103,6 +103,87 @@ function splitBody(text: string): { fm: string; body: string } {
 function lines(s: string): string[] { return s.split(/\r?\n/); }
 function bodyLineCount(body: string): number { return lines(body).filter((l) => l.trim().length > 0).length; }
 
+// ── BEHAVIOR 참조(ADR-001 D1·D7) ───────────────────────────────────────
+// `behaviors:` 는 frontmatter 가 **단일 출처**다. 본문을 heuristic 하게 읽지 않는다.
+// 지원 형태는 `check-behaviors.sh` 와 같다: 블록 시퀀스 · `[a, b]` flow. 그 외는 참조 0개로 본다
+// (채점기는 검사기가 아니다 — 형식 위반은 `check-behaviors.sh` 가 fail 시킨다).
+const BEHAVIOR_NAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+export function parseBehaviorRefs(fm: string): string[] {
+  const ls = lines(fm).map((l) => l.replace(/\r$/, ""));
+  const i = ls.findIndex((l) => /^behaviors:/.test(l));
+  if (i < 0) return [];
+  const inline = ls[i]!.replace(/^behaviors:[ \t]*/, "").replace(/[ \t]*#.*$/, "").trim();
+  const out: string[] = [];
+  const push = (v: string): void => {
+    const s = v.replace(/[ \t]*#.*$/, "").trim().replace(/^["']|["']$/g, "").trim();
+    if (s && BEHAVIOR_NAME.test(s)) out.push(s);
+  };
+  if (inline.startsWith("[") && inline.endsWith("]")) {
+    for (const part of inline.slice(1, -1).split(",")) push(part);
+    return out;
+  }
+  if (inline) return []; // 스칼라 등 미지원 표기 — 참조 0개
+  for (let k = i + 1; k < ls.length; k++) {
+    const l = ls[k]!;
+    if (/^[ \t]*$/.test(l) || /^[ \t]*#/.test(l)) continue; // 빈 줄·주석은 블록을 닫지 않는다
+    if (!/^[ \t]*-/.test(l)) break;                          // 항목이 아니면 다음 키
+    push(l.replace(/^[ \t]*-[ \t]*/, ""));
+  }
+  return out;
+}
+
+// 섹션 포인터 — `> BEHAVIOR: <name>` 한 줄 고정(ADR-001 D1·R16~R18).
+// 들여쓰기 3칸까지, 이름은 디렉토리명 규칙(`\S+` 는 `../x` 경로 탈출을 허용해 폐기·R18).
+// **코드펜스 안은 제외**한다(R17: 정규식만 쓰면 예제 문자열을 포인터로 오인한다).
+const POINTER = /^ {0,3}>\s*BEHAVIOR:\s*([a-z0-9]([a-z0-9-]*[a-z0-9])?)\s*$/;
+const FENCE_ANY = /^\s{0,3}(?:```|~~~)/;   // 물결표 fence 도 fence 다
+export type PointerScan = { pointers: string[]; unclosedFence: boolean; nonPointerLines: number };
+export function scanPointers(body: string): PointerScan {
+  const ls = lines(body);
+  let inFence = false, fenceTok = "";
+  const pointers: string[] = [];
+  let nonPointerLines = 0;
+  for (const raw of ls) {
+    const l = raw.replace(/\r$/, "");
+    const fm = FENCE_ANY.exec(l);
+    if (fm) {
+      const tok = l.trim().slice(0, 3);
+      if (!inFence) { inFence = true; fenceTok = tok; continue; }
+      if (tok === fenceTok) { inFence = false; fenceTok = ""; continue; }
+    }
+    if (inFence) { if (l.trim()) nonPointerLines++; continue; }  // 펜스 안 내용도 **실체로 센다**
+    const pm = POINTER.exec(l);
+    if (pm) { pointers.push(pm[1]!); continue; }
+    if (l.trim()) nonPointerLines++;
+  }
+  return { pointers, unclosedFence: inFence, nonPointerLines };
+}
+
+// 본문을 heading 단위로 쪼갠다(R11 양 엔진 — 현행엔 "특정 heading 에 속한 본문"을 보는 로직이
+// 없었다). 각 섹션의 **실체 줄**(포인터 아닌 내용)과 **포인터**를 함께 센다.
+export type Section = { heading: string; pointers: string[]; substantive: number };
+export function splitSections(body: string): Section[] {
+  const ls = lines(body);
+  const out: Section[] = [];
+  let cur: string[] = [], head = "";
+  const flush = (): void => {
+    if (!head && cur.length === 0) return;
+    const sc = scanPointers(cur.join("\n"));
+    out.push({ heading: head, pointers: sc.pointers, substantive: sc.nonPointerLines });
+  };
+  let inFence = false, tok = "";
+  for (const raw of ls) {
+    const l = raw.replace(/\r$/, "");
+    const fm = FENCE_ANY.exec(l);
+    if (fm) { const t2 = l.trim().slice(0, 3); if (!inFence) { inFence = true; tok = t2; } else if (t2 === tok) { inFence = false; tok = ""; } }
+    // 펜스 안의 `## …` 는 heading 이 아니다(예제 코드).
+    if (!inFence && /^#{1,6}\s/.test(l)) { flush(); head = l; cur = []; continue; }
+    cur.push(l);
+  }
+  flush();
+  return out;
+}
+
 // ── 축별 계층A 채점(결정적) ─────────────────────────────────────────────
 // ① 트리거 — description ROI(존재·길이 밴드·트리거 상황 키워드·near-miss 구분). 언어 편향 있어 finding 위주.
 // \b 는 한글 경계에서 불안정(agy MED) → 한글은 명시 문맥, 영어만 \b 사용.
@@ -121,25 +202,87 @@ function scoreTrigger(desc: string, findings: Finding[], anchor: string): number
 
 // ② 구조 — 2계층. skill: 본문 ≤500·references 분리·대용량 인라인 블록. agent: 본문·섹션.
 const FENCE = /^```/;
-function scoreStructure(body: string, hasRefs: boolean, kind: "agent" | "skill", findings: Finding[], anchor: string, missingReq: number): { score: number; gateFail: boolean } {
+export type BehaviorCtx = {
+  declared: readonly string[];          // frontmatter `behaviors:` 에 선언된 이름
+  bodies: ReadonlyMap<string, string>;  // **사전 읽기**한 BEHAVIOR 본문(존재하는 것만)
+};
+// ADR-001 D7 — 검사마다 입력이 다르다.
+//   원칙: *내용을 옮겨 빠져나갈 수 있는 검사는 합성, 정의 파일 자체의 형태를 보는 검사는 원본.*
+//   필수 섹션·본문 부실·references 분리 = **정의 body**(합성 전)
+//   줄 수 상한·대용량 코드펜스     = **합성 body**(정의 + 참조 BEHAVIOR)
+// `mergedBody` 를 안 주면 body 와 같다(BEHAVIOR 미선언 정의).
+function scoreStructure(body: string, hasRefs: boolean, kind: "agent" | "skill", findings: Finding[], anchor: string, missingReq: number, mergedBody?: string, bctx?: BehaviorCtx): { score: number; gateFail: boolean } {
   const n = bodyLineCount(body);
+  const merged = mergedBody ?? body;
+  const nMerged = bodyLineCount(merged);
   let s = 1.0, gateFail = false;
-  // 본문 부실(shell) 은 kind 무관 구조 과락 — codex MED: 빈 본문이 1.0/고등급 되던 rubric drift 차단.
-  if (n < 5) { findings.push({ axis: "structure", target: { anchor }, action: "add-required-section", why: `본문 부실(${n}줄)·절차/역할 실체 없음`, risk: "med" }); return { score: n === 0 ? 0 : 0.3, gateFail: true }; }
+
+  // 닫히지 않은 코드펜스 → **그 정의를 즉시 과락(D) 판정**한다(ADR D7·R26 agy HIGH).
+  // 정의 body 와 참조 BEHAVIOR body 를 **둘 다** 본다(R27) — 정의에만 걸면 BEHAVIOR 안의
+  // 깨진 펜스가 무검사로 합성돼 런타임 프롬프트를 망가뜨린다.
+  // ⚠ **프로세스를 종료하지 않는다**(R23) — TS 파서가 throw/exit 하면 평가 루프·UI 가 죽는다.
+  const brokenIn = scanPointers(body).unclosedFence
+    ? "정의"
+    : [...(bctx?.bodies.entries() ?? [])].find(([, b]) => scanPointers(b).unclosedFence)?.[0];
+  if (brokenIn) {
+    findings.push({ axis: "structure", target: { anchor }, action: "add-required-section", why: `닫히지 않은 코드펜스(${brokenIn}) — 판독 불가·구조 과락`, risk: "med" });
+    return { score: 0, gateFail: true };
+  }
+
+  if (bctx && bctx.declared.length > 0) {
+    // **`behaviors:` 선언 정의의 "본문 부실" 판정은 줄 수가 아니라 구조로 한다**(ADR D7·R8 codex).
+    // D1 대로 판단 기준을 BEHAVIOR 로 보내면 정의 body 가 얇아진다 — `n < 5` 를 그대로 적용하면
+    // **규약을 지킬수록 과락**해 D7 채점 중립성과 정면 충돌한다.
+    const missDim: string[] = [];
+    const dead = bctx.declared.filter((d) => !bctx.bodies.has(d));
+    for (const [name, b] of bctx.bodies) {
+      const secs = splitSections(b);
+      for (const dim of ["Intent", "Failure modes"]) {
+        const hit = secs.find((x) => x.heading.includes(dim));
+        if (!hit || hit.substantive === 0) missDim.push(`${name}/${dim}`);
+      }
+    }
+    // ⓐ 필수 heading 전부(= missingReq 0) ⓑ 끊긴 참조 0 ⓒ 참조 BEHAVIOR 가 비어 있지 않음
+    // ⓓ FOR-EACH 섹션 채워짐 — **`completenessMissing` 이 이미 판정했다**(R31: 여기서 다시
+    //    감점하면 같은 사실에 두 번 감점된다). missingReq 가 그 결과다.
+    // ⓔ 정의에 실체가 남아 있다 — 필수 섹션 중 최소 하나에 포인터 아닌 실제 본문.
+    const anySubstantive = splitSections(body).some((x) => x.substantive > 0);
+    const why: string[] = [];
+    if (missingReq > 0) why.push(`필수 섹션 ${missingReq}건 미충족`);
+    if (dead.length) why.push(`끊긴 참조 ${dead.join(",")}`);
+    if (missDim.length) why.push(`참조 BEHAVIOR 부실 ${missDim.join(",")}`);
+    if (!anySubstantive) why.push("정의에 포인터 아닌 실제 본문이 없다(껍데기)");
+    if (why.length) {
+      findings.push({ axis: "structure", target: { anchor }, action: "add-required-section", why: `본문 부실(구조 판정·behaviors: 선언) — ${why.join(" / ")}`, risk: "med" });
+      return { score: 0.3, gateFail: true };
+    }
+  } else if (n < 5) {
+    // 본문 부실(shell) 은 kind 무관 구조 과락 — codex MED: 빈 본문이 1.0/고등급 되던 rubric drift 차단.
+    findings.push({ axis: "structure", target: { anchor }, action: "add-required-section", why: `본문 부실(${n}줄)·절차/역할 실체 없음`, risk: "med" });
+    return { score: n === 0 ? 0 : 0.3, gateFail: true };
+  }
   // 필수 섹션 누락은 구조 감점 + 다수 누락 시 과락(완전성=별도 축 아닌 구조 가드·design §1).
   if (missingReq > 0) s -= Math.min(0.45, missingReq * 0.18);
   if (missingReq >= 2) gateFail = true;
+  // 합성 줄 수 내역 — finding 의 `range` 를 **생략**하는 대신 `why` 에 출처를 적는다(ADR D7 추가 계약 ①:
+  // 합성 줄 수는 **정의 파일에 존재하지 않는 줄**을 가리키므로 range 를 달면 잘못된 수정 범위가 된다).
+  const bd = nMerged !== n ? ` (정의 ${n}줄 + 참조 BEHAVIOR ${nMerged - n}줄 = 합계 ${nMerged}줄)` : "";
   if (kind === "skill") {
-    if (n > 500) { s -= Math.min(0.5, (n - 500) / 1000); findings.push({ axis: "structure", target: { anchor, range: `1-${n}` }, action: "shrink-skill", why: `SKILL 본문 ${n}줄(>500 목표) — 조건부 자료 references/로`, risk: "low" }); }
+    // 줄 수 상한·대용량 코드펜스는 **합성 body** — 내용을 BEHAVIOR 로 옮겨 감점을 우회하는 것을 막는다(R5).
+    if (nMerged > 500) { s -= Math.min(0.5, (nMerged - 500) / 1000); findings.push({ axis: "structure", target: { anchor }, action: "shrink-skill", why: `SKILL 본문 ${nMerged}줄(>500 목표)${bd} — 조건부 자료 references/로`, risk: "low" }); }
+    // ⚠ references 분리 판단은 **정의 body 의 줄 수**로 한다(합성 아님·R8 양 엔진):
+    // 짧고 정상적인 정의가 큰 BEHAVIOR 를 참조하면 **분리할 내용이 없는데도** 지시가 붙고,
+    // 시키는 대로 해도 BEHAVIOR 소유 내용은 못 옮겨 **빈 references/ 로 감점만 우회**하게 된다.
+    // `hasRefs` 와 줄 수가 **같은 구조 사실을 측정해야** 한다.
     if (!hasRefs && n > 300) { s -= 0.2; findings.push({ axis: "structure", target: { anchor }, action: "move-to-references", why: "본문 큰데 references/ 분리 없음(2계층 위반)", risk: "med" }); }
-    if (n > 800 && !hasRefs) gateFail = true; // min-gate: 구조 과락
-    // 대용량 인라인 코드펜스(>60줄) 탐지
-    const ls = lines(body); let fenceStart = -1;
+    if (nMerged > 800 && !hasRefs) gateFail = true; // min-gate: 구조 과락
+    // 대용량 인라인 코드펜스(>60줄) 탐지 — 합성 body 기준·range 생략(합성 좌표라 정의 파일에 없다)
+    const ls = lines(merged); let fenceStart = -1;
     for (let i = 0; i < ls.length; i++) {
-      if (FENCE.test(ls[i]!)) { if (fenceStart < 0) fenceStart = i; else { if (i - fenceStart > 60) { s -= 0.1; findings.push({ axis: "structure", target: { anchor, range: `${fenceStart + 1}-${i + 1}` }, action: "move-to-references", why: `대용량 인라인 블록(${i - fenceStart}줄)·references/로`, risk: "low" }); } fenceStart = -1; } }
+      if (FENCE.test(ls[i]!)) { if (fenceStart < 0) fenceStart = i; else { if (i - fenceStart > 60) { s -= 0.1; findings.push({ axis: "structure", target: { anchor }, action: "move-to-references", why: `대용량 인라인 블록(${i - fenceStart}줄)${bd}·references/로`, risk: "low" }); } fenceStart = -1; } }
     }
   } else {
-    if (n > 400) s -= Math.min(0.3, (n - 400) / 1000);
+    if (nMerged > 400) s -= Math.min(0.3, (nMerged - 400) / 1000);
   }
   return { score: clamp01(s), gateFail };
 }
@@ -175,12 +318,31 @@ function scorePruning(body: string, findings: Finding[], anchor: string): number
 //   `stabilizer.md` 하나만 `협업` 이 없었다(팀 모드는 `팀 통신 프로토콜` 을 **추가**하는 것이지
 //   `협업` 을 대체하지 않는다·SKILL.md:113). 규칙을 약화하는 대신 그 정의를 고쳤다.
 //   heading(## …) 라인 기준(codex LOW: 본문 언급 오탐 방지). 누락은 finding + scoreStructure 로 감점/과락.
-function completenessMissing(body: string, kind: "agent" | "skill", findings: Finding[], anchor: string): number {
-  // heading(## …) 라인만 검사(codex LOW: 본문/코드펜스 언급 오탐 제거·body fallback 삭제).
-  const heads = lines(body).filter((l) => /^#{1,6}\s/.test(l));
+function completenessMissing(body: string, kind: "agent" | "skill", findings: Finding[], anchor: string, declared: readonly string[] = []): number {
+  // **이 검사가 FOR-EACH 섹션 내용물 판정의 단독 소유자다**(ADR D7·R31 agy HIGH — 예전엔
+  // "본문 부실" 조건에도 같은 검사를 적어 중복 감점이 났다). 모든 정의에 일률 적용된다.
+  // 사유를 둘로 구분한다: heading 자체가 없음 / heading 은 있으나 본문·포인터 둘 다 없음
+  // (후자를 "섹션이 통째로 없다"고 보고하면 거짓 실패로 읽힌다·R31).
+  const secs = splitSections(body);
   const req = kind === "agent" ? REQUIRED_SECTIONS.agent : REQUIRED_SECTIONS.skill;
   let missing = 0;
-  for (const sec of req) if (!heads.some((h) => h.includes(sec))) { missing++; findings.push({ axis: "completeness", target: { anchor }, action: "add-required-section", why: `필수 섹션 heading '${sec}' 미검출`, risk: "low" }); }
+  for (const sec of req) {
+    const hit = secs.find((s) => s.heading.includes(sec));
+    if (!hit) {
+      missing++;
+      findings.push({ axis: "completeness", target: { anchor }, action: "add-required-section", why: `필수 섹션 heading '${sec}' 미검출`, risk: "low" });
+      continue;
+    }
+    // 채워짐 = ① 실제 본문 또는 ② **유효한** 섹션 포인터(그 이름이 이 파일의 `behaviors:` 에 있어야 한다).
+    const valid = hit.pointers.filter((p) => declared.includes(p));
+    if (hit.substantive === 0 && valid.length === 0) {
+      missing++;
+      const why = hit.pointers.length > 0
+        ? `필수 섹션 '${sec}' 이 비어 있다 — 섹션 포인터 '${hit.pointers[0]}' 가 frontmatter behaviors: 에 없다`
+        : `필수 섹션 '${sec}' 에 heading 만 있고 본문·포인터가 없다`;
+      findings.push({ axis: "completeness", target: { anchor }, action: "add-required-section", why, risk: "low" });
+    }
+  }
   return missing;
 }
 
@@ -223,6 +385,24 @@ async function hasReferences(root: string, skillDir: string): Promise<boolean> {
   } catch { return false; } finally { await dir.close().catch(() => {}); }
 }
 // 안전 read: per-seg isSafeSegment(traversal) + filter(Boolean)(빈 세그먼트·agy MED) + readCappedDef(O_NOFOLLOW·캡·심링크). 예외 흡수(agy HIGH).
+// 참조된 BEHAVIOR 본문을 **사전 읽기**한다(ADR D7 조건 ⓒ — `scoreStructure` 가 TS 에서 직접
+// 판정하려면 입력으로 받아야 한다. "B1 셸 검사 결과를 채점기가 소비"는 아키텍처상 불가능하다:
+// 채점은 UI 요청마다 도는 동기 TS 루프이고 `check-behaviors.sh` 는 CLI 배치다·R27 agy HIGH).
+// 이름은 디렉토리명 규칙을 통과한 것만 오므로 경로 탈출은 성립하지 않지만, `isSafeSegment` 로 한 번 더 막는다.
+async function readBehaviorBodies(root: string, names: readonly string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const uniq = [...new Set(names)];
+  await mapLimit(uniq, 8, async (nm) => {
+    if (!isSafeSegment(nm)) return null;
+    try {
+      const raw = await readCappedDef(join(root, ".agents", "behaviors", nm, "BEHAVIOR.md"));
+      if (raw != null) out.set(nm, splitBody(raw).body);
+    } catch { /* 없으면 끊긴 참조 — 조건 ⓑ 가 잡는다 */ }
+    return null;
+  });
+  return out;
+}
+
 async function readRaw(root: string, sourcePath: string): Promise<string | null> {
   try {
     // malformed(빈 경로·선두 '/' = 빈 runtimePath) 거부 — codex LOW: root/SKILL.md 오인 방지. 정본은 dir 로 시작.
@@ -278,6 +458,14 @@ export async function evaluateArtifacts(root: string, opts?: { now?: string }): 
   const skillPaths = skills.map((s) => (s.runtimePaths[0] ?? "") + "/SKILL.md");
   const skillRaw = await mapLimit(skills, 8, (_, i) => readRaw(root, skillPaths[i]!));
   const skillRefs = await mapLimit(skills, 8, (s) => hasReferences(root, s.runtimePaths[0] ?? ""));
+  // 참조된 BEHAVIOR 를 **한 번만** 읽는다 — 공유 BEHAVIOR 는 여러 정의가 가리킨다.
+  // (줄 수는 참조하는 정의마다 반복 계산되며 **이는 의도된 동작**이다·R11 — 각 정의의
+  //  실제 프롬프트 분량이 그만큼이기 때문이다. 읽기만 공유한다.)
+  const allRefs = [
+    ...agentRaw.flatMap((r) => (r == null ? [] : parseBehaviorRefs(splitBody(r).fm))),
+    ...skillRaw.flatMap((r) => (r == null ? [] : parseBehaviorRefs(splitBody(r).fm))),
+  ];
+  const behaviorBodies = await readBehaviorBodies(root, allRefs);
 
   const artifacts: ArtifactScore[] = [];
 
@@ -297,13 +485,21 @@ export async function evaluateArtifacts(root: string, opts?: { now?: string }): 
       artifacts.push({ kind: "agent", name: a.name, path: a.sourcePath, runtime: a.runtime, rubric: "toml-agent", scores, grade: gradeOf(avgOf(scores), false), evaluation_mode: MODE, confidence: confidenceOf("toml-agent", MODE), findings });
       return;
     }
-    const { body } = splitBody(raw);
-    const missing = completenessMissing(body, "agent", findings, anchor);
+    const { fm, body } = splitBody(raw);
+    const declared = parseBehaviorRefs(fm);
+    const bodies = behaviorBodies;
+    const bctx: BehaviorCtx | undefined = declared.length
+      ? { declared, bodies: new Map(declared.filter((d) => bodies.has(d)).map((d) => [d, bodies.get(d)!])) }
+      : undefined;
+    // 합성 body — `induction`·`pruning`·줄 수 계열의 입력. 내용을 BEHAVIOR 로 옮겼다고
+    // 명령형 비율이 떨어지거나 중복 검출이 사라지면 **규약을 지킬수록 손해**가 된다(ADR D7).
+    const merged = bctx ? [body, ...bctx.bodies.values()].join("\n") : body;
+    const missing = completenessMissing(body, "agent", findings, anchor, declared);
     scores.trigger = scoreTrigger(a.role, findings, anchor); // role=description 미러
-    const st = scoreStructure(body, false, "agent", findings, anchor, missing);
+    const st = scoreStructure(body, false, "agent", findings, anchor, missing, merged, bctx);
     scores.structure = st.score;
-    scores.induction = scoreInduction(body);
-    scores.pruning = scorePruning(body, findings, anchor);
+    scores.induction = scoreInduction(merged);
+    scores.pruning = scorePruning(merged, findings, anchor);
     applyRel(scores, findings, relBy.get("agent|" + a.name) ?? [], anchor); // 관계 신호(dead-link 등) 감점
     artifacts.push({ kind: "agent", name: a.name, path: a.sourcePath, runtime: a.runtime, rubric: "md-agent", scores, grade: gradeOf(avgOf(scores), st.gateFail), evaluation_mode: MODE, confidence: confidenceOf("md-agent", MODE), findings });
   });
@@ -313,14 +509,19 @@ export async function evaluateArtifacts(root: string, opts?: { now?: string }): 
     const raw = skillRaw[i]; if (raw == null) return;
     const anchor = sha(raw);
     const findings: Finding[] = [];
-    const { body } = splitBody(raw);
-    const missing = completenessMissing(body, "skill", findings, anchor);
+    const { fm, body } = splitBody(raw);
+    const declared = parseBehaviorRefs(fm);
+    const bctx: BehaviorCtx | undefined = declared.length
+      ? { declared, bodies: new Map(declared.filter((d) => behaviorBodies.has(d)).map((d) => [d, behaviorBodies.get(d)!])) }
+      : undefined;
+    const merged = bctx ? [body, ...bctx.bodies.values()].join("\n") : body;
+    const missing = completenessMissing(body, "skill", findings, anchor, declared);
     const scores: Partial<Record<Axis, number>> = {};
     scores.trigger = scoreTrigger(s.description, findings, anchor);
-    const st = scoreStructure(body, skillRefs[i]!, "skill", findings, anchor, missing);
+    const st = scoreStructure(body, skillRefs[i]!, "skill", findings, anchor, missing, merged, bctx);
     scores.structure = st.score;
-    scores.induction = scoreInduction(body);
-    scores.pruning = scorePruning(body, findings, anchor);
+    scores.induction = scoreInduction(merged);
+    scores.pruning = scorePruning(merged, findings, anchor);
     applyRel(scores, findings, relBy.get("skill|" + s.name) ?? [], anchor); // orphan/coverage 감점(가지치기)
     artifacts.push({ kind: "skill", name: s.name, path: skillPaths[i]!, runtime: s.runtimePaths.join(","), rubric: "md-skill", scores, grade: gradeOf(avgOf(scores), st.gateFail), evaluation_mode: MODE, confidence: confidenceOf("md-skill", MODE), findings });
   });

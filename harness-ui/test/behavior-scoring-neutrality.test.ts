@@ -1,0 +1,182 @@
+// B2 선결 ② — ADR-001 D7 채점 중립성.
+//
+// BEHAVIOR 를 도입한 정의가 **그 이유만으로 감점되면 안 된다.** 판단 기준을 BEHAVIOR 로 옮기면
+// 정의 body 가 얇아지는데, `scoreInduction`(명령형 비율)·`n < 5` 본문 부실·줄 수 상한이 전부
+// 정의 body 만 보면 **규약을 지킬수록 손해**가 된다. 축별·검사별 입력을 나눠 해소했다.
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { evaluateArtifacts, parseBehaviorRefs, scanPointers, splitSections } from "../src/server/adapters/artifacteval.js";
+
+let root: string;
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), "hui-bn-"));
+  await mkdir(join(root, ".claude", "agents"), { recursive: true });
+});
+afterEach(async () => { await rm(root, { recursive: true, force: true }); });
+
+const AGENT_FULL = [
+  "# a1", "## 핵심 역할", "게이트를 조율한다.",
+  "## 작업 원칙", "전파 반경으로 등급을 정한다. 무차별 게이트는 과의식이다.",
+  "## 입력/출력 프로토콜", "diff 를 받아 결과서를 쓴다.",
+  "## 에러 핸들링", "1회 재시도 후 재실패면 결과 없이 진행한다. 상충 데이터를 삭제하지 않는다.",
+  "## 협업", "skill-maintainer 와 repo-qa 에 보고한다.", "",
+].join("\n");
+
+// 같은 내용을 BEHAVIOR 로 옮긴 형태 — 정의에는 포인터와 형식만 남는다.
+const AGENT_MOVED = [
+  "# a1", "## 핵심 역할", "게이트를 조율한다.",
+  "## 작업 원칙", "> BEHAVIOR: gate-rule",
+  "## 입력/출력 프로토콜", "diff 를 받아 결과서를 쓴다.",
+  "## 에러 핸들링", "> BEHAVIOR: gate-rule",
+  "## 협업", "skill-maintainer 와 repo-qa 에 보고한다.", "",
+].join("\n");
+
+const BEHAVIOR_BODY = [
+  "## Intent", "전파 반경으로 등급을 정한다. 무차별 게이트는 과의식이다.",
+  "## Evidence", "종료코드로 판단한다.",
+  "## Decision", "세 층이 모두 통과해야 승인한다.",
+  "## Execution", "등급에 맞는 게이트를 순서대로 돌린다.",
+  "## Recovery", "1회 재시도 후 재실패면 결과 없이 진행한다. 상충 데이터를 삭제하지 않는다.",
+  "## Failure modes", "검사가 도는 것처럼 보이지만 안 도는 경우를 의심한다.", "",
+].join("\n");
+
+async function writeAgent(body: string, behaviors?: string[]): Promise<void> {
+  const fm = ["name: a1", "description: 게이트를 조율할 때 사용, 코드 수정과 달리 판정만"]
+    .concat(behaviors ? ["behaviors:", ...behaviors.map((b) => `  - ${b}`)] : []).join("\n");
+  await writeFile(join(root, ".claude", "agents", "a1.md"), `---\n${fm}\n---\n${body}`);
+}
+async function writeBehavior(name: string, body: string): Promise<void> {
+  await mkdir(join(root, ".agents", "behaviors", name), { recursive: true });
+  await writeFile(join(root, ".agents", "behaviors", name, "BEHAVIOR.md"),
+    `---\nname: ${name}\ndescription: ${name} 판단 기준\n---\n${body}`);
+}
+const scoreOf = async () => {
+  const r = await evaluateArtifacts(root);
+  const a = r.artifacts.find((x) => x.name === "a1");
+  expect(a, "a1 을 찾지 못했다").toBeTruthy();
+  return a!;
+};
+
+describe("ADR D7 — 채점 중립성", () => {
+  it("판단 기준을 BEHAVIOR 로 옮겨도 등급이 떨어지지 않는다", async () => {
+    await writeAgent(AGENT_FULL);
+    const before = await scoreOf();
+    await writeAgent(AGENT_MOVED, ["gate-rule"]);
+    await writeBehavior("gate-rule", BEHAVIOR_BODY);
+    const after = await scoreOf();
+    const rank = { A: 4, B: 3, C: 2, D: 1 } as const;
+    expect(rank[after.grade], `이관 전 ${before.grade} → 이관 후 ${after.grade} (규약을 지킬수록 손해)`)
+      .toBeGreaterThanOrEqual(rank[before.grade]);
+  });
+
+  it("induction 은 합성 body 로 잰다 — 명령형 문장이 BEHAVIOR 로 가도 비율이 유지된다", async () => {
+    await writeAgent(AGENT_MOVED, ["gate-rule"]);
+    await writeBehavior("gate-rule", BEHAVIOR_BODY);
+    const withB = (await scoreOf()).scores.induction!;
+    // BEHAVIOR 를 못 읽는 경우(끊긴 참조)와 비교하면 합성이 실제로 일어났는지 드러난다.
+    await rm(join(root, ".agents"), { recursive: true, force: true });
+    const withoutB = (await scoreOf()).scores.induction!;
+    expect(withB).toBeGreaterThan(withoutB);
+  });
+
+  it("얇아진 정의가 `n < 5` 로 과락하지 않는다 — 선언 정의는 구조로 판정한다", async () => {
+    await writeAgent(["# a1", "## 핵심 역할", "> BEHAVIOR: gate-rule", "## 작업 원칙", "> BEHAVIOR: gate-rule",
+      "## 입력/출력 프로토콜", "diff 를 받는다.", "## 에러 핸들링", "> BEHAVIOR: gate-rule",
+      "## 협업", "> BEHAVIOR: gate-rule", ""].join("\n"), ["gate-rule"]);
+    await writeBehavior("gate-rule", BEHAVIOR_BODY);
+    const a = await scoreOf();
+    expect(a.findings.some((f) => f.why.includes("본문 부실") && f.why.includes("줄"))).toBe(false);
+    expect(a.grade).not.toBe("D");
+  });
+
+  it("전부 포인터뿐인 껍데기는 과락한다(조건 ⓔ)", async () => {
+    await writeAgent(["# a1", "## 핵심 역할", "> BEHAVIOR: gate-rule", "## 작업 원칙", "> BEHAVIOR: gate-rule",
+      "## 입력/출력 프로토콜", "> BEHAVIOR: gate-rule", "## 에러 핸들링", "> BEHAVIOR: gate-rule",
+      "## 협업", "> BEHAVIOR: gate-rule", ""].join("\n"), ["gate-rule"]);
+    await writeBehavior("gate-rule", BEHAVIOR_BODY);
+    const a = await scoreOf();
+    expect(a.findings.some((f) => f.why.includes("껍데기"))).toBe(true);
+    expect(a.grade).toBe("D");
+  });
+
+  it("끊긴 참조는 구조 과락(조건 ⓑ)", async () => {
+    await writeAgent(AGENT_MOVED, ["nosuch"]);
+    const a = await scoreOf();
+    expect(a.findings.some((f) => f.why.includes("끊긴 참조"))).toBe(true);
+    expect(a.grade).toBe("D");
+  });
+
+  it("참조 BEHAVIOR 의 Intent·Failure modes 가 비면 과락(조건 ⓒ) — 빈 BEHAVIOR 로 우회 못 한다", async () => {
+    await writeAgent(AGENT_MOVED, ["gate-rule"]);
+    await writeBehavior("gate-rule", "## Intent\n## Evidence\nx\n## Failure modes\n");
+    const a = await scoreOf();
+    expect(a.findings.some((f) => f.why.includes("참조 BEHAVIOR 부실"))).toBe(true);
+    expect(a.grade).toBe("D");
+  });
+
+  it("BEHAVIOR 안의 닫히지 않은 코드펜스는 그 정의를 과락시킨다(R27) — 프로세스는 죽지 않는다", async () => {
+    await writeAgent(AGENT_MOVED, ["gate-rule"]);
+    await writeBehavior("gate-rule", BEHAVIOR_BODY + "\n## 예시\n```bash\necho 안 닫힘\n");
+    const a = await scoreOf();
+    expect(a.findings.some((f) => f.why.includes("닫히지 않은 코드펜스"))).toBe(true);
+    expect(a.grade).toBe("D");
+  });
+
+  it("줄 수 상한 finding 은 range 를 달지 않고 why 에 내역을 적는다(추가 계약 ①)", async () => {
+    await mkdir(join(root, ".claude", "skills", "big"), { recursive: true });
+    await writeFile(join(root, ".claude", "skills", "big", "SKILL.md"),
+      `---\nname: big\ndescription: 큰 스킬을 쓸 때 사용, 작은 것과 달리\nbehaviors:\n  - gate-rule\n---\n` +
+      "# big\n## 트리거\n조건.\n## 절차\n" + Array.from({ length: 450 }, (_, i) => `${i}. 한다.`).join("\n") + "\n");
+    await writeBehavior("gate-rule", "## Intent\n" + Array.from({ length: 120 }, () => "판단한다.").join("\n") +
+      "\n## Failure modes\n실패를 의심한다.\n");
+    const r = await evaluateArtifacts(root);
+    const s = r.artifacts.find((x) => x.name === "big")!;
+    const f = s.findings.find((x) => x.action === "shrink-skill");
+    expect(f, "줄 수 상한 finding 이 없다").toBeTruthy();
+    expect(f!.target.range, "합성 줄 수는 정의 파일에 없는 줄을 가리킨다 — range 를 달면 안 된다").toBeUndefined();
+    expect(f!.why).toMatch(/정의 \d+줄 \+ 참조 BEHAVIOR \d+줄 = 합계 \d+줄/);
+  });
+});
+
+describe("파서 — parseBehaviorRefs · scanPointers · splitSections", () => {
+  it("블록 시퀀스·flow·주석·들여쓰기 없는 항목을 읽는다", () => {
+    expect(parseBehaviorRefs("name: a\nbehaviors:\n  - alpha\n# 주석\n  - beta\nmodel: x")).toEqual(["alpha", "beta"]);
+    expect(parseBehaviorRefs("behaviors: [alpha, beta]")).toEqual(["alpha", "beta"]);
+    expect(parseBehaviorRefs("behaviors:\n- alpha\n- beta\nmodel: x")).toEqual(["alpha", "beta"]);
+    expect(parseBehaviorRefs("behaviors: alpha")).toEqual([]);   // 미지원 스칼라 표기
+    expect(parseBehaviorRefs("name: a")).toEqual([]);
+    expect(parseBehaviorRefs("behaviors:\n  - ../etc")).toEqual([]); // 경로 탈출은 이름 규칙에서 거부
+  });
+
+  it("코드펜스 안의 포인터는 포인터가 아니다(R17)", () => {
+    const r = scanPointers("> BEHAVIOR: real\n```md\n> BEHAVIOR: example\n```\n");
+    expect(r.pointers).toEqual(["real"]);
+    expect(r.unclosedFence).toBe(false);
+  });
+
+  it("들여쓰기 3칸까지 포인터·4칸부터는 아니다", () => {
+    expect(scanPointers("   > BEHAVIOR: ok").pointers).toEqual(["ok"]);
+    expect(scanPointers("    > BEHAVIOR: no").pointers).toEqual([]);
+  });
+
+  it("물결표 fence 도 fence 다·닫히지 않으면 표시한다", () => {
+    expect(scanPointers("~~~\n> BEHAVIOR: x\n~~~\n").pointers).toEqual([]);
+    expect(scanPointers("```\nnot closed\n").unclosedFence).toBe(true);
+  });
+
+  it("펜스 안 내용도 실체로 센다 — 그래서 펜스 미종료는 별도로 과락시켜야 한다(R26)", () => {
+    const r = scanPointers("```\n채워진 내용\n");
+    expect(r.nonPointerLines).toBeGreaterThan(0);
+    expect(r.unclosedFence).toBe(true);
+  });
+
+  it("섹션별 실체/포인터를 나눠 센다·펜스 안 heading 은 heading 이 아니다", () => {
+    const secs = splitSections("## A\n본문\n## B\n> BEHAVIOR: x\n## C\n```\n## 가짜\n```\n");
+    expect(secs.map((s) => s.heading.trim())).toEqual(["## A", "## B", "## C"]);
+    expect(secs[1]!.pointers).toEqual(["x"]);
+    expect(secs[1]!.substantive).toBe(0);
+    expect(secs[0]!.substantive).toBeGreaterThan(0);
+  });
+});
