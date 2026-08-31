@@ -550,6 +550,17 @@ mkdir -p "$CASE/.agents/behaviors/fc"
 agent a1 fc
 [ "$(rc_of)" = 0 ] && ok "펜스 안 주석 시작이 밖으로 안 샘" || no "펜스 안 <!-- 가 주석으로 해석됨: $(run)"
 
+# R13 agy HIGH — 펜스 info string 의 `<!--` 를 주석으로 읽어 뒤 전체를 삼키던 것
+new_case fence-info
+mkdir -p "$CASE/.agents/behaviors/fi"
+{ echo '---'; echo 'name: fi'; echo 'description: info'; echo '---'
+  echo '## Intent'; echo '```bash <!--'; echo 'code'; echo '```'; echo '의도 본문'
+  echo '## Failure modes'; echo '실패 본문'; } > "$CASE/.agents/behaviors/fi/BEHAVIOR.md"
+agent a1 fi
+OUT="$(run)"
+hasi '차원 누락\|thin' && no "info string 의 <!-- 를 주석으로 읽어 뒤를 삼킴: $OUT" || ok "info string 의 <!-- 가 주석을 안 엶"
+[ "$(rc_of)" = 0 ] && ok "펜스 info string 이 있는 정상 스펙 통과" || no "정상 스펙 거부"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"

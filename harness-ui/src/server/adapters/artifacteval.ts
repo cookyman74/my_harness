@@ -310,10 +310,19 @@ export function scanPointers(body: string, startInComment = false): PointerScan 
   for (const raw of ls) {
     const l = raw.replace(/\r$/, "");
     // 펜스 **밖**에서만 주석을 해석한다 — 펜스 안의 `<!--` 는 코드 예시다.
+    // ⚠ **펜스 경계 줄에서는 주석을 해석하지 않는다**(R13 agy HIGH). ` ```bash <!-- ` 처럼
+    // info string 에 `<!--` 가 있으면 마크다운상 주석이 열리지 않는데, 주석을 먼저 보면
+    // 상태가 켜져 **그 뒤 전부가 주석으로 건너뛰어진다** — 대용량 블록 탐지를 통째로 우회한다.
+    // 주석과 펜스는 **서로를 가린다.** 둘 다 맞춰야 한다(R13 agy HIGH):
+    //  · 주석 **안**에서는 ` ``` ` 이 펜스를 열지 않는다(주석 내용이다).
+    //  · 주석 **밖**의 펜스 경계 줄에서는 info string 의 `<!--` 가 주석을 열지 않는다
+    //    (` ```bash <!-- ` 를 주석으로 읽으면 그 뒤 전부가 건너뛰어져 탐지를 통째로 우회한다).
     if (!open) {
-      const c = commentStep(inComment, l);
-      inComment = c.inComment;
-      if (c.skip) continue;                      // 주석 전용 줄 — 실체로 세지 않는다
+      if (inComment || fenceToken(l) === null) {
+        const c = commentStep(inComment, l);
+        inComment = c.inComment;
+        if (c.skip) continue;                    // 주석 전용 줄 — 실체로 세지 않는다
+      }
     }
     const wasOpen = open;
     const st = fenceStep(open, l);
@@ -345,10 +354,12 @@ export function splitSections(body: string): Section[] {
   let open: FenceTok = null, inComment = false;
   for (const raw of ls) {
     const l = raw.replace(/\r$/, "");
-    if (!open) {
+    if (!open && (inComment || fenceToken(l) === null)) {   // 위 §scanPointers 와 같은 규칙(R13)
       const c = commentStep(inComment, l);
       inComment = c.inComment;
-      if (c.skip) { cur.push(l); continue; }     // 주석 줄은 섹션에 담되 heading 판정은 안 한다
+      // ⚠ `c.skip` 만 본다 — `## B <!--` 처럼 **주석 앞에 실제 내용(heading)이 있으면**
+      // heading 판정을 계속해야 한다(R7). `inComment` 로 끊으면 그 섹션이 사라진다.
+      if (c.skip) { cur.push(l); continue; }
     }
     const wasOpen = open;
     open = fenceStep(open, l).open;
@@ -472,7 +483,7 @@ function scoreStructure(body: string, hasRefs: boolean, kind: "agent" | "skill",
     // 같은 파일 안의 파서가 서로 다른 경계를 쓰면 그 차이가 곧 구멍이다(R7 과 같은 계열).
     const ls = lines(merged); let fenceStart = -1; let open: FenceTok = null, inC = false;
     for (let i = 0; i < ls.length; i++) {
-      if (!open) {
+      if (!open && (inC || fenceToken(ls[i]!) === null)) {   // 위와 같은 규칙(R13)
         const c = commentStep(inC, ls[i]!);
         inC = c.inComment;
         if (c.skip) continue;                    // 주석 전용 줄 — 펜스 판정 대상이 아니다

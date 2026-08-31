@@ -366,6 +366,24 @@ describe("파서 — parseBehaviorRefs · scanPointers · splitSections", () => 
       "주석 안 펜스가 실제 대용량 블록 탐지를 삼켰다").toBe(true);
   });
 
+  // R13 agy HIGH — 주석과 펜스는 서로를 가린다. 둘 다 맞춰야 한다.
+  it("펜스 info string 의 `<!--` 는 주석을 열지 않는다", async () => {
+    await mkdir(join(root, ".claude", "skills", "fi"), { recursive: true });
+    const big = ["```bash <!--", ...Array.from({ length: 80 }, (_, i) => `줄 ${i}`), "```"].join("\n");
+    await writeFile(join(root, ".claude", "skills", "fi", "SKILL.md"),
+      "---\nname: fi\ndescription: info string 을 쓸 때 사용, 다른 것과 달리\n---\n# fi\n## 트리거\n조건.\n## 절차\n" + big + "\n");
+    const r = await evaluateArtifacts(root);
+    const s = r.artifacts.find((x) => x.name === "fi")!;
+    expect(s.findings.some((f) => f.why.includes("대용량 인라인 블록")),
+      "info string 의 `<!--` 를 주석으로 읽어 탐지를 우회했다").toBe(true);
+  });
+
+  it("주석 안에서는 ` ``` ` 이 펜스를 열지 않는다", () => {
+    const r = scanPointers("<!--\n```\n-->\n> BEHAVIOR: after\n");
+    expect(r.pointers, "주석 안 펜스가 열려 뒤 포인터를 삼켰다").toEqual(["after"]);
+    expect(r.unclosedFence).toBe(false);
+  });
+
   it("섹션별 실체/포인터를 나눠 센다·펜스 안 heading 은 heading 이 아니다", () => {
     const secs = splitSections("## A\n본문\n## B\n> BEHAVIOR: x\n## C\n```\n## 가짜\n```\n");
     expect(secs.map((s) => s.heading.trim())).toEqual(["## A", "## B", "## C"]);
