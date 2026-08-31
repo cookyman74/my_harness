@@ -114,6 +114,22 @@ const BEHAVIOR_NAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 // (B5 R1 agy HIGH: CLI 는 형식 오류 파일의 참조를 무시하는데 TS 는 그대로 읽었다).
 //   금지: tab(YAML 들여쓰기 불가) · 중복 최상위 키(뒤 값이 조용히 무시된다) ·
 //         비정규 키 표기(`name :` · `"name":` · 들여쓴 키 — 정규식에 안 걸려 숨는다)
+// `behaviors:` 블록에 **항목이 아닌 들여쓴 줄**이 섞였는가 — CLI 의 `@@BADLINE@@` 와 같은 판정.
+// 참조 목록은 그대로 두고(앞 항목 보존) **이 사실만 별도로 보고**한다(R6 codex HIGH).
+export function behaviorBlockBadLine(fm: string): string | null {
+  const ls = lines(fm).map((l) => l.replace(/\r$/, ""));
+  const i = ls.findIndex((l) => /^behaviors:/.test(l));
+  if (i < 0) return null;
+  if (ls[i]!.replace(/^behaviors:[ \t]*/, "").trim()) return null;   // inline 형태는 블록이 아니다
+  for (let k = i + 1; k < ls.length; k++) {
+    const l = ls[k]!;
+    if (/^[ \t]*$/.test(l) || /^[ \t]*#/.test(l) || /^[ \t]*-/.test(l)) continue;
+    if (/^[ \t]+\S/.test(l)) return l.trim();    // 들여쓴 비항목 = 망가진 블록
+    return null;                                  // 들여쓰기 없음 = 다음 키(정상 종료)
+  }
+  return null;
+}
+
 export function frontmatterShapeError(fm: string): string | null {
   if (fm.includes("\t")) return "frontmatter 에 tab";
   const ls = fm.split(/\r?\n/).map((l) => l.replace(/\r$/, ""));
@@ -199,10 +215,12 @@ export function parseBehaviorRefs(fm: string, keepInvalid = false): string[] {
     const l = ls[k]!;
     if (/^[ \t]*$/.test(l) || /^[ \t]*#/.test(l)) continue; // 빈 줄·주석은 블록을 닫지 않는다
     if (!/^[ \t]*-/.test(l)) {
-      // **들여쓴 비항목은 망가진 블록**이다 — CLI 는 이를 fail 시키는데 TS 가 조기 종료로
-      // 넘기면 앞 항목만 읽고 통과해 판정이 갈린다(R5 agy HIGH).
-      if (/^[ \t]+\S/.test(l)) return [];
-      break;                                                 // 들여쓰기 없음 = 다음 키
+      // **들여쓴 비항목은 망가진 블록**이다. CLI 는 그 사실을 fail 로 보고하면서도
+      // **앞의 유효 참조는 그대로 유지**한다(`@@BADLINE@@` 는 별도 진단) — TS 가 빈 배열을
+      // 돌려주면 앞 참조가 사라져 **반대 방향으로 갈라진다**(R6 codex HIGH).
+      // R5 에서 CLI 에 맞추려다 과교정했다. 여기서는 **끊고**, 망가진 사실은
+      // `frontmatterShapeError`·`scorecard` 쪽이 별도로 보고한다.
+      break;
     }
     push(l.replace(/^[ \t]*-[ \t]*/, ""));
   }

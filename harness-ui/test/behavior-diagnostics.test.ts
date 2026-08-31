@@ -70,6 +70,18 @@ describe("B5 — BEHAVIOR 진단 합류", () => {
     expect(ids, "readdir 순서가 그대로 남아 결정성이 깨졌다").toEqual([...ids].sort((a, b) => a.localeCompare(b)));
   });
 
+  it("망가진 블록에서도 **앞의 유효 참조는 유지**된다 — 사실은 따로 보고(CLI 와 같은 규칙)", async () => {
+    await behavior("gate");
+    await writeFile(join(root, ".claude", "agents", "a1.md"),
+      "---\nname: a1\ndescription: 테스트할 때 사용, 다른 것과 달리\nbehaviors:\n  - gate\n  잘못된 줄\n---\n" + BODY);
+    const r = await sc();
+    // 앞 참조가 살아 있으므로 gate 는 고아가 아니다.
+    expect(r.findings.some((f) => f.type === "orphan" && f.subject === "gate"),
+      "앞 참조를 버려 gate 가 고아가 됐다").toBe(false);
+    // 망가진 사실은 별도로 보고된다.
+    expect(r.findings.some((f) => (f.detail ?? "").includes("항목이 아닌 들여쓴 줄"))).toBe(true);
+  });
+
   it("`FindingType` 유니온이 늘어나지 않았다(ADR D6 코드 계약)", async () => {
     const src = await readFile(join(__dirname, "../src/server/adapters/scorecard.ts"), "utf8");
     const m = /export type FindingType =([\s\S]*?);/.exec(src);
