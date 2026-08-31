@@ -130,15 +130,31 @@ for d in "$BDIR"/*; do
   for dim in "Intent" "Failure modes"; do
     # `grep -q` 가 조기 종료하면 `tr` 이 SIGPIPE 를 받아 pipefail 로 인해 if 가 거짓이 된다(거짓 실패).
     # -q 대신 >/dev/null 로 파이프라인 전체를 읽게 한다.
-    if ! tr -d '\r' < "$f" | grep -E "^##[[:space:]]+${dim}[[:space:]]*$" >/dev/null; then
+    # ⚠ **코드펜스 안의 `## …` 는 heading 이 아니다**(R14 codex HIGH). 원시 라인으로만 보면
+    # 예시 블록에 `## Intent` 를 넣어 실제 섹션이 비었거나 없는 BEHAVIOR 를 통과시킬 수 있다.
+    # TS 의 `splitSections` 는 이미 펜스를 제외하므로, 안 맞추면 두 구현의 판정이 갈린다.
+    # 물결표 펜스도 펜스이고, **여는 토큰과 같은 토큰으로만 닫는다**(짝맞춤).
+    fence_aware="$(awk '
+      { sub(/\r$/, ""); sub(/[[:space:]]+$/, "") }
+      {
+        if (match($0, /^[[:space:]]{0,3}(```|~~~)/)) {
+          tok = substr($0, RSTART, RLENGTH); sub(/^[[:space:]]*/, "", tok); tok = substr(tok, 1, 3)
+          if (!inf) { inf = 1; open = tok; print "@@FENCE@@"; next }
+          if (tok == open) { inf = 0; open = ""; print "@@FENCE@@"; next }
+        }
+        if (inf) { print "@@CODE@@" $0; next }
+        print
+      }' "$f")"
+    if ! printf '%s\n' "$fence_aware" | grep -E "^##[[:space:]]+${dim}\$" >/dev/null; then
       no "$dname: '## $dim' 차원 누락"; continue
     fi
-    # CRLF·후행 공백을 지우고 비교한다 — `"## Intent\r" == "## Intent"` 는 거짓이라
-    # Windows 파일에서 본문 추출이 실패하고 **정상 스펙을 thin 으로 오탐**한다(R6 agy HIGH).
-    body="$(awk -v want="## $dim" '
-      { sub(/\r$/, ""); sub(/[[:space:]]+$/, "") }
+    # CRLF·후행 공백은 위에서 이미 지웠다 — `"## Intent\r" == "## Intent"` 가 거짓이라
+    # Windows 파일에서 본문 추출이 실패하고 **정상 스펙을 thin 으로 오탐**했다(R6 agy HIGH).
+    # 펜스 안 내용은 `@@CODE@@` 접두가 붙은 채 남으므로 heading 으로 안 보이고 **실체로 세어진다**(TS 와 같은 규칙).
+    # 센티널은 **평문**이다 — BSD awk 는 `\x` 이스케이프를 해석하지 않고 멀티바이트 변환에서 깨진다(B1 에서 실측).
+    body="$(printf '%s\n' "$fence_aware" | awk -v want="## $dim" '
       /^## / { inside = ($0 == want) ? 1 : 0; next }
-      inside { print }' "$f" | tr -d '[:space:]')"
+      inside { print }' | tr -d '[:space:]')"
     [ -n "$body" ] || no "$dname: '## $dim' 이 thin — heading 외 본문이 없다(빈 BEHAVIOR 로 과락 우회)"
   done
   VALID+=("$bname")

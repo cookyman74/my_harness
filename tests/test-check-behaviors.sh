@@ -411,6 +411,28 @@ io.open(p,'w',encoding='utf-8').write(re.sub(r'^description:.*$','description: '
   [ "$(rc_of)" = 0 ] && ok "정상 description [$d] 통과" || no "[$d] 오탐 — 정상인데 거부"
 done
 
+# R14 codex HIGH — 코드펜스 안의 `## Intent` 를 실제 섹션으로 오인해 빈 BEHAVIOR 가 통과하던 것
+for fence in '```' '~~~'; do
+  new_case fenced-dim
+  mkdir -p "$CASE/.agents/behaviors/fake"
+  { echo '---'; echo 'name: fake'; echo 'description: 위장'; echo '---'
+    echo '## Intent'; echo   # 실제 Intent 는 비어 있다
+    echo "$fence"; echo '## Failure modes'; echo '예시 안의 가짜 heading'; echo "$fence"; }     > "$CASE/.agents/behaviors/fake/BEHAVIOR.md"
+  agent a1 fake
+  OUT="$(run)"
+  hasi 'Failure modes.*누락\|Intent.*thin' && ok "펜스 안 heading 을 실제 섹션으로 안 침 [$fence]" \
+    || no "펜스 안 heading 으로 우회 [$fence]: $OUT"
+  [ "$(rc_of)" != 0 ] && ok "펜스 위장 exit≠0 [$fence]" || no "펜스 위장 통과 [$fence]"
+done
+# 펜스 안 내용은 **실체로 센다**(TS 와 같은 규칙) — 정상 스펙이 오탐되지 않는다
+new_case fenced-body
+mkdir -p "$CASE/.agents/behaviors/ok2"
+{ echo '---'; echo 'name: ok2'; echo 'description: 정상'; echo '---'
+  echo '## Intent'; echo '```'; echo '예시 코드가 본문이다'; echo '```'
+  echo '## Failure modes'; echo '실패 본문'; } > "$CASE/.agents/behaviors/ok2/BEHAVIOR.md"
+agent a1 ok2
+[ "$(rc_of)" = 0 ] && ok "펜스 안 내용은 실체로 센다(정상 통과)" || no "펜스 본문을 thin 으로 오탐: $(run)"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"
