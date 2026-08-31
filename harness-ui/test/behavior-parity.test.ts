@@ -77,6 +77,15 @@ describe("B5 — TS ↔ CLI 판정 일치", () => {
     ["정의 BOM", async () => { await writeFile(join(root, ".claude", "agents", "a1.md"), `\uFEFF---\n${goodFm("behaviors:\n  - gate")}\n---\n${BODY}`); await writeSpecRaw("gate", goodSpec("gate")); }],
     ["정의 frontmatter 미종료", async () => { await writeFile(join(root, ".claude", "agents", "a1.md"), `---\n${goodFm("behaviors:\n  - gate")}\n${BODY}`); await writeSpecRaw("gate", goodSpec("gate")); }],
     ["스펙 BOM", async () => { await writeAgentRaw(goodFm("behaviors:\n  - gate")); await writeSpecRaw("gate", "\uFEFF" + goodSpec("gate")); }],
+    ["정의 블록 스칼라 안 콜론 문장", async () => {
+      await writeFile(join(root, ".claude", "agents", "a1.md"),
+        `---\nname: a1\ndescription: >\n  테스트할 때 사용한다.\n  참고: 다른 것과 달리 판정만.\nbehaviors:\n  - gate\n---\n${BODY}`);
+      await writeSpecRaw("gate", goodSpec("gate"));
+    }],
+    ["정의 들여쓴 behaviors 키", async () => {
+      await writeAgentRaw("name: a1\ndescription: t\n  behaviors: [nosuch]");
+      await writeSpecRaw("gate", goodSpec("gate"));
+    }],
     ["스펙 과대(256KB 초과)", async () => {
       await writeAgentRaw(goodFm("behaviors:\n  - big"));
       const pad = Array.from({ length: 9000 }, (_, i) => `padding line padding line ${i}`).join("\n");

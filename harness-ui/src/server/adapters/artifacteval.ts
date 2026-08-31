@@ -118,6 +118,7 @@ export function frontmatterShapeError(fm: string): string | null {
   if (fm.includes("\t")) return "frontmatter 에 tab";
   const ls = fm.split(/\r?\n/).map((l) => l.replace(/\r$/, ""));
   let inBlock = false;
+  let inScalar = false;   // 블록 스칼라(`key: |` · `key: >`) 본문 안인가 — 그 안은 **리터럴 텍스트**다
   const keys: string[] = [];
   for (const l of ls) {
     if (/^behaviors:/.test(l)) { inBlock = true; keys.push("behaviors"); continue; }
@@ -125,11 +126,25 @@ export function frontmatterShapeError(fm: string): string | null {
       if (/^\s*$/.test(l) || /^\s*#/.test(l) || /^\s*-/.test(l)) continue;
       inBlock = false;
     }
+    // 블록 스칼라 본문 — 들여쓰기가 남아 있는 동안은 **리터럴 텍스트**다(키가 아니다).
+    if (inScalar) {
+      if (/^\s+\S/.test(l) || /^\s*$/.test(l)) continue;
+      inScalar = false;
+    }
     if (/^[A-Za-z_][A-Za-z0-9_-]*[ \t]+:/.test(l)) return "비정규 키(콜론 앞 공백)";
     if (/^["'][^"']*["'][ \t]*:/.test(l)) return "비정규 키(따옴표)";
+    // ⚠ **블록 스칼라 본문 안의 콜론 문장을 키로 오인하면 안 된다**(R3 agy HIGH):
+    // `description: >` 아래 들여쓴 본문의 `  참고: …` 를 "들여쓴 키"로 잡으면 정상 정의의
+    // `behaviors:` 선언이 통째로 무시되고, 얇아진 정의가 `n < 5` 로 **거짓 과락**한다.
+    // 블록 스칼라 안은 위에서 이미 `continue` 로 건너뛴다 — 여기 오는 들여쓴 `key:` 는
+    // **R12 가 막은 그 우회**(`  behaviors:`)이므로 그대로 잡는다.
     if (/^\s+[A-Za-z_"'][^:]*:/.test(l)) return "비정규 키(들여쓰기)";
-    const m = /^([A-Za-z_][A-Za-z0-9_-]*):/.exec(l);
-    if (m) keys.push(m[1]!);
+    const m = /^([A-Za-z_][A-Za-z0-9_-]*):[ \t]*(.*)$/.exec(l);
+    if (m) {
+      keys.push(m[1]!);
+      // `key: |` · `key: >`(+`-`/`+`/숫자) 는 블록 스칼라를 연다.
+      if (/^[|>][0-9]*[-+]?\s*$/.test(m[2]!.trim())) inScalar = true;
+    }
   }
   const dup = keys.filter((k, i) => keys.indexOf(k) !== i);
   if (dup.length) return `중복 키 ${[...new Set(dup)].join(",")}`;
@@ -328,7 +343,10 @@ function scoreStructure(body: string, hasRefs: boolean, kind: "agent" | "skill",
       .filter((x) => reqSecs.some((k) => x.heading.includes(k)))
       .some((x) => x.substantive > 0);
     const why: string[] = [];
-    if (missingReq > 0) why.push(`필수 섹션 ${missingReq}건 미충족`);
+    // ⚠ **필수 섹션 누락은 여기서 다시 감점하지 않는다**(ADR D7·R31 — `completenessMissing` 단독 소유).
+    // 처음엔 조건 ⓐ 로 `missingReq > 0` 을 넣었는데(R3 agy HIGH), 그러면 일반 정의에서 0.18 감점인
+    // 섹션 누락 1건이 **`behaviors:` 를 선언했다는 이유만으로 과락**이 된다 — 채점 중립성 정면 위반이고
+    // 같은 사실에 두 번 감점하는 것이다. 누락 감점·다수 누락 과락은 아래 공통 경로가 처리한다.
     if (dead.length) why.push(`끊긴 참조 ${dead.join(",")}`);
     if (missDim.length) why.push(`참조 BEHAVIOR 부실 ${missDim.join(",")}`);
     if (!anySubstantive) why.push("정의에 포인터 아닌 실제 본문이 없다(껍데기)");

@@ -176,6 +176,34 @@ describe("ADR D7 — 채점 중립성", () => {
   });
 });
 
+describe("R3 agy — 이중 감점·형태 검증 오탐", () => {
+  it("필수 섹션 1건 누락이 `behaviors:` 선언만으로 과락이 되지 않는다(중립성)", async () => {
+    // `## 협업` 만 빠뜨린다. 일반 정의라면 0.18 감점이고 과락이 아니다.
+    const body = ["# a1", "## 핵심 역할", "역할.", "## 작업 원칙", "> BEHAVIOR: gate-rule",
+      "## 입력/출력 프로토콜", "입출력.", "## 에러 핸들링", "> BEHAVIOR: gate-rule", ""].join("\n");
+    await writeAgent(body, ["gate-rule"]);
+    await writeBehavior("gate-rule", BEHAVIOR_BODY);
+    const a = await scoreOf();
+    expect(a.findings.some((f) => f.why.includes("본문 부실") && f.why.includes("필수 섹션")),
+      "completenessMissing 이 이미 낸 사실에 두 번 감점했다").toBe(false);
+    expect(a.grade, "섹션 1건 누락이 과락이 됐다").not.toBe("D");
+  });
+
+  it("블록 스칼라 본문의 콜론 문장을 키로 오인하지 않는다 — 정상 정의가 거짓 과락하지 않는다", async () => {
+    const fm = ["name: a1", "description: >", "  이 에이전트를 쓸 때 사용한다.",
+      "  참고: 다른 것과 달리 판정만 한다.", "behaviors:", "  - gate-rule"].join("\n");
+    await writeFile(join(root, ".claude", "agents", "a1.md"), `---\n${fm}\n---\n${AGENT_MOVED}`);
+    await writeBehavior("gate-rule", BEHAVIOR_BODY);
+    const a = await scoreOf();
+    expect(a.findings.some((f) => f.why.includes("껍데기")), "behaviors: 가 무시돼 껍데기로 판정됐다").toBe(false);
+    expect(a.grade).not.toBe("D");
+  });
+
+  it("들여쓴 `behaviors:` 는 여전히 잡는다 — R12 가 막은 우회를 되열지 않았다", () => {
+    expect(parseBehaviorRefs("name: a1\ndescription: t\n  behaviors: [nosuch]")).toEqual([]);
+  });
+});
+
 describe("파서 — parseBehaviorRefs · scanPointers · splitSections", () => {
   it("블록 시퀀스·flow·주석·들여쓰기 없는 항목을 읽는다", () => {
     expect(parseBehaviorRefs("name: a\nbehaviors:\n  - alpha\n# 주석\n  - beta\nmodel: x")).toEqual(["alpha", "beta"]);
