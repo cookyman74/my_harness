@@ -121,6 +121,14 @@ describe("B5 — TS ↔ CLI 판정 일치", () => {
       await writeAgentRaw(goodFm("behaviors:\n  - gate\n  잘못된 줄"));
       await writeSpecRaw("gate", goodSpec("gate"));
     }],
+    ["고아 스펙의 필수 차원 부실", async () => {
+      await writeAgentRaw(goodFm());
+      await writeSpecRaw("lonely-thin", "---\nname: lonely-thin\ndescription: 고아\n---\n## Intent\n## Failure modes\n");
+    }],
+    ["고아 스펙이지만 차원 정상", async () => {
+      await writeAgentRaw(goodFm());
+      await writeSpecRaw("lonely-ok", goodSpec("lonely-ok"));
+    }],
     ["스펙 과대(256KB 초과)", async () => {
       await writeAgentRaw(goodFm("behaviors:\n  - big"));
       const pad = Array.from({ length: 9000 }, (_, i) => `padding line padding line ${i}`).join("\n");
