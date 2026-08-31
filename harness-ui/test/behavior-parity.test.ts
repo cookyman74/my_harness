@@ -117,6 +117,10 @@ describe("B5 — TS ↔ CLI 판정 일치", () => {
         'name = "t1"\ndescription = "toml 에이전트"\nbehaviors = ["gate"]\n');
       await writeSpecRaw("gate", goodSpec("gate"));
     }],
+    ["정의 블록 안 들여쓴 비항목", async () => {
+      await writeAgentRaw(goodFm("behaviors:\n  - gate\n  잘못된 줄"));
+      await writeSpecRaw("gate", goodSpec("gate"));
+    }],
     ["스펙 과대(256KB 초과)", async () => {
       await writeAgentRaw(goodFm("behaviors:\n  - big"));
       const pad = Array.from({ length: 9000 }, (_, i) => `padding line padding line ${i}`).join("\n");

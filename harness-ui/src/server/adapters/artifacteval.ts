@@ -198,7 +198,12 @@ export function parseBehaviorRefs(fm: string, keepInvalid = false): string[] {
   for (let k = i + 1; k < ls.length; k++) {
     const l = ls[k]!;
     if (/^[ \t]*$/.test(l) || /^[ \t]*#/.test(l)) continue; // 빈 줄·주석은 블록을 닫지 않는다
-    if (!/^[ \t]*-/.test(l)) break;                          // 항목이 아니면 다음 키
+    if (!/^[ \t]*-/.test(l)) {
+      // **들여쓴 비항목은 망가진 블록**이다 — CLI 는 이를 fail 시키는데 TS 가 조기 종료로
+      // 넘기면 앞 항목만 읽고 통과해 판정이 갈린다(R5 agy HIGH).
+      if (/^[ \t]+\S/.test(l)) return [];
+      break;                                                 // 들여쓰기 없음 = 다음 키
+    }
     push(l.replace(/^[ \t]*-[ \t]*/, ""));
   }
   return out;

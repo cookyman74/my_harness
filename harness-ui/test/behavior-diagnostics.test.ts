@@ -62,6 +62,14 @@ describe("B5 — BEHAVIOR 진단 합류", () => {
     expect(r.findings.filter((x) => x.subject_kind === "behavior")).toEqual([]);
   });
 
+  it("findings 가 id 순으로 정렬된다 — BEHAVIOR 결함도 포함(결정성)", async () => {
+    await agent("a1", ["z-ref", "a-ref"]);
+    await behavior("m-spec");
+    const r = await sc();
+    const ids = r.findings.map((f) => f.id);
+    expect(ids, "readdir 순서가 그대로 남아 결정성이 깨졌다").toEqual([...ids].sort((a, b) => a.localeCompare(b)));
+  });
+
   it("`FindingType` 유니온이 늘어나지 않았다(ADR D6 코드 계약)", async () => {
     const src = await readFile(join(__dirname, "../src/server/adapters/scorecard.ts"), "utf8");
     const m = /export type FindingType =([\s\S]*?);/.exec(src);
