@@ -189,11 +189,11 @@
 
 ### 설계서에 반드시 담을 것
 - [x] **영속 증거** — `docs/{project}/_eval/attestations/{loop_instance_id}.json`(커밋 경로) · 스키마 v1 명세(설계서 §2) · **영속 추세 원장 `docs/{project}/_eval/trend.jsonl`**(`_workspace/evals/summary.jsonl` 은 휘발이라 수용 기준의 "영속 추세 레코드"를 못 지킨다·R5 agy — 검증 대상은 영속 쪽)
-- [x] **stage risk 권위** — 계획서 단계 헤더의 `**등급:**`. 저자=계획서 작성자·경로·착수 전 생성·`risk_source` 에 경로+블록 sha256 · 등급 표기 없으면 **`critical` 로 읽는다(fail-closed)** · `manifest` 어휘 미사용(§3)
+- [x] **stage risk 권위** — 계획서 단계 헤더의 `**등급:**`. 저자=계획서 작성자·경로·착수 전 생성·`risk_source` 에 경로+블록 sha256 · 등급 표기 없으면 **`standard` 로 읽고 "미표기" 경고를 남긴다**(R22 agy — `critical` 로 읽으면 정본의 축소 종결 판정이 `degraded-blocked`→**진행 금지**를 내어 레거시가 리뷰어 하나 빠질 때마다 마비된다. fail-closed 대상을 **새 계획서**로 옮긴다) · `manifest` 어휘 미사용(§3)
 - [x] **루프 identity 계약** — `loop_instance_id = {stage_id}@{opened_at}@{nonce}`(개시 시 1회 · **ms 정밀도 + nonce** 로 유일성 · `O_EXCL`(같은 루프 재발급만 허용)) · `run_id` 라운드별 갱신 · `stage_id` 는 **계획서**에서·`opened_at` 은 **루프 개시 시각**에서(순환 검증 회피) · 키 정렬 2-space JSON canonical(§4)
 - [x] **증거 결속(`claim_ref`)** — attestation 에 그 루프가 근거로 삼은 **결과서 경로 + sha256** 을 박는다. **`[ ]`→`[x]` 전환 커밋에서만 해시 일치를 강제**하고 이미 `[x]` 인 상태의 사후 수정은 면제한다(R14 전면 강제=교착 / R20 전면 면제=id 복사 우회 → **전환 시점만**). **결과서·체크박스 줄에 `loop_instance_id` 를 명시**해야 hook 이 diff 만으로 1:1 지목한다(R19 — 안 적으면 `stage_id` 단독 비교로 퇴화해 제약 ⑪ 재발명)
 - [x] **트리거는 두 축** — **측정 의무**는 결과서에 `termination_reason` 이 적히면(= 루프 종료 주장) attestation **존재**만 요구(terminal 무관·루프 중간 커밋과 초안은 자유) · **완료 주장**은 체크박스 전환이 진다. *둘을 하나로 묶으려 할 때마다 교착 아니면 구멍이 생겼다(R4~R20 왕복)*
-- [x] **Step 7↔8 순서** — 바꾸지 않는다. **Step 7.5 attestation 발행**을 신설해 승인 결과를 포함해 봉인 → Step 8 커밋에서 hook 이 검증(§6)
+- [x] **Step 7↔8 순서** — **정본 그대로 쓴다**(R14·R22 agy): Step 7(기록·승인·**커밋**)은 **루프 안**에서 라운드마다 반복되고 **Step 8(측정 꼬리)은 루프 종료 후 모든 경로 공통**이다. **루프 종료 후 커밋 단계는 없다.** → **attestation 을 Step 8 에서 발행**한다(Step 7.5 신설 안 함 — 신설하면 이미 루프 안에서 처리된 커밋·승인과 순서가 어긋난다). hook 검증은 **그 다음 커밋**(`termination_reason` 기재 또는 체크박스 전환)에서 일어난다
 - [x] **비정상 terminal** — `failed`·`no-reviewers` 는 **발행한다**(`issues: []` 허용·`eval_status: eval-failed`)·기록 커밋을 차단하지 않는다·**집계 표본에서만 제외**(발행을 막으면 제약 ⑧ 교착 재발). **측정 파손(`eval-error`)은 발행하지 않는다** — 파손을 성공으로 적지 않는다. `degraded-blocked` 는 **정본이 커밋 단계에 진입하지 않으므로 이 설계 소관이 아니다**(R18 codex·§7)
 
 ### 설계 제약 — 제안서 §3-0 의 12건을 입력으로 받는다 (재발명 금지)
