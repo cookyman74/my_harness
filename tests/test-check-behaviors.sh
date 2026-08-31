@@ -292,6 +292,20 @@ hasi 'frontmatter 없음' && no "CRLF 스펙을 frontmatter 없음으로 오판"
 hasi 'thin' && no "CRLF 스펙을 thin 으로 오탐" || ok "CRLF 스펙의 차원 본문 인식"
 [ "$(rc_of)" = 0 ] && ok "CRLF 정상 스펙 통과" || no "CRLF 정상 스펙 거부: $OUT"
 
+# R7 agy HIGH — `| grep -q` 가 조기 종료하면 왼쪽이 SIGPIPE(141)로 죽고 pipefail 이 그 141 을
+# 파이프라인 종료코드로 올려 if 가 뒤집힌다. **입력이 작을 땐 재현되지 않아** 큰 파일로 고정한다.
+# 실측: 30,008줄 스펙에서 구버전이 정상 파일을 "'## Intent' 차원 누락"으로 거짓 실패시켰다(rc=1).
+new_case sigpipe
+mkdir -p "$CASE/.agents/behaviors/big"
+{ echo '---'; echo 'name: big'; echo 'description: 긴 스펙'; echo '---'
+  echo '## Intent'; echo '의도 본문'
+  awk 'BEGIN{for(i=1;i<=30000;i++) print "채우기 줄 " i}'
+  echo '## Failure modes'; echo '실패 본문'; } > "$CASE/.agents/behaviors/big/BEHAVIOR.md"
+agent a1 big
+OUT="$(run)"
+hasi '차원 누락' && no "긴 스펙을 '차원 누락'으로 거짓 실패(SIGPIPE+pipefail)" || ok "긴 스펙에서 차원 인식"
+[ "$(rc_of)" = 0 ] && ok "긴 정상 스펙 통과(파이프라인 SIGPIPE 없음)" || no "긴 정상 스펙 거부: $OUT"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"

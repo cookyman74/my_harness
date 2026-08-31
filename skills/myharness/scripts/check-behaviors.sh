@@ -11,6 +11,10 @@
 #   읽어도 참조 무결성은 확인된다. 본문 포인터 판독은 B2 의 scoreStructure(TypeScript) 소관 —
 #   bash 에 markdown AST 를 강제하면 B2 에서 같은 것을 다시 구현하게 된다.
 set -uo pipefail
+# ⚠ **`… | grep -q` 금지**(정본 규칙 · `run-policy-audit.sh:41`): pipefail 아래서 `-q` 가 첫
+# 매치에 조기 종료하면 왼쪽이 SIGPIPE(141)로 죽고 그 141 이 파이프라인 종료코드가 돼
+# if 가 뒤집힌다. 입력이 작을 땐 재현되지 않아 더 위험하다 — `>/dev/null` 로 끝까지 소비한다.
+# (R7 agy HIGH: 긴 BEHAVIOR.md 에서 정상 스펙이 "차원 누락"으로 **거짓 실패**했다.)
 ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || echo .)}"
 cd "$ROOT" || { echo "✗ 경로 없음: $ROOT" >&2; exit 1; }
 
@@ -77,7 +81,7 @@ for d in "$BDIR"/*; do
   # description 은 **필수 필드**다(계획서 §B1·behavior-specs §2). warn 으로 두면
   # description 이 빈 BEHAVIOR 가 정책 감사까지 통과한다 — 거짓 통과 경로(R1 codex HIGH).
   [ -n "$bdesc" ] || { no "$dname: frontmatter 에 description 없음 (필수·건너뜀)"; continue; }
-  if ! printf '%s' "$bname" | grep -qE "$NAME_RE"; then
+  if ! printf '%s' "$bname" | grep -E "$NAME_RE" >/dev/null; then
     no "$dname: name '$bname' 이 규칙 위반 — $NAME_RE (건너뜀)"; continue
   fi
   if [ "$bname" != "$dname" ]; then
@@ -87,7 +91,9 @@ for d in "$BDIR"/*; do
   # 내용 충실도 — 6차원 중 Intent·Failure modes 에 heading 외 본문이 있는가.
   # 빈 BEHAVIOR 를 가리켜 정의의 "본문 부실" 과락을 우회하는 통로를 막는다(ADR D7·R9).
   for dim in "Intent" "Failure modes"; do
-    if ! tr -d '\r' < "$f" | grep -qE "^##[[:space:]]+${dim}[[:space:]]*$"; then
+    # `grep -q` 가 조기 종료하면 `tr` 이 SIGPIPE 를 받아 pipefail 로 인해 if 가 거짓이 된다(거짓 실패).
+    # -q 대신 >/dev/null 로 파이프라인 전체를 읽게 한다.
+    if ! tr -d '\r' < "$f" | grep -E "^##[[:space:]]+${dim}[[:space:]]*$" >/dev/null; then
       no "$dname: '## $dim' 차원 누락"; continue
     fi
     # CRLF·후행 공백을 지우고 비교한다 — `"## Intent\r" == "## Intent"` 는 거짓이라
@@ -122,12 +128,12 @@ scan_defs(){
       no "$f: frontmatter 가 닫히지 않았다 (참조 검사 불가)"; continue
     fi
     fm="$(sed -n "2,$((fm_end-1))p" "$f")"
-    printf '%s\n' "$fm" | grep -qE '^behaviors:' || continue
+    printf '%s\n' "$fm" | grep -E '^behaviors:' >/dev/null || continue
     # YAML 은 들여쓰기에 tab 을 금지한다. 그런데 종료 판정 `[!\ -]` 은 **literal space** 만 보므로
     # `\t- alpha` · `\t# x` 의 첫 글자(tab)가 "다음 키"로 오인돼 목록이 조용히 닫힌다
     # — 앞에 유효 항목이 있으면 0참조 검사도 우회한다(R5 codex HIGH).
     # 근사로 흡수하지 않고 **명시적으로 막는다**(fail-closed 일관).
-    if printf '%s' "$fm" | grep -q "$(printf '\t')"; then
+    if printf '%s' "$fm" | grep "$(printf '\t')" >/dev/null; then
       no "$f: frontmatter 에 tab 이 있다 — YAML 은 들여쓰기에 tab 을 허용하지 않는다 (건너뜀)"
       continue
     fi
@@ -179,7 +185,7 @@ scan_defs(){
       echo "REF $f -> $ref"
       USED+=("$ref")
       # 경로 탈출·특수문자는 디렉토리명 규칙에 걸려 거부된다(별도 경로 해석을 하지 않는다).
-      if ! printf '%s' "$ref" | grep -qE "$NAME_RE"; then
+      if ! printf '%s' "$ref" | grep -E "$NAME_RE" >/dev/null; then
         no "$f: 참조 '$ref' 가 name 규칙 위반 — 무효 참조"
       elif ! is_valid "$ref"; then
         no "$f: dead 참조 '$ref' — $BDIR/$ref 가 없거나 무효하다"
