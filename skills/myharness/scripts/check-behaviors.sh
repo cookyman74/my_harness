@@ -24,6 +24,14 @@ NAME_RE='^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'   # 스펙 문구대로 — **연속 �
                                             # 스펙↔코드가 어긋난다(참고자료 §7 #3). 베끼지 않는다.
 fail=0; warn=0
 no(){ echo "✗ $1"; fail=$((fail+1)); }
+# frontmatter 를 first-match 로만 읽으므로 **중복 최상위 키는 뒤 값이 조용히 무시된다**
+# (R9 codex HIGH): `behaviors: [alpha]` 뒤에 `behaviors: [nosuch]` 를 두면 앞 값만 보고 통과한다.
+# 값을 골라 읽는 대신 **중복 자체를 금지**한다(fail-closed). 인자: frontmatter 본문.
+# 출력: 중복된 키 이름들(없으면 빈 문자열).
+dup_keys(){
+  printf '%s\n' "$1" | sed -n -e 's/\r$//' -e 's/^\([A-Za-z_][A-Za-z0-9_-]*\):.*$/\1/p' \
+    | sort | uniq -d | tr '\n' ' ' | sed 's/[[:space:]]*$//'
+}
 wn(){ echo "⚠ $1"; warn=$((warn+1)); }
 
 # --- graceful skip -----------------------------------------------------------
@@ -60,6 +68,10 @@ for d in "$BDIR"/*; do
   fm_end="$(awk 'NR>1 { sub(/\r$/,""); if ($0 ~ /^---[[:space:]]*$/) { print NR; exit } }' "$f")"
   if [ -z "$fm_end" ]; then no "$dname: frontmatter 미종료 (건너뜀)"; continue; fi
   fm="$(sed -n "2,$((fm_end-1))p" "$f")"
+  dups="$(dup_keys "$fm")"
+  if [ -n "$dups" ]; then
+    no "$dname: frontmatter 에 중복 키가 있다 — $dups (뒤 값이 무시된다·건너뜀)"; continue
+  fi
 
   bname="$(printf '%s\n' "$fm" | sed -n 's/^name:[[:space:]]*//p' | head -1 | tr -d '\r' | sed 's/[[:space:]]*$//')"
   # 인라인 주석을 먼저 제거한다 — 안 하면 `description: "" # 설명` · `: null # x` · `: | # x` 가
@@ -128,6 +140,10 @@ scan_defs(){
       no "$f: frontmatter 가 닫히지 않았다 (참조 검사 불가)"; continue
     fi
     fm="$(sed -n "2,$((fm_end-1))p" "$f")"
+    dups="$(dup_keys "$fm")"
+    if [ -n "$dups" ]; then
+      no "$f: frontmatter 에 중복 키가 있다 — $dups (뒤 값이 무시된다·참조 검사 불가)"; continue
+    fi
     printf '%s\n' "$fm" | grep -E '^behaviors:' >/dev/null || continue
     # YAML 은 들여쓰기에 tab 을 금지한다. 그런데 종료 판정 `[!\ -]` 은 **literal space** 만 보므로
     # `\t- alpha` · `\t# x` 의 첫 글자(tab)가 "다음 키"로 오인돼 목록이 조용히 닫힌다

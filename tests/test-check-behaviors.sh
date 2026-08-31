@@ -306,6 +306,27 @@ OUT="$(run)"
 hasi '차원 누락' && no "긴 스펙을 '차원 누락'으로 거짓 실패(SIGPIPE+pipefail)" || ok "긴 스펙에서 차원 인식"
 [ "$(rc_of)" = 0 ] && ok "긴 정상 스펙 통과(파이프라인 SIGPIPE 없음)" || no "긴 정상 스펙 거부: $OUT"
 
+# R9 codex HIGH — frontmatter 를 first-match 로 읽어 중복 키의 뒤 값이 조용히 무시되던 것
+new_case dup-def; behavior . alpha '왜' '실패'
+printf -- '---\nname: a1\ndescription: t\nbehaviors: [alpha]\nbehaviors: [nosuch]\n---\n## 역할\n내용\n' > "$CASE/.claude/agents/a1.md"
+OUT="$(run)"
+hasi '중복 키가 있다' && ok "정의 중복 behaviors: 검출" || no "중복 키를 조용히 통과: $OUT"
+[ "$(rc_of)" != 0 ] && ok "정의 중복 키 exit≠0" || no "중복 키인데 exit 0 — 거짓 통과"
+
+for k in name description; do
+  new_case dup-spec; behavior . alpha '왜' '실패'; agent a1 alpha
+  python3 -c "
+import io,sys
+p,k=sys.argv[1],sys.argv[2]; t=io.open(p,encoding='utf-8').read()
+io.open(p,'w',encoding='utf-8').write(t.replace('---',  '---', 1).replace(chr(10)+'---'+chr(10), chr(10)+k+': 중복값'+chr(10)+'---'+chr(10), 1))" "$CASE/.agents/behaviors/alpha/BEHAVIOR.md" "$k"
+  OUT="$(run)"
+  hasi '중복 키가 있다' && ok "스펙 중복 $k 검출" || no "스펙 중복 $k 통과: $OUT"
+done
+
+new_case nodup; behavior . alpha '왜' '실패'; agent a1 alpha
+OUT="$(run)"
+hasi '중복 키' && no "중복 없는 정상 파일을 오탐" || ok "중복 검사가 정상 파일을 오탐하지 않음"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"
