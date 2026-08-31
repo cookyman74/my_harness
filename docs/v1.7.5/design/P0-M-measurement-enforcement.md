@@ -36,7 +36,8 @@
 | A | `scorecard.json` | `eval_status == "ok"` · `stage_id`/`run_id` 가 attestation 과 일치 |
 | | ⚠ **`issues` 비어 있음을 무조건 실패로 보지 않는다** | **결함 0건 수렴은 정당한 결과다**(R3 agy HIGH). 처음엔 "`issues` 비지 않음"을 무결성 조건에 넣었는데, 그러면 **완벽한 산출물이 첫 라운드에 clean 수렴하면 커밋이 영구 차단**되고 게이트를 통과하려면 **거짓 결함을 지어내야** 한다 — 제약 ⑧ 교착의 변종이다. **판정은 `termination_reason` 이 한다**(아래 §7) |
 | | ⚠ **생산자·소비자 계약을 함께 고쳐야 한다** | 실측(R2 codex HIGH): **정상 경로의 scorecard 에는 `eval_status` 필드가 아예 없고**, `emit-loop-scorecard.sh:26` 은 `.eval_status // "ok"` 로 **없으면 성공으로 간주**한다. 지금 계약대로면 형식이 깨졌거나 빈 scorecard 가 그대로 통과하고 `eval-empty` 차단 의도도 무력해진다 |
-| B | `summary.jsonl` 의 append 행 | A 와 같은 `stage_id`·`rounds`·`termination_reason` |
+| B | **영속 추세 레코드** | A 와 같은 `stage_id`·`rounds`·`termination_reason` |
+| | ⚠ **`_workspace/evals/summary.jsonl` 은 휘발 경로다** | 수용 기준은 "**영속** 추세 레코드가 실제로 생성"을 요구하는데, attestation 만 `docs/` 로 옮기고 추세 원장을 `_workspace/`(gitignore)에 두면 **그 기준을 못 지킨다**(R5 agy HIGH). → **`docs/{project}/_eval/trend.jsonl` 을 영속 원장으로 두고** `_workspace` 의 것은 작업용 사본으로 남긴다. 검증 대상은 영속 쪽이다 |
 | C | **영속 attestation** | 아래 §2 |
 
 ## 2. 기반 계약 ① — 영속 증거(attestation)
@@ -106,12 +107,20 @@ risk 를 판단하면 중대 단계가 우회된다.
     같은 초에 두 루프가 열릴 때 충돌한다.
   - 그것으로도 부족하다 — 같은 밀리초·재개·동시 재진입이 있다. **`nonce`(128bit 랜덤 hex 8자)** 를
     붙여 `{stage_id}@{opened_at}@{nonce}` 로 만든다. 파일명이 곧 유일 키다.
-  - **덮어쓰기 금지:** attestation 파일이 이미 있으면 **새로 쓰지 않고 실패**한다(`O_EXCL`).
-    같은 이름이 나왔다면 그건 충돌이지 재개가 아니다.
+  - **덮어쓰기 금지 — 단 같은 루프의 재발급은 허용한다**(R5 agy HIGH): 파일명이 이미 있고
+    **`loop_instance_id` 가 다르면** 충돌이므로 실패(`O_EXCL` 취지). **같으면 재발급**이다 —
+    커밋 직전에 결과서를 고쳐 `claim_ref` 를 갱신해야 하는 정상 경로가 있고, 이걸 막으면
+    수동 삭제 전까지 교착된다.
 - **오래된 attestation 재사용 차단**(같은 지적): hook 은 attestation 존재만 보면 **직전 루프의 것을
   재사용**해 통과할 수 있다. → attestation 에 **`claim_ref`** 를 넣는다 —
-  그 루프가 근거로 삼은 **결과서 경로 + 그 파일의 sha256**. hook 은 커밋의 결과서 해시와
-  `claim_ref` 가 **일치할 때만** 인정한다. 결과서가 바뀌면 새 attestation 이 필요하다.
+  그 루프가 근거로 삼은 **결과서 경로 + 그 파일의 sha256**.
+
+  > ⚠ **해시 일치는 "완료를 주장하는 커밋"에서만 요구한다**(R5 agy HIGH). 모든 결과서 수정
+  > 커밋에서 검사하면 **과거 결과서의 오타 수정이 영구 교착**된다 — 해시가 달라져 차단되는데,
+  > 새 attestation 을 발급하려 해도 그 루프의 휘발 산출물(`verdicts.json` 등)이 이미 사라져
+  > 발급할 수 없다. 제약 ⑧ 교착의 변종이다.
+  > → **게이트 체크박스 `[ ]`→`[x]` 전환이 있는 커밋에서만** `claim_ref` 해시를 대조한다.
+  > 이미 완료로 표시된 단계의 문서 수정은 자유롭다.
 - **canonical serialization:** attestation 은 **키 정렬 + 2-space JSON + 후행 개행**으로만 쓴다.
   해시 비교가 포맷 차이로 깨지면 강제가 잡음이 된다.
 
@@ -141,8 +150,9 @@ risk 를 판단하면 중대 단계가 우회된다.
 
 | 트리거(커밋에 들어 있는 것) | 요구 |
 |---|---|
-| `docs/**/working_history/*.md` 신규·수정 | 그 문서가 인용하는 `stage_id` 의 attestation |
-| 작업계획서에서 **외부리뷰 게이트 체크박스가 `[ ]` → `[x]` 로 바뀜** | 그 단계의 attestation |
+| `docs/**/working_history/*.md` **신규** | 그 문서가 인용하는 `stage_id` 의 attestation 존재 |
+| 작업계획서에서 **외부리뷰 게이트 체크박스가 `[ ]` → `[x]` 로 바뀜** | 그 단계의 attestation 존재 **+ `claim_ref` 해시 일치 + terminal 정상**(§7) |
+| *이미 완료된 결과서의 수정* | **요구 없음** — 오타 수정이 교착되면 안 된다(R5 agy) |
 
 둘 다 **커밋 안에 있다.** 지우면 주장 자체가 사라진다 — 트리거를 없애는 유일한 방법이
 "완료를 주장하지 않는 것"이 되므로, **우회와 정직한 미완료가 같은 결과**가 된다.
