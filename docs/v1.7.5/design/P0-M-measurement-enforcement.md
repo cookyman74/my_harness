@@ -198,15 +198,20 @@ Step 4 판정 → Step 5 수정 → Step 6 재리뷰 → [루프 종료 판정]
 | `max-rounds` | 발행(`termination_reason` 그대로) | 통과 | 정상 표본(규칙 이탈 명시) |
 | `degraded-accepted`·`degraded-override` | 발행 + `degraded` 필드 | 통과 | **정상 표본에서 제외** |
 | `degraded-blocked` | 발행 | 통과 | 제외 |
-| `failed`·`no-reviewers` | **발행한다**(`issues: []` 허용·`eval_status: "eval-empty"`) | **조건부**(아래) | 제외 |
+| `failed`·`no-reviewers` | **발행한다**(`issues: []` 허용·`eval_status: "eval-failed"`) | **조건부**(아래) | 제외 |
 
 **생산자·소비자 계약(구현 범위):**
 - `build-scorecard.sh` 는 **항상 `eval_status` 를 쓴다**:
   - `ok` — 산출물이 정상이다. **`issues` 가 비어 있어도 `termination_reason` 이 정상 종료
     (`converged`·`max-rounds`·`degraded-*`)면 `ok` 다.** 결함 0건은 성공이지 실패가 아니다.
-  - `eval-empty` — **원장 자체가 없거나 읽을 수 없을 때만**(파일 부재·JSON 파손·`issues` 키 부재).
+  - `eval-empty` — **원장 자체가 없거나 읽을 수 없다**(파일 부재·JSON 파손·`issues` 키 부재).
     "빈 배열"과 "키가 없다"는 다르다 — 전자는 결과이고 후자는 측정 실패다.
-  - `eval-failed`(생성 실패) · `eval-unavailable`(jq 부재).
+  - `eval-failed` — **리뷰 자체가 실패**했다(`failed`·`no-reviewers`) 또는 scorecard 생성 실패.
+  - `eval-unavailable` — 도구 부재(jq 등).
+
+  ⚠ **네 상태는 서로 겹치지 않는다**(R8 codex HIGH). 처음엔 `failed` 도 `eval-empty` 로 적어
+  **실패·파손·정상 수렴이 같은 bucket** 에 섞였다. 소비자가 셋을 구분하지 못하면 거짓 통과나
+  교착 중 하나가 난다.
 - 소비자는 **`eval_status` 가 없거나 모르는 값이면 실패로 처리**한다. `// "ok"` 기본값은 제거한다 —
   "필드가 없다"를 "성공"으로 읽는 것이 §1 이 지적한 바로 그 거짓 신호다.
 - `issues` 비어 있음이 **실제로 성공 판정에 반영**돼야 한다(현행은 반영되지 않는다).
@@ -267,7 +272,7 @@ Step 4 판정 → Step 5 수정 → Step 6 재리뷰 → [루프 종료 판정]
 | 호출자 **외부**의 fail-closed | `pre-commit` hook — 오케스트레이터가 타이핑하지 않아도 돈다 |
 | 정상 3경로 통과·"측정 건너뜀"만 차단 | 리뷰 없음=통과 · 리뷰 실패=발행 후 **기록 커밋 통과**(초안 결과서도 자유) · 성공+attestation=통과. 차단은 **체크박스를 켤 때** ① attestation 부재 ② `claim_ref` 불일치 ③ terminal 이 `failed`/`degraded-blocked` — 이 셋뿐 |
 | 우회가 복구보다 어려움 | 우회=게이트 체크박스를 켜지 않기(= **완료를 기록하지 못함**) · 복구=`emit-attestation.sh` 1회 |
-| 판정 대상 = 산출물 실재 | scorecard `eval_status`·`issues` 비지 않음 · summary append 행 · attestation 해시 일치. **빈 원장은 `eval-empty`** |
+| 판정 대상 = 산출물 실재 | scorecard `eval_status == "ok"` · 영속 추세 레코드 append 행 · attestation 해시 일치. **`issues` 길이는 판정에 쓰지 않는다**(결함 0건 수렴은 정상·§7) |
 
 ## 9-1. 이 강제가 막는 것과 막지 못하는 것 (위협 모델)
 

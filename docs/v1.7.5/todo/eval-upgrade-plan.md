@@ -202,7 +202,7 @@
 - [x] 호출자 **외부** — `pre-commit` hook
 - [x] 3경로 통과 — 리뷰 없음=통과 · 리뷰 실패=발행 후 통과 · 성공+attestation=통과. **리뷰 흔적+attestation 부재**만 차단
 - [x] 우회=리뷰 산출물 삭제(라운드 인용 근거가 함께 소멸) · 복구=`emit-attestation.sh` 1회 → **복구가 더 쉽다**
-- [x] 판정 대상 = **산출물 3종의 존재와 무결성**(scorecard `eval_status`·`issues` 비지 않음 / summary append 행 / attestation 해시 일치). **빈 원장은 `eval-empty`** — 현행이 `alignment=null·warnings=[]` 를 "발행"으로 보고하는 결함(B0 §5 실측)을 구현 범위에 포함
+- [x] 판정 대상 = **산출물 3종의 존재와 무결성**(scorecard `eval_status == "ok"` / 영속 추세 레코드 append 행 / attestation 해시 일치). **`issues` 길이는 판정에 쓰지 않는다** — 결함 0건 수렴은 정상이고, 그걸 막으면 거짓 결함을 지어내야 한다(R3 agy). `eval_status` 는 `ok`/`eval-empty`(원장 부재·파손)/`eval-failed`(리뷰 실패·생성 실패)/`eval-unavailable`(도구 부재) **넷이 서로 겹치지 않는다**(R8 codex). 현행이 `alignment=null·warnings=[]` 를 "발행"으로 보고하는 결함(B0 §5 실측)을 구현 범위에 포함
 
 ### 게이트
 - [ ] 설계서 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
