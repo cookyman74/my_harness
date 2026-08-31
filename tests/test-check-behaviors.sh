@@ -327,6 +327,31 @@ new_case nodup; behavior . alpha '왜' '실패'; agent a1 alpha
 OUT="$(run)"
 hasi '중복 키' && no "중복 없는 정상 파일을 오탐" || ok "중복 검사가 정상 파일을 오탐하지 않음"
 
+# R10 codex HIGH — `name :`(콜론 앞 공백)·`"name":`(따옴표)는 유효 YAML 인데
+# `^key:` 정규식에 안 걸려 중복 키·dead 참조가 숨을 수 있던 것
+new_case odd-def; behavior . alpha '왜' '실패'
+printf -- '---\nname: a1\ndescription: t\nbehaviors: [alpha]\nbehaviors : [nosuch]\n---\n## 역할\n내용\n' > "$CASE/.claude/agents/a1.md"
+OUT="$(run)"
+hasi '비정규' && ok "콜론 앞 공백 키 검출(숨은 중복 차단)" || no "비정규 키를 조용히 통과: $OUT"
+[ "$(rc_of)" != 0 ] && ok "비정규 키 exit≠0" || no "비정규 키인데 exit 0"
+
+new_case quoted-def; behavior . alpha '왜' '실패'
+printf -- '---\nname: a1\ndescription: t\nbehaviors: [alpha]\n"behaviors": [nosuch]\n---\n## 역할\n내용\n' > "$CASE/.claude/agents/a1.md"
+OUT="$(run)"
+hasi '비정규' && ok "따옴표 키 검출" || no "따옴표 키 통과: $OUT"
+
+new_case odd-spec; behavior . alpha '왜' '실패'; agent a1 alpha
+python3 -c "
+import io,sys
+p=sys.argv[1]; t=io.open(p,encoding='utf-8').read()
+io.open(p,'w',encoding='utf-8').write(t.replace('description:','description :',1))" "$CASE/.agents/behaviors/alpha/BEHAVIOR.md"
+OUT="$(run)"
+hasi '비정규' && ok "스펙 비정규 키 검출" || no "스펙 비정규 키 통과: $OUT"
+
+new_case canon; behavior . alpha '왜' '실패'; agent a1 alpha
+OUT="$(run)"
+hasi '비정규' && no "정규 표기를 오탐" || ok "정규 `key:` 표기는 통과"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"

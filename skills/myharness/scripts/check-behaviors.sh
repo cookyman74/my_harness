@@ -28,6 +28,16 @@ no(){ echo "✗ $1"; fail=$((fail+1)); }
 # (R9 codex HIGH): `behaviors: [alpha]` 뒤에 `behaviors: [nosuch]` 를 두면 앞 값만 보고 통과한다.
 # 값을 골라 읽는 대신 **중복 자체를 금지**한다(fail-closed). 인자: frontmatter 본문.
 # 출력: 중복된 키 이름들(없으면 빈 문자열).
+# 정규 표기가 아닌 최상위 키를 찾는다(R10 codex HIGH). `name :`(콜론 앞 공백)·`"name":`(따옴표)
+# 는 **유효한 YAML 인데** 이 스크립트의 `^key:` 정규식에 안 걸린다 → `dup_keys` 도 참조 스캔도
+# 그 줄을 못 봐서, 숨은 중복 키나 dead `behaviors` 를 넣어도 통과한다.
+# YAML 파서를 들이는 대신 **정규 표기(`key:`)만 받는다.**
+odd_keys(){
+  printf '%s\n' "$1" | sed -n -e 's/\r$//' \
+    -e 's/^\([A-Za-z_][A-Za-z0-9_-]*\)[[:space:]][[:space:]]*:.*$/\1/p' \
+    -e 's/^\(["'"'"'][^"'"'"']*["'"'"']\)[[:space:]]*:.*$/\1/p' \
+    | sort -u | tr '\n' ' ' | sed 's/[[:space:]]*$//'
+}
 dup_keys(){
   printf '%s\n' "$1" | sed -n -e 's/\r$//' -e 's/^\([A-Za-z_][A-Za-z0-9_-]*\):.*$/\1/p' \
     | sort | uniq -d | tr '\n' ' ' | sed 's/[[:space:]]*$//'
@@ -68,6 +78,10 @@ for d in "$BDIR"/*; do
   fm_end="$(awk 'NR>1 { sub(/\r$/,""); if ($0 ~ /^---[[:space:]]*$/) { print NR; exit } }' "$f")"
   if [ -z "$fm_end" ]; then no "$dname: frontmatter 미종료 (건너뜀)"; continue; fi
   fm="$(sed -n "2,$((fm_end-1))p" "$f")"
+  odds="$(odd_keys "$fm")"
+  if [ -n "$odds" ]; then
+    no "$dname: frontmatter 키 표기가 비정규다 — $odds (`key:` 형태만 받는다·건너뜀)"; continue
+  fi
   dups="$(dup_keys "$fm")"
   if [ -n "$dups" ]; then
     no "$dname: frontmatter 에 중복 키가 있다 — $dups (뒤 값이 무시된다·건너뜀)"; continue
@@ -140,7 +154,11 @@ scan_defs(){
       no "$f: frontmatter 가 닫히지 않았다 (참조 검사 불가)"; continue
     fi
     fm="$(sed -n "2,$((fm_end-1))p" "$f")"
-    dups="$(dup_keys "$fm")"
+    odds="$(odd_keys "$fm")"
+  if [ -n "$odds" ]; then
+    no "$f: frontmatter 키 표기가 비정규다 — $odds (`key:` 형태만 받는다·참조 검사 불가)"; continue
+  fi
+  dups="$(dup_keys "$fm")"
     if [ -n "$dups" ]; then
       no "$f: frontmatter 에 중복 키가 있다 — $dups (뒤 값이 무시된다·참조 검사 불가)"; continue
     fi
