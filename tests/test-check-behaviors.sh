@@ -148,6 +148,38 @@ OUT="$(run)"
 has 'REF .agents/skills/s9/SKILL.md -> nosuch' && ok "Codex 스킬도 스캔 대상" || no "Codex 스킬 누락: $OUT"
 has 'dead' && ok "Codex 스킬의 끊긴 참조 검출" || no "Codex 스킬 끊긴 참조 미검출"
 
+# R3 codex HIGH — flow sequence `behaviors: [a, b]` 를 통째로 못 읽어 dead 참조가 exit 0 이던 것
+new_case flow; behavior . alpha '왜' '실패'
+printf -- '---\nname: a1\ndescription: t\nbehaviors: [alpha, nosuch]\n---\n## 역할\n내용\n' > "$CASE/.claude/agents/a1.md"
+OUT="$(run)"
+has 'REF .claude/agents/a1.md -> alpha' && ok "flow sequence 첫 항목 읽음" || no "flow 미파싱: $OUT"
+has 'REF .claude/agents/a1.md -> nosuch' && ok "flow sequence 둘째 항목 읽음" || no "flow 둘째 미파싱"
+has 'dead' && ok "flow 안의 끊긴 참조 검출" || no "flow dead 미검출"
+[ "$(rc_of)" != 0 ] && ok "flow dead 참조 exit≠0" || no "flow dead 인데 exit 0 — 거짓 통과"
+
+# R3 agy HIGH — 들여쓰기 없는 유효한 블록 항목 `- foo` 를 "다음 키"로 오인해 목록을 즉시 닫던 것
+new_case unindented; behavior . alpha '왜' '실패'
+printf -- '---\nname: a1\ndescription: t\nbehaviors:\n- alpha\n- nosuch\nmodel: opus\n---\n## 역할\n내용\n' > "$CASE/.claude/agents/a1.md"
+OUT="$(run)"
+has 'REF .claude/agents/a1.md -> alpha' && ok "들여쓰기 없는 항목 읽음" || no "들여쓰기 없는 항목 누락: $OUT"
+has 'REF .claude/agents/a1.md -> nosuch' && ok "들여쓰기 없는 둘째 항목 읽음" || no "둘째 항목 누락"
+has 'REF .claude/agents/a1.md -> model: opus' && no "다음 키를 참조로 오인" || ok "다음 키에서 목록 종료"
+[ "$(rc_of)" != 0 ] && ok "들여쓰기 없는 dead 참조 exit≠0" || no "exit 0 — 조용한 축소"
+
+# 해석 못 하는 형태는 fail-closed
+new_case weird; behavior . alpha '왜' '실패'
+printf -- '---\nname: a1\ndescription: t\nbehaviors: alpha\n---\n## 역할\n내용\n' > "$CASE/.claude/agents/a1.md"
+OUT="$(run)"
+hasi '해석할 수 없다' && ok "미지원 표기는 fail-closed" || no "미지원 표기를 조용히 통과: $OUT"
+[ "$(rc_of)" != 0 ] && ok "미지원 표기 exit≠0" || no "미지원 표기 exit 0"
+
+# 주석이 붙은 항목
+new_case comment; behavior . alpha '왜' '실패'
+printf -- '---\nname: a1\ndescription: t\nbehaviors:\n  - alpha  # 왜 참조하는지\n---\n## 역할\n내용\n' > "$CASE/.claude/agents/a1.md"
+OUT="$(run)"
+has 'REF .claude/agents/a1.md -> alpha' && ok "항목 뒤 주석 제거" || no "주석이 참조에 섞임: $OUT"
+[ "$(rc_of)" = 0 ] && ok "주석 붙은 정상 참조 통과" || no "주석 때문에 오탐"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"

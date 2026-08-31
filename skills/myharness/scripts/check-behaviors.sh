@@ -107,14 +107,40 @@ scan_defs(){
     [ -n "$fm_end" ] || continue
     fm="$(sed -n "2,$((fm_end-1))p" "$f")"
     printf '%s\n' "$fm" | grep -qE '^behaviors:' || continue
-    inlist=0
+    # `behaviors:` 값 파싱 — YAML 의미를 bash 로 근사하는 대신 **인식한 두 형태만 받고
+    # 나머지는 fail-closed** 한다. 근사는 계속 샜다:
+    #   R3 codex HIGH — flow sequence `behaviors: [a, b]` 를 통째로 못 읽어 dead 참조가 exit 0.
+    #   R3 agy  HIGH — 종료 조건 `[!\ ]*` 가 **들여쓰기 없는 유효한 항목 `- foo` 에도 매치**돼
+    #                  목록을 즉시 닫았다. 들여쓰지 않은 참조는 모조리 0건 검사 후 조용히 통과.
+    inline="$(printf '%s\n' "$fm" | sed -n 's/^behaviors:[[:space:]]*//p' | head -1 | sed 's/[[:space:]]*#.*$//' | tr -d '\r')"
+    refs_raw=""
+    case "$inline" in
+      "")   :  ;;                                   # 블록 시퀀스 — 아래에서 읽는다
+      \[*\]) refs_raw="$(printf '%s' "$inline" | sed -e 's/^\[//' -e 's/\]$//' | tr ',' '\n')" ;;
+      *)    no "$f: behaviors: 값 '$inline' 을 해석할 수 없다 — 블록 시퀀스나 [a, b] 만 지원한다"
+            continue ;;
+    esac
+    if [ -z "$inline" ]; then
+      inlist=0
+      while IFS= read -r line; do
+        case "$line" in
+          behaviors:*) inlist=1; continue ;;
+          [!\ -]*)    [ "$inlist" = 1 ] && inlist=0 ;;   # 들여쓰기 없는 **다음 키** → 목록 종료.
+                                                        # `-` 로 시작하는 줄은 들여쓰지 않아도 항목이다.
+        esac
+        [ "$inlist" = 1 ] || continue
+        case "$line" in
+          [[:space:]]*|-*) ;;                            # 항목 후보
+          *) continue ;;
+        esac
+        printf '%s\n' "$line" >> /dev/null
+        refs_raw="$refs_raw
+$line"
+      done <<< "$fm"
+    fi
     while IFS= read -r line; do
-      case "$line" in
-        behaviors:*) inlist=1; continue ;;
-        [!\ -]*|[!\ ]*) [ "$inlist" = 1 ] && inlist=0 ;;   # 들여쓰기 없는 다음 키 → 목록 종료
-      esac
-      [ "$inlist" = 1 ] || continue
-      ref="$(printf '%s' "$line" | sed -n 's/^[[:space:]]*-[[:space:]]*//p' | tr -d '\r"'"'" | sed 's/[[:space:]]*$//')"
+      [ -n "$line" ] || continue
+      ref="$(printf '%s' "$line" | sed -e 's/[[:space:]]*#.*$//' -e 's/^[[:space:]]*//' -e 's/^-[[:space:]]*//' | tr -d '\r"'"'" | sed 's/[[:space:]]*$//')"
       [ -n "$ref" ] || continue
       echo "REF $f -> $ref"
       USED+=("$ref")
@@ -124,7 +150,7 @@ scan_defs(){
       elif ! is_valid "$ref"; then
         no "$f: dead 참조 '$ref' — $BDIR/$ref 가 없거나 무효하다"
       fi
-    done <<< "$fm"
+    done <<< "$refs_raw"
   done
 }
 defs=()
