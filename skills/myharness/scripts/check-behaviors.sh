@@ -34,13 +34,19 @@ no(){ echo "✗ $1"; fail=$((fail+1)); }
 # YAML 파서를 들이는 대신 **정규 표기(`key:`)만 받는다.**
 odd_keys(){
   # `behaviors:` 블록의 항목·주석은 들여쓰기가 정상이므로 제외하고 본다.
+  # **블록 스칼라(`key: |` · `key: >`) 본문도 제외한다** — 그 안은 리터럴 텍스트라
+  # `  참고: …` 같은 줄을 키로 오인하면 정상 정의가 거짓 실패한다(TS 와 같은 규칙·R4 codex HIGH).
   printf '%s\n' "$1" | sed -e 's/\r$//' | awk '
     { line = $0 }
+    ins && line ~ /^[[:space:]]+[^[:space:]]/ { next }
+    ins && line ~ /^[[:space:]]*$/            { next }
+    { ins = 0 }
     line ~ /^behaviors:/            { inb = 1; next }
     inb && line ~ /^[[:space:]]*$/  { next }
     inb && line ~ /^[[:space:]]*#/  { next }
     inb && line ~ /^[[:space:]]*-/  { next }
     { inb = 0 }
+    line ~ /^[A-Za-z_][A-Za-z0-9_-]*:[[:space:]]*[|>][0-9]*[-+]?[[:space:]]*$/ { ins = 1; next }
     line ~ /^[A-Za-z_][A-Za-z0-9_-]*[[:space:]]+:/            { print line; next }  # 콜론 앞 공백
     line ~ /^["'"'"'][^"'"'"']*["'"'"'][[:space:]]*:/          { print line; next }  # 따옴표 키
     line ~ /^[[:space:]]+[A-Za-z_"'"'"'][^:]*:/                { print line; next }  # 들여쓴 키

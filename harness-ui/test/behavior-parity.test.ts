@@ -101,6 +101,15 @@ describe("B5 — TS ↔ CLI 판정 일치", () => {
       await writeAgentRaw(goodFm("behaviors:\n  - hc2"));
       await writeSpecRaw("hc2", "---\nname: hc2\ndescription: 정상\n---\n## Intent\n<!-- 참고 -->실제 의도\n## Failure modes\n실패\n");
     }],
+    ["정의 블록 스칼라 안 key-like 줄", async () => {
+      await writeFile(join(root, ".claude", "agents", "a1.md"),
+        `---\nname: a1\ndescription: t\nnotes: |\n  behaviors: 이건 본문이다\n  name: 이것도 본문\nbehaviors:\n  - gate\n---\n${BODY}`);
+      await writeSpecRaw("gate", goodSpec("gate"));
+    }],
+    ["스펙 블록 스칼라 안 key-like 줄", async () => {
+      await writeAgentRaw(goodFm("behaviors:\n  - bs"));
+      await writeSpecRaw("bs", "---\nname: bs\nnotes: >\n  name: 본문이다\ndescription: 정상\n---\n## Intent\n의도.\n## Failure modes\n실패.\n");
+    }],
     ["스펙 과대(256KB 초과)", async () => {
       await writeAgentRaw(goodFm("behaviors:\n  - big"));
       const pad = Array.from({ length: 9000 }, (_, i) => `padding line padding line ${i}`).join("\n");
