@@ -33,7 +33,8 @@
 
 | # | 산출물 | 무결성 조건 |
 |---|---|---|
-| A | `scorecard.json` | `eval_status == "ok"` · `stage_id`/`run_id` 가 attestation 과 일치 |
+| A | `scorecard.json` | `stage_id`/`run_id` 가 attestation 과 일치. **`eval_status == "ok"` 는 완료 주장에만 요구**(아래) |
+| | ⚠ **`eval_status == "ok"` 는 트리거마다 다르다**(R26 agy HIGH) | **기록 커밋**(`termination_reason` 기재)에는 요구하지 않는다 — `eval-failed`(리뷰 실패)도 통과해야 §7 의 "실패 기록은 언제나 커밋된다"가 성립한다. 무결성 조건을 일괄 적용하면 **실패 기록을 영원히 커밋 못 하는 제약 ⑧ 교착**이 재발한다. **완료 주장**(체크박스 전환)에만 `ok` 를 요구한다 |
 | | ⚠ **`issues` 비어 있음을 무조건 실패로 보지 않는다** | **결함 0건 수렴은 정당한 결과다**(R3 agy HIGH). 처음엔 "`issues` 비지 않음"을 무결성 조건에 넣었는데, 그러면 **완벽한 산출물이 첫 라운드에 clean 수렴하면 커밋이 영구 차단**되고 게이트를 통과하려면 **거짓 결함을 지어내야** 한다 — 제약 ⑧ 교착의 변종이다. **판정은 `termination_reason` 이 한다**(아래 §7) |
 | | ⚠ **생산자·소비자 계약을 함께 고쳐야 한다** | 실측(R2 codex HIGH): **정상 경로의 scorecard 에는 `eval_status` 필드가 아예 없고**, `emit-loop-scorecard.sh:26` 은 `.eval_status // "ok"` 로 **없으면 성공으로 간주**한다. 지금 계약대로면 형식이 깨졌거나 빈 scorecard 가 그대로 통과하고 `eval-empty` 차단 의도도 무력해진다 |
 | B | **영속 추세 레코드**(`docs/{project}/_eval/trend.jsonl`) | A 와 같은 `stage_id`·`rounds`·`termination_reason` · **append 성공이 확인돼야 한다**(실패 시 `eval-error`·§7) |
@@ -170,7 +171,7 @@ R4~R11 의 왕복이 여기서 수렴했다. 둘을 하나로 묶으려 할 때�
 
 | 커밋에 들어 있는 것 | 요구 |
 |---|---|
-| **게이트 체크박스 `[ ]` → `[x]` 전환**(= 최초 완료 주장) | attestation **존재 + `loop_instance_id` 1:1 일치 + `claim_ref` 해시 일치 + terminal 정상**(§7) |
+| **게이트 체크박스 `[ ]` → `[x]` 전환**(= 최초 완료 주장) | attestation **존재 + `stage:`↔id↔attestation 3자 일치 + `claim_ref` 해시 일치 + terminal 정상 + scorecard `eval_status == "ok"`**(§7) |
 
 > ⚠ **hook 이 대조하려면 그 값이 커밋 안에 있어야 한다**(R19 agy HIGH). 처음엔 "`loop_instance_id`
 > 가 그 stage 의 것인지" 본다고만 적었는데, **결과서·계획서 어디에도 그 값이 없어** hook 은
@@ -182,10 +183,19 @@ R4~R11 의 왕복이 여기서 수렴했다. 둘을 하나로 묶으려 할 때�
 > 적어 **hook 이 diff 만으로 1:1 대조**할 수 있게 한다:
 >
 > ```markdown
-> - [x] 외부리뷰 R1~R16 · 2연속 HIGH 0 · `loop: b2-behavior-dims@2026-09-01T02:40:11.902Z@9f3a1c07`
+> - [x] 외부리뷰 R1~R16 · 2연속 HIGH 0 · `stage: b2-behavior-dims` · `loop: b2-behavior-dims@2026-09-01T02:40:11.902Z@9f3a1c07`
 > ```
 >
 > hook 은 그 값으로 attestation 파일을 **정확히 지목**한다. 값이 없거나 파일이 없으면 차단한다.
+>
+> ⚠ **`stage:` 를 함께 적고 세 값을 교차 대조한다**(R26 agy HIGH). id 만 보면
+> **다른 단계의 attestation 을 도용**할 수 있다: B1 을 리뷰 없이 완료하려 할 때 이미 성공한
+> **B0 의 `loop_instance_id` 를 적으면** hook 이 B0 의 attestation 을 읽고 B0 의 결과서 해시와
+> terminal 을 검사하는데, B0 파일을 안 건드렸으면 **전부 통과**한다. 제약 ⑪의 또 다른 변종이다.
+> → hook 은 ① **체크박스가 속한 단계**(그 줄의 `stage:`) ② `loop_instance_id` 의 stage 부분
+> ③ attestation 의 `stage_id` **셋이 모두 같을 때만** 인정한다.
+> *`stage:` 를 줄에 명시하게 하는 이유는 diff 만으로 "이 체크박스가 어느 단계 것인지"를
+> 안정적으로 알 수 없기 때문이다 — 헤딩 파싱에 기대면 문서 구조 변경에 깨진다.*
 | **이미 `[x]` 인 단계**의 결과서 수정 | **요구 없음**(§4 와 같은 이유 — 아래) |
 | 아직 `[ ]` 인 단계의 결과서에 **`termination_reason` 이 적힘**(= 루프가 끝났다는 주장) | **attestation 존재**만 요구(terminal 종류·해시는 안 본다) |
 | 아직 `[ ]` 인 단계의 **순수 초안**(라운드 결과 서술 없음) | **요구 없음** |
@@ -385,7 +395,7 @@ scorecard·attestation 이 있어도 **영속 원장 누락이 성공처럼 통�
 | 기준 | 이 설계 |
 |---|---|
 | 호출자 **외부**의 fail-closed | `pre-commit` hook — 오케스트레이터가 타이핑하지 않아도 돈다 |
-| 정상 3경로 통과·"측정 건너뜀"만 차단 | 리뷰 없음=통과 · **순수 초안**=통과 · **루프 중간 커밋**=통과 · 리뷰 실패=발행 후 **기록 커밋 통과** · **이미 `[x]` 인 단계의 사후 수정**=통과. 차단은 ① **`termination_reason` 을 적었는데 attestation 부재** ② **`[ ]`→`[x]` 전환 시** `loop_instance_id` 불일치 · `claim_ref` 해시 불일치 · terminal 이 `failed` |
+| 정상 3경로 통과·"측정 건너뜀"만 차단 | 리뷰 없음=통과 · **순수 초안**=통과 · **루프 중간 커밋**=통과 · 리뷰 실패=발행 후 **기록 커밋 통과**(`eval-failed` 도 통과 — `ok` 를 요구하지 않는다) · **이미 `[x]` 인 단계의 사후 수정**=통과. 차단은 ① **`termination_reason` 을 적었는데 attestation 부재** ② **`[ ]`→`[x]` 전환 시** stage 3자 불일치 · `claim_ref` 해시 불일치 · terminal 이 `failed`/`degraded-blocked` · `eval_status != "ok"` |
 | 우회가 복구보다 어려움 | 우회=게이트 체크박스를 켜지 않기(= **완료를 기록하지 못함**) · 복구=`emit-attestation.sh` 1회 |
 | 판정 대상 = 산출물 실재 | scorecard `eval_status == "ok"` · 영속 추세 레코드 append 행 · attestation 해시 일치. **`issues` 길이는 판정에 쓰지 않는다**(결함 0건 수렴은 정상·§7) |
 
@@ -400,7 +410,8 @@ summary·attestation 을 손으로 일관되게 지어내면 통과한다.** 맞
 | **측정을 잊는다**(실제 실패 2회의 원인) | **막는다** | 결과서에 **`termination_reason` 을 적으면**(루프 종료 주장) attestation 이 없어 차단된다(성공·실패 모두) |
 | 측정을 **귀찮아서 건너뛴다** | **막는다** | 우회하려면 완료 기록을 포기해야 한다(§5) |
 | 실패했는데 **완료로 적는다** | **막는다** | terminal 이 `failed`/`degraded-blocked` 면 체크박스 커밋이 차단된다(§7) |
-| stale attestation **재사용**(체크박스를 켜는 시점) | **막는다** | `loop_instance_id` 1:1 지목(R19) **+ `claim_ref` 해시 일치**(R20). id 만 보면 **과거 성공 루프의 id 를 복사**해 terminal 검사까지 통과한다 — 해시가 그 루프의 결과서 내용과 묶여 있어야 복사가 막힌다 |
+| stale attestation **재사용**(같은 단계의 과거 루프) | **막는다** | `loop_instance_id` 1:1 지목(R19) **+ `claim_ref` 해시 일치**(R20) |
+| **다른 단계의 attestation 도용** | **막는다** | 체크박스 줄의 `stage:` ↔ id 의 stage 부분 ↔ attestation 의 `stage_id` **3자 일치**(R26). 이게 없으면 B0 의 id 를 적어 B1 을 통과시킬 수 있다 |
 | 완료 **후** 결과서를 고쳐 증거를 어긋나게 함 | **커밋은 막지 않는다** | 휘발 산출물이 사라져 재발급이 불가하므로 막으면 교착이다. **해시 불일치가 사후 감사에 드러난다**(R13 agy) |
 | **의도적 위조** — 파일 묶음을 손으로 지어낸다 | **막지 못한다** | 모든 증거가 커밋 안에 있고, 커밋 작성자는 그 전부를 쓸 수 있다 |
 
