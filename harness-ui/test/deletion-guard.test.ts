@@ -29,6 +29,14 @@ describe("B4 — 1층: 결정적 가드(불변)", () => {
     "이렇게 하면 안 된다.",
     "You must not skip the gate.",
     "Never delete conflicting data.",
+    "이 단계는 안됨.",
+    "우회는 불가.",
+    "그 방식은 금한다.",
+    "You should not bypass the gate.",
+    "This is prohibited.",
+    "The runner cannot proceed.",
+    "반드시 결과서를 남긴다.",
+    "always record the outcome",
   ])("핵심 제약 문장은 섹션과 무관하게 거부 — %s", (line) => {
     const v = g({ line, sectionHeading: "## 부록", dynamicGate: pass });
     expect(v.autoApply).toBe(false);
@@ -51,8 +59,39 @@ describe("B4 — 2층: behavior 보존 가드(AND 추가)", () => {
     };
     const v = g({ line: src[dim]!, sectionHeading: "## 부록", dynamicGate: pass });
     expect(v.autoApply).toBe(false);
+    // 층은 `deterministic`(제약 어휘가 먼저 걸림) 또는 `behavior` 둘 다 정당하다 —
+    // **거부된다는 사실**이 계약이고, 결정적 층이 먼저 잡는 것은 의도된 우선순위다.
+    expect(["deterministic", "behavior"]).toContain(v.layer);
+  });
+
+  it("결정적 층이 안 잡는 문장도 behavior 층이 잡는다 — 2층이 실제로 동작한다", () => {
+    // 제약 어휘가 없는 순수 서술 문장. Evidence 에 같은 내용이 있다.
+    const v = g({ line: "종료코드와 출력으로 판단한다", sectionHeading: "## 부록", dynamicGate: pass });
+    expect(v.autoApply).toBe(false);
     expect(v.layer).toBe("behavior");
-    expect(v.reason).toContain(dim);
+    expect(v.reason).toContain("Evidence");
+  });
+
+  it("소문자 heading 도 매칭된다 — `## failure modes` 로 방어선을 우회할 수 없다", () => {
+    const lower = new Map([["b", "## intent\n의도.\n## failure modes\n검사가 도는 것처럼 보이지만 안 도는 경우를 의심한다.\n"]]);
+    const v = deletionGuard({ line: "검사가 도는 것처럼 보이지만 안 도는 경우를 의심한다", sectionHeading: "## 부록",
+      kind: "agent", behaviorBodies: lower, dynamicGate: pass });
+    expect(v.layer).toBe("behavior");
+  });
+
+  it("heading 뒤 공백·CRLF 가 있어도 섹션 본문 검사가 생략되지 않는다(indexOf 의존 제거)", () => {
+    const messy = new Map([["b", "## Decision  \r\n세 층이 모두 통과해야 정본 변경을 승인한다.\r\n"]]);
+    const v = deletionGuard({ line: "세 층이 모두 통과해야 정본 변경을 승인한다", sectionHeading: "## 부록",
+      kind: "agent", behaviorBodies: messy, dynamicGate: pass });
+    expect(v.layer).toBe("behavior");
+  });
+
+  it("길이 차가 큰 대응도 잡는다 — overlap 계수(자카드였으면 놓쳤다)", () => {
+    const m = new Map([["b", "## Recovery\nYou must not skip this phase under any circumstance.\n"]]);
+    // 후보는 짧다. 자카드였다면 2/7≈0.28 로 임계 미달이었다.
+    const v = deletionGuard({ line: "skip this phase", sectionHeading: "## 부록",
+      kind: "agent", behaviorBodies: m, dynamicGate: pass });
+    expect(v.autoApply).toBe(false);
   });
 
   it("⚠ `Failure modes` 가 보존 대상에 들어 있다 — 빠지면 금지 문장이 방어선을 우회한다", () => {

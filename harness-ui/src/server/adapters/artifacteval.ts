@@ -161,7 +161,7 @@ export function scanPointers(body: string): PointerScan {
 
 // 본문을 heading 단위로 쪼갠다(R11 양 엔진 — 현행엔 "특정 heading 에 속한 본문"을 보는 로직이
 // 없었다). 각 섹션의 **실체 줄**(포인터 아닌 내용)과 **포인터**를 함께 센다.
-export type Section = { heading: string; pointers: string[]; substantive: number };
+export type Section = { heading: string; pointers: string[]; substantive: number; lines: string[] };
 export function splitSections(body: string): Section[] {
   const ls = lines(body);
   const out: Section[] = [];
@@ -169,7 +169,7 @@ export function splitSections(body: string): Section[] {
   const flush = (): void => {
     if (!head && cur.length === 0) return;
     const sc = scanPointers(cur.join("\n"));
-    out.push({ heading: head, pointers: sc.pointers, substantive: sc.nonPointerLines });
+    out.push({ heading: head, pointers: sc.pointers, substantive: sc.nonPointerLines, lines: [...cur] });
   };
   let inFence = false, tok = "";
   for (const raw of ls) {
