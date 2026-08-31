@@ -284,7 +284,23 @@ Step 8 (측정 꼬리)               ← scorecard·summary 발행. 조건문 �
 |---|---|
 | 루프 안 Step 7 | 라운드별 수정 커밋. **강제 대상 아님** — `termination_reason` 이 아직 없다 |
 | 루프 종료 후 Step 8 | **측정 꼬리 + attestation 발행**(모든 종료 경로 공통) |
-| 그 **다음** 커밋 | 결과서에 `termination_reason` 을 적거나 체크박스를 켜는 커밋 → **hook 이 검증** |
+| 그 **다음** 커밋 | 결과서·체크박스를 담은 커밋 → **hook 이 검증** |
+
+**Step 8 안의 순서를 못 박는다**(R30 agy HIGH — 안 정하면 해시 대상이 언제 확정되는지 모호해
+정상 경로가 교착으로 읽힌다):
+
+```
+① 결과서 확정   — `termination_reason` · `stage:` · `loop:` 를 적어 **파일을 완성**한다
+② attestation 발행 — `claim_ref` = ①의 **결과서 경로 + sha256**. 측정 꼬리도 여기서
+③ 커밋          — 결과서 + attestation + (완료면) 계획서 체크박스 `[x]`
+```
+
+**순환이 없다:** 결과서는 attestation 을 참조하지 않고(`loop_instance_id` 는 루프 개시 때 이미
+정해져 있다), attestation 이 결과서를 참조한다. 한 방향이다.
+
+⚠ **체크박스는 계획서(`todo/*.md`)에 있고 `claim_ref` 는 결과서(`working_history/*.md`)를
+해시한다 — 다른 파일이다.** 체크박스를 켜는 행위가 해시 대상을 바꾸지 않으므로
+"켜는 순간 해시가 어긋난다"는 교착은 성립하지 않는다. 둘을 한 커밋에 담아도 된다.
 
 `gate_action`·override 는 Step 7 승인 관문에서 확정되므로 Step 8 시점엔 이미 정해져 있다 —
 제약 ②(런처가 미리 쓸 수 없다)를 구조적으로 회피한다.
