@@ -49,6 +49,22 @@ describe("B4 — 1층: 결정적 가드(불변)", () => {
     "휘발 경로에 의존하지 않는다.",
     "게이트를 먼저 통과해야 합니다.",
     "이 값은 고정한다.",
+    // R5 agy HIGH — 어미 하나씩 추가하는 방식이 세 번째로 뚫린 예시들.
+    "접근을 금합니다.",
+    "호출을 금하므로 우회한다.",
+    "그것은 금할 것.",
+    "이 경로는 제외합니다.",
+    "무결성을 보장합니다.",
+    "그 값은 고정합니다.",
+    "건드리지 마세요.",
+    "지우지 마.",
+    "섞지 마라.",
+    "사용을 삼갑니다.",
+    "This prohibits direct access.",
+    "The gate denies unsigned commits.",
+    "We exclude volatile paths.",
+    "Access is restricted.",
+    "This guarantees ordering.",
   ])("핵심 제약 문장은 섹션과 무관하게 거부 — %s", (line) => {
     const v = g({ line, sectionHeading: "## 부록", dynamicGate: pass });
     expect(v.autoApply).toBe(false);
@@ -74,6 +90,17 @@ describe("B4 — 2층: behavior 보존 가드(AND 추가)", () => {
     // 층은 `deterministic`(제약 어휘가 먼저 걸림) 또는 `behavior` 둘 다 정당하다 —
     // **거부된다는 사실**이 계약이고, 결정적 층이 먼저 잡는 것은 의도된 우선순위다.
     expect(["deterministic", "behavior"]).toContain(v.layer);
+  });
+
+  // 과탐이 무제한이면 2층이 영영 안 돌아 가드가 1층짜리가 된다 — 경계를 고정한다.
+  it.each([
+    "종료코드와 출력으로 판단한다",
+    "등급은 전파 반경으로 정한다",
+    "결과서에 층별 결과를 남긴다",
+    "diff 를 받아 등급을 매긴다",
+  ])("제약 어휘가 없는 서술 문장은 1층에서 안 걸린다 — %s", (line) => {
+    const v = g({ line, sectionHeading: "## 부록", semanticJudge: judged, dynamicGate: pass });
+    expect(v.layer, "과탐으로 2층이 도달 불가가 됐다").not.toBe("deterministic");
   });
 
   it("결정적 층이 안 잡는 문장도 behavior 층이 잡는다 — 2층이 실제로 동작한다", () => {
