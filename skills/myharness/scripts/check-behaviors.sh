@@ -33,9 +33,18 @@ no(){ echo "✗ $1"; fail=$((fail+1)); }
 # 그 줄을 못 봐서, 숨은 중복 키나 dead `behaviors` 를 넣어도 통과한다.
 # YAML 파서를 들이는 대신 **정규 표기(`key:`)만 받는다.**
 odd_keys(){
-  printf '%s\n' "$1" | sed -n -e 's/\r$//' \
-    -e 's/^\([A-Za-z_][A-Za-z0-9_-]*\)[[:space:]][[:space:]]*:.*$/\1/p' \
-    -e 's/^\(["'"'"'][^"'"'"']*["'"'"']\)[[:space:]]*:.*$/\1/p' \
+  # `behaviors:` 블록의 항목·주석은 들여쓰기가 정상이므로 제외하고 본다.
+  printf '%s\n' "$1" | sed -e 's/\r$//' | awk '
+    { line = $0 }
+    line ~ /^behaviors:/            { inb = 1; next }
+    inb && line ~ /^[[:space:]]*$/  { next }
+    inb && line ~ /^[[:space:]]*#/  { next }
+    inb && line ~ /^[[:space:]]*-/  { next }
+    { inb = 0 }
+    line ~ /^[A-Za-z_][A-Za-z0-9_-]*[[:space:]]+:/            { print line; next }  # 콜론 앞 공백
+    line ~ /^["'"'"'][^"'"'"']*["'"'"'][[:space:]]*:/          { print line; next }  # 따옴표 키
+    line ~ /^[[:space:]]+[A-Za-z_"'"'"'][^:]*:/                { print line; next }  # 들여쓴 키
+  ' | sed -e 's/:.*$//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' \
     | sort -u | tr '\n' ' ' | sed 's/[[:space:]]*$//'
 }
 dup_keys(){
@@ -80,7 +89,7 @@ for d in "$BDIR"/*; do
   fm="$(sed -n "2,$((fm_end-1))p" "$f")"
   odds="$(odd_keys "$fm")"
   if [ -n "$odds" ]; then
-    no "$dname: frontmatter 키 표기가 비정규다 — $odds (`key:` 형태만 받는다·건너뜀)"; continue
+    no "$dname: frontmatter 키 표기가 비정규다 — $odds (정규 'key:' 형태만 받는다·건너뜀)"; continue
   fi
   dups="$(dup_keys "$fm")"
   if [ -n "$dups" ]; then
@@ -156,7 +165,7 @@ scan_defs(){
     fm="$(sed -n "2,$((fm_end-1))p" "$f")"
     odds="$(odd_keys "$fm")"
   if [ -n "$odds" ]; then
-    no "$f: frontmatter 키 표기가 비정규다 — $odds (`key:` 형태만 받는다·참조 검사 불가)"; continue
+    no "$f: frontmatter 키 표기가 비정규다 — $odds (정규 'key:' 형태만 받는다·참조 검사 불가)"; continue
   fi
   dups="$(dup_keys "$fm")"
     if [ -n "$dups" ]; then

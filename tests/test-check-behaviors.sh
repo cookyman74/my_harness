@@ -258,8 +258,9 @@ hasi '닫히지 않았다' && ok "frontmatter 미종료 정의를 fail" || no "�
 new_case bad-block; behavior . alpha '왜' '실패'
 printf -- '---\nname: a1\ndescription: t\nbehaviors:\n  - alpha\n  extra: value\n---\n## 역할\n내용\n' > "$CASE/.claude/agents/a1.md"
 OUT="$(run)"
-has 'REF .claude/agents/a1.md -> alpha' && ok "망가진 블록에서도 유효 항목은 읽음" || no "유효 항목 누락"
-hasi '항목이 아닌 들여쓴 줄' && ok "들여쓴 비항목 줄 검출" || no "들여쓴 비항목을 조용히 무시: $OUT"
+# `  extra: value` 는 **들여쓴 키**라 R12 부터 더 앞 단계(비정규 키 표기)에서 파일 전체가
+# 거부된다 — 신뢰할 수 없는 frontmatter 를 부분적으로 읽지 않는 쪽이 fail-closed 에 맞다.
+hasi '비정규\|항목이 아닌 들여쓴 줄' && ok "망가진 블록 검출" || no "망가진 블록을 조용히 무시: $OUT"
 [ "$(rc_of)" != 0 ] && ok "망가진 블록 exit≠0" || no "망가진 블록 exit 0"
 new_case good-nextkey; behavior . alpha '왜' '실패'
 printf -- '---\nname: a1\ndescription: t\nbehaviors:\n  - alpha\nmodel: opus\n---\n## 역할\n내용\n' > "$CASE/.claude/agents/a1.md"
@@ -364,6 +365,27 @@ new_case skip-clean                            # 스펙 없음 + 참조 없음 +
 OUT="$(run)"
 has 'BEHAVIORS: skipped' && ok "진짜 미적용은 여전히 skip" || no "정상 미적용을 skip 안 함: $OUT"
 [ "$(rc_of)" = 0 ] && ok "진짜 미적용 exit 0" || no "미적용인데 exit≠0"
+
+# R12 codex HIGH — 들여쓴 top-level 키(`  behaviors:`)가 `^key:` 에 안 걸려
+# dead 참조·0참조 선언이 조용히 빠지던 것
+new_case indented-key; behavior . alpha '왜' '실패'
+printf -- '---\nname: a1\ndescription: t\n  behaviors: [nosuch]\n---\n## 역할\n내용\n' > "$CASE/.claude/agents/a1.md"
+OUT="$(run)"
+hasi '비정규' && ok "들여쓴 키 검출" || no "들여쓴 키를 조용히 통과: $OUT"
+[ "$(rc_of)" != 0 ] && ok "들여쓴 키 exit≠0" || no "들여쓴 키인데 exit 0 — 거짓 통과"
+new_case indented-spec; behavior . alpha '왜' '실패'; agent a1 alpha
+python3 -c "
+import io,sys
+p=sys.argv[1]; t=io.open(p,encoding='utf-8').read()
+io.open(p,'w',encoding='utf-8').write(t.replace('description:','  description:',1))" "$CASE/.agents/behaviors/alpha/BEHAVIOR.md"
+OUT="$(run)"
+hasi '비정규' && ok "스펙 들여쓴 키 검출" || no "스펙 들여쓴 키 통과: $OUT"
+# behaviors 블록 항목·주석의 정상 들여쓰기는 오탐하지 않는다
+new_case indent-ok; behavior . alpha '왜' '실패'
+printf -- '---\nname: a1\ndescription: t\nbehaviors:\n  - alpha\n  # 주석\nmodel: opus\n---\n## 역할\n내용\n' > "$CASE/.claude/agents/a1.md"
+OUT="$(run)"
+hasi '비정규' && no "정상 블록 들여쓰기를 오탐: $OUT" || ok "블록 항목·주석 들여쓰기는 정상"
+[ "$(rc_of)" = 0 ] && ok "정상 들여쓰기 통과" || no "정상 들여쓰기 거부: $OUT"
 
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
