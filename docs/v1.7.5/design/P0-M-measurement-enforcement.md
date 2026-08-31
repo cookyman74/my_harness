@@ -36,7 +36,7 @@
 | A | `scorecard.json` | `eval_status == "ok"` · `stage_id`/`run_id` 가 attestation 과 일치 |
 | | ⚠ **`issues` 비어 있음을 무조건 실패로 보지 않는다** | **결함 0건 수렴은 정당한 결과다**(R3 agy HIGH). 처음엔 "`issues` 비지 않음"을 무결성 조건에 넣었는데, 그러면 **완벽한 산출물이 첫 라운드에 clean 수렴하면 커밋이 영구 차단**되고 게이트를 통과하려면 **거짓 결함을 지어내야** 한다 — 제약 ⑧ 교착의 변종이다. **판정은 `termination_reason` 이 한다**(아래 §7) |
 | | ⚠ **생산자·소비자 계약을 함께 고쳐야 한다** | 실측(R2 codex HIGH): **정상 경로의 scorecard 에는 `eval_status` 필드가 아예 없고**, `emit-loop-scorecard.sh:26` 은 `.eval_status // "ok"` 로 **없으면 성공으로 간주**한다. 지금 계약대로면 형식이 깨졌거나 빈 scorecard 가 그대로 통과하고 `eval-empty` 차단 의도도 무력해진다 |
-| B | **영속 추세 레코드** | A 와 같은 `stage_id`·`rounds`·`termination_reason` |
+| B | **영속 추세 레코드**(`docs/{project}/_eval/trend.jsonl`) | A 와 같은 `stage_id`·`rounds`·`termination_reason` · **append 성공이 확인돼야 한다**(실패 시 `eval-error`·§7) |
 | | ⚠ **`_workspace/evals/summary.jsonl` 은 휘발 경로다** | 수용 기준은 "**영속** 추세 레코드가 실제로 생성"을 요구하는데, attestation 만 `docs/` 로 옮기고 추세 원장을 `_workspace/`(gitignore)에 두면 **그 기준을 못 지킨다**(R5 agy HIGH). → **`docs/{project}/_eval/trend.jsonl` 을 영속 원장으로 두고** `_workspace` 의 것은 작업용 사본으로 남긴다. 검증 대상은 영속 쪽이다 |
 | C | **영속 attestation** | 아래 §2 |
 
@@ -56,7 +56,7 @@
   "opened_at": "2026-08-31T06:12:03Z",
   "rounds": [{ "run_id": "r1", "status": "completed", "reviewers": ["codex","agy"], "degraded": null }],
   "terminal": { "reason": "converged", "at": "2026-08-31T09:41:00Z" },
-  "artifacts": { "scorecard": "…/scorecard.json", "scorecard_sha256": "…", "summary_line_sha256": "…" },
+  "artifacts": { "scorecard": "…/scorecard.json", "scorecard_sha256": "…", "trend_line_sha256": "…" },
   "claim_ref": { "path": "docs/v1.7.5/working_history/B1-behavior-format.md", "sha256": "…" },
   "attested_at": "2026-08-31T09:41:07Z"
 }
@@ -296,6 +296,21 @@ Step 8 (측정 꼬리)               ← scorecard·summary 발행. 조건문 �
     통과시키거나 정당한 리뷰 실패를 차단한다(R15 agy HIGH). **파손은 발행하지 않는다** —
     수용 기준 4("생성/append 실패가 성공으로 처리되지 않는다")가 요구하는 바다.
   - `eval-unavailable` — 도구 부재(jq 등).
+
+**영속 추세 원장은 fail-closed 다**(R25 codex HIGH). 설계가 `trend.jsonl` 을 필수 산출물로
+요구했는데 **배선과 실패 처리를 안 적었다** — 현행은 `_workspace/evals/.../summary.jsonl`
+append 만 다루고 **그 실패조차 warning-only** 다(`build-scorecard.sh`). 그대로면
+scorecard·attestation 이 있어도 **영속 원장 누락이 성공처럼 통과**한다.
+
+| | 계약 |
+|---|---|
+| 생성 | `docs/{project}/_eval/trend.jsonl` 이 없으면 **만든다**(디렉토리 포함) |
+| append | 실패하면 **`eval_status: "eval-error"`** — 경고로 넘기지 않는다 |
+| 성공 보고 | **append 성공을 확인한 뒤에만** "측정 꼬리 발행"을 보고한다 |
+| attestation | `artifacts` 에 `trend_line_sha256` 을 넣어 **그 줄이 실제로 들어갔음**을 봉인한다 |
+
+*이건 §1 이 지적한 현행 결함(`emit-loop-scorecard.sh` 가 산출물 확인 없이 "발행" 보고)과
+같은 계열이다 — **요구만 적고 실패 경로를 안 적으면 그 요구는 강제되지 않는다.***
 
   ⚠ **다섯 상태는 서로 겹치지 않는다**(R8 codex·R15 agy HIGH). 처음엔 `failed` 도 `eval-empty` 로 적어
   **실패·파손·정상 수렴이 같은 bucket** 에 섞였다. 소비자가 셋을 구분하지 못하면 거짓 통과나
