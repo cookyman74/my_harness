@@ -173,7 +173,7 @@
 
 ---
 
-## P0-M — 측정 강제 설계 `⬜ 미착수`
+## P0-M — 측정 강제 설계 `🔍 리뷰대기(설계서 작성 완료)`
 
 **목표:** §1-8(측정 미자동)의 해법을 **별도 설계서로** 만든다. 제안서는 의도적으로 메커니즘을 명세하지 않았다.
 **등급:** 중대 · **근거:** 제안서 §3-0
@@ -181,32 +181,36 @@
 > ⚠ **이 단계는 구현이 아니라 설계다.** 산출물은 설계서이고, **그 설계서가 자체 외부리뷰**를 받는다. 구현은 설계 수렴 후 별도 착수.
 
 ### P0 선검증 — "없다"를 먼저 확정한다
-- [ ] `harness-ui/src` 전체 `holdout` 0건 재확인
-- [ ] 영속 attestation 경로·스키마 **부재** 확인(`_workspace/` 는 휘발)
-- [ ] stage risk 권위 계약 **부재** 확인 — `.harness-manifest.json` 은 **update 용 파일 해시 기준선**이지 tier/risk 가 아님(`harness-update.md:23-31`)
-- [ ] 현행 hook 이 project/tier 를 **리터럴로 박고** 있음 확인(`orchestrator-template.md:393-398`), 리스크와 문서 티어가 **독립축**임 확인(`:362-369`)
-- [ ] 궤적(트레이스) 수집 경로를 **repo-wide** 로 조사 — `harness-ui/src/server` 미확인은 부재의 증명이 아니다(제안서 §1-5 단서)
+- [x] `harness-ui/src` `holdout` — **1건뿐이고 그것도 B4 가 오늘 만든 `dynamicGate` 필드다**. 실행 경로 0건
+- [x] 영속 attestation **부재 확정**(`attestation` 검색 0건 · `_workspace/` 는 gitignore = 휘발)
+- [x] stage risk 권위 **부재 확정** — `.harness-manifest.json` 은 SAME/UPDATABLE/USER-MODIFIED/UNKNOWN 분류용 **파일 해시 기준선**임을 원문에서 확인
+- [x] hook 의 `project`/`tier` 는 **baked 리터럴**(env override 는 우회 가능해 의도적으로 제거됨) · 리스크 등급과 문서 티어가 **독립축**임 원문 확인
+- [x] 궤적 수집 **repo-wide 부재 확정**(`harness-ui/src/server` 포함 0건) — B3 선검증과 같은 결론
 
 ### 설계서에 반드시 담을 것
-- [ ] **영속 증거**의 위치·스키마(휘발 경로 금지)
-- [ ] **stage risk 권위** — 저자·경로·생성 시점·서명/해시·기존 하네스 마이그레이션. `.harness-manifest.json` 과 **이름·용도 분리**(오인 사용 방지)
-- [ ] **루프 identity 계약** — 생성 주체 / 신규·재진입 판별 입력 / 승계(`loop_instance_id`·`stage_id`) vs 갱신(`run_id`) 분리 / 독립 권위 원본 / canonical serialization
-- [ ] **Step 7↔8 순서와 승인·override 시점** — 승인 관문이 커밋 직전 Step 7 에 있으므로(`external-review-loop.md:207`) 순서를 바꾸면 `gate_action`·override 입력 시점이 함께 재배치돼야 함
-- [ ] **비정상 terminal 처리**(`failed`·`no-reviewers`) — failure scorecard 를 낼지, 차단 대상에서 제외할지. 택하지 않으면 교착 재발(제약 ⑧)
+- [x] **영속 증거** — `docs/{project}/_eval/attestations/{loop_instance_id}.json`(커밋 경로) · 스키마 v1 명세(설계서 §2)
+- [x] **stage risk 권위** — 계획서 단계 헤더의 `**등급:**`. 저자=계획서 작성자·경로·착수 전 생성·`risk_source` 에 경로+블록 sha256 · 등급 표기 없으면 **`critical` 로 읽는다(fail-closed)** · `manifest` 어휘 미사용(§3)
+- [x] **루프 identity 계약** — `loop_instance_id = {stage_id}@{opened_at}`(오케스트레이터가 개시 시 1회) · `run_id` 라운드별 갱신 · `stage_id` 는 **계획서**에서·`opened_at` 은 **루프 개시 시각**에서(순환 검증 회피) · 키 정렬 2-space JSON canonical(§4)
+- [x] **Step 7↔8 순서** — 바꾸지 않는다. **Step 7.5 attestation 발행**을 신설해 승인 결과를 포함해 봉인 → Step 8 커밋에서 hook 이 검증(§6)
+- [x] **비정상 terminal** — **발행한다**(`issues: []` 허용·`eval_status: eval-empty`)·차단하지 않는다·**집계 표본에서만 제외**. 발행을 막으면 제약 ⑧ 교착이 재발한다(§7)
 
 ### 설계 제약 — 제안서 §3-0 의 12건을 입력으로 받는다 (재발명 금지)
-- [ ] 12건을 설계서에 **명시적으로 인용**하고 각각을 어떻게 회피했는지 대응표 작성
-- [ ] 특히 ⑤(스크립트 이름 교체는 강제가 아니다)·⑥(pre-commit 순환)·⑦(fail-open 우회)·⑧(failed 런 교착)를 재현하지 않았음을 근거로 보일 것
+- [x] 12건 **대응표** 작성(설계서 §8) — 각 행에 반박된 안과 회피 방식을 1:1로
+- [x] ⑤ 이름이 아니라 **주체**를 hook 으로 옮김 · ⑥ 차단 조건을 **뒤집음**(리뷰 흔적 있는데 attestation 없을 때만) · ⑦ 등급 부재 → `critical`·트리거 삭제는 "리뷰 안 함"과 같아짐 · ⑧ `failed` 도 발행
 
 ### 수용 기준 (설계서가 만족해야 함)
-- [ ] 호출자 **외부**의 fail-closed 장치를 포함한다(오케스트레이터가 타이핑해야 도는 것은 강제가 아님)
-- [ ] 정상 경로(리뷰 성공·리뷰 실패·리뷰 미실시)를 **모두 통과**시키고 "리뷰는 돌았는데 측정 건너뜀"만 막는다
-- [ ] 우회 경로가 **정상 복구 절차보다 어렵다**
-- [ ] 판정 대상이 "호출됐는가"가 아니라 **"산출물이 실제로 생겼는가"** — 올바른 identity 의 scorecard·영속 추세 레코드가 생성·검증되고, 생성/append 실패가 성공으로 처리되지 않는다
+- [x] 호출자 **외부** — `pre-commit` hook
+- [x] 3경로 통과 — 리뷰 없음=통과 · 리뷰 실패=발행 후 통과 · 성공+attestation=통과. **리뷰 흔적+attestation 부재**만 차단
+- [x] 우회=리뷰 산출물 삭제(라운드 인용 근거가 함께 소멸) · 복구=`emit-attestation.sh` 1회 → **복구가 더 쉽다**
+- [x] 판정 대상 = **산출물 3종의 존재와 무결성**(scorecard `eval_status`·`issues` 비지 않음 / summary append 행 / attestation 해시 일치). **빈 원장은 `eval-empty`** — 현행이 `alignment=null·warnings=[]` 를 "발행"으로 보고하는 결함(B0 §5 실측)을 구현 범위에 포함
 
 ### 게이트
 - [ ] 설계서 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
 - [ ] **§1-8 해소 판정은 설계가 아니라 구현 완료 후에만** 한다. 설계 완료를 해소로 기록 금지.
+
+**산출물:** `docs/v1.7.5/design/P0-M-measurement-enforcement.md`(193줄) — 선검증 6건 실측표 ·
+영속 증거/risk 권위/identity 3개 기반 계약 · 호출자 외부 강제 장치 · Step 7.5 신설 ·
+비정상 terminal 표 · **제약 12건 대응표** · 수용 기준 대조 · **하지 않는 것(한계) 명시**.
 
 ---
 
