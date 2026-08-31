@@ -138,28 +138,30 @@ scan_defs(){
             continue ;;
     esac
     if [ -z "$inline" ]; then
-      inlist=0
-      while IFS= read -r line; do
-        # CRLF 파일에서 빈 줄은 "" 가 아니라 "\r" 이다. `\r` 은 공백도 하이픈도 아니라
-        # 종료 패턴 `[!\ -]*` 에 매치돼 **목록을 조용히 닫는다**(R5 agy HIGH).
-        line="${line%$'\r'}"
-        case "$line" in
-          behaviors:*) inlist=1; continue ;;
-          "#"*)        continue ;;                       # 들여쓰기 없는 주석은 **목록을 닫지 않는다**
-                                                        # (R4 양 엔진 HIGH — `[!\ -]*` 에 매치돼
-                                                        #  주석 하나로 그 뒤 참조가 통째로 누락됐다.
-                                                        #  앞 항목 덕에 0참조 검사도 우회한다)
-          [!\ -]*)    [ "$inlist" = 1 ] && inlist=0 ;;   # 들여쓰기 없는 **다음 키** → 목록 종료.
-                                                        # `-` 로 시작하는 줄은 들여쓰지 않아도 항목이다.
-        esac
-        [ "$inlist" = 1 ] || continue
-        case "$line" in
-          [[:space:]]*|-*) ;;                            # 항목 후보
-          *) continue ;;
-        esac
-        refs_raw="$refs_raw
-$line"
-      done <<< "$fm"
+      # 블록 시퀀스 추출 — **줄 종류를 명시적으로 분류**한다.
+      # case 글롭으로 "다음 키"를 근사했더니 종료 조건이 네 번 연속 샜다:
+      #   R3 들여쓰기 없는 항목 `- a` · R4 주석 `# x` · R5 tab · R5 CR(빈 줄이 "\r").
+      # 매번 배제 문자를 늘리는 대신, **블록에 속하는 줄을 열거**하고 나머지에서 끊는다.
+      #   속한다: 빈 줄 · 주석(들여쓰기 무관) · `-` 로 시작하는 항목(들여쓰기 무관)
+      #   끊는다: 그 외 전부(= 다음 키)
+      refs_raw="$(printf '%s\n' "$fm" | awk '
+        { sub(/\r$/, "") }
+        !seen && /^behaviors:/ { seen = 1; next }
+        !seen { next }
+        /^[[:space:]]*$/        { next }                 # 빈 줄 — 블록을 닫지 않는다
+        /^[[:space:]]*#/        { next }                 # 주석 — 블록을 닫지 않는다
+        /^[[:space:]]*-/        { print; next }          # 항목(들여쓰기 무관)
+        /^[[:space:]]/          { print "@@BADLINE@@" $0; exit }  # **들여쓴 비항목** = 망가진 블록
+                                                                     # (센티널은 평문 — BSD awk 는
+                                                                     #  `\x` 이스케이프를 해석하지 않는다)
+        { exit }                                          # 들여쓰기 없음 = 다음 키 → 정상 종료
+      ')"
+      case "$refs_raw" in
+        *"@@BADLINE@@"*)
+          bad="$(printf '%s' "$refs_raw" | sed -n 's/.*@@BADLINE@@[[:space:]]*//p' | head -1)"
+          no "$f: behaviors: 블록에 항목이 아닌 들여쓴 줄이 있다 — '$bad'"
+          refs_raw="$(printf '%s' "$refs_raw" | grep -v '@@BADLINE@@')" ;;
+      esac
     fi
     nref=0
     while IFS= read -r line; do

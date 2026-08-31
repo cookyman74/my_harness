@@ -246,6 +246,17 @@ printf -- '---\nname: a1\ndescription: t\nbehaviors:\n  - nosuch\n## 역할\n' >
 OUT="$(run)"
 hasi '닫히지 않았다' && ok "frontmatter 미종료 정의를 fail" || no "미종료 정의를 조용히 skip: $OUT"
 
+# 블록 안 들여쓴 비항목 줄 — awk 재작성 때 조용히 끊기던 것을 fail-closed 로 유지
+new_case bad-block; behavior . alpha '왜' '실패'
+printf -- '---\nname: a1\ndescription: t\nbehaviors:\n  - alpha\n  extra: value\n---\n## 역할\n내용\n' > "$CASE/.claude/agents/a1.md"
+OUT="$(run)"
+has 'REF .claude/agents/a1.md -> alpha' && ok "망가진 블록에서도 유효 항목은 읽음" || no "유효 항목 누락"
+hasi '항목이 아닌 들여쓴 줄' && ok "들여쓴 비항목 줄 검출" || no "들여쓴 비항목을 조용히 무시: $OUT"
+[ "$(rc_of)" != 0 ] && ok "망가진 블록 exit≠0" || no "망가진 블록 exit 0"
+new_case good-nextkey; behavior . alpha '왜' '실패'
+printf -- '---\nname: a1\ndescription: t\nbehaviors:\n  - alpha\nmodel: opus\n---\n## 역할\n내용\n' > "$CASE/.claude/agents/a1.md"
+[ "$(rc_of)" = 0 ] && ok "들여쓰기 없는 다음 키는 정상 종료(오탐 없음)" || no "정상 다음 키를 오탐"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"
