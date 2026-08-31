@@ -100,17 +100,19 @@ for d in "$BDIR"/*; do
   # 인라인 주석을 먼저 제거한다 — 안 하면 `description: "" # 설명` · `: null # x` · `: | # x` 가
   # raw 비교에서 살아남아 **빈 필수 필드가 통과**한다(R4 codex HIGH).
   bdesc="$(printf '%s\n' "$fm" | sed -n 's/^description:[[:space:]]*//p' | head -1 | sed 's/[[:space:]]*#.*$//' | sed 's/[[:space:]]*$//' | tr -d '\r')"
-  # **허용 규칙으로 판정한다.** 빈 값 후보를 열거하는 방식은 네 번 뚫렸다:
-  #   R1 raw non-empty → R2 `""`·`|`·`~` → R4 인라인 주석 → R6 `|2`·`>2-` block scalar 변형.
-  # 열거는 끝나지 않는다. `description` 은 **한 줄 평문 스칼라**만 받고 나머지는 전부 빈 값으로
-  # 낮춘다(그러면 아래에서 fail 한다).
+  # **진짜 허용 규칙으로 판정한다.** 빈 값 후보를 열거하는 방식은 **다섯 번** 뚫렸다:
+  #   R1 raw non-empty → R2 빈 스칼라 → R4 인라인 주석 → R6 block scalar 변형 → R13 컬렉션.
+  # (R6 에서 "허용 규칙으로 바꿨다"고 적었지만 실제로는 배제 목록을 하나 더 늘렸을 뿐이었다.)
+  # 이제 **받을 형태만 열거**한다 — 나머지는 전부 빈 값이다:
+  #   1) 큰따옴표  2) 작은따옴표  3) YAML 지시자로 시작하지 않는 평문 스칼라
+  # YAML 지시자: - ? : , [ ] { } # & * ! | > 따옴표 % @ 백틱 (컬렉션·block scalar·anchor·tag 포함)
   case "$bdesc" in
-    "~"|null|Null|NULL) bdesc="" ;;
-    [\|\>]*)  bdesc="" ;;   # block scalar 지시자(`|` `>` `|2` `>-` `|2-` `>+` …) — 지원하지 않는다
-    "&"*|"*"*|"!"*) bdesc="" ;;   # anchor·alias·tag — 한 줄 스칼라가 아니다
+    '"'*'"')  inner="${bdesc#\"}"; bdesc_core="$(printf '%s' "${inner%\"}" | tr -d '[:space:]')" ;;
+    "'"*"'")  inner="${bdesc#\'}"; bdesc_core="$(printf '%s' "${inner%\'}" | tr -d '[:space:]')" ;;
+    ""|"~"|null|Null|NULL)  bdesc_core="" ;;
+    [-?:,[\]{}#\&\*\!\|\>\'\"%@\`]*)  bdesc_core="" ;;
+    *)  bdesc_core="$(printf '%s' "$bdesc" | tr -d '[:space:]')" ;;
   esac
-  # 따옴표만 벗겨 실제 내용이 있는지 본다.
-  bdesc_core="$(printf '%s' "$bdesc" | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/" | tr -d '[:space:]')"
   [ -n "$bdesc_core" ] || bdesc=""
   [ -n "$bname" ] || { no "$dname: frontmatter 에 name 없음 (건너뜀)"; continue; }
   # description 은 **필수 필드**다(계획서 §B1·behavior-specs §2). warn 으로 두면

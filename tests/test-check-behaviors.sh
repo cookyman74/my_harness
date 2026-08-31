@@ -391,6 +391,26 @@ OUT="$(run)"
 hasi '비정규' && no "정상 블록 들여쓰기를 오탐: $OUT" || ok "블록 항목·주석 들여쓰기는 정상"
 [ "$(rc_of)" = 0 ] && ok "정상 들여쓰기 통과" || no "정상 들여쓰기 거부: $OUT"
 
+# R13 codex HIGH — `description` 이 다섯 번째로 뚫렸다: 컬렉션(`[]`·`{}`·`[x]`)이 비어있지 않은
+# 것으로 통과했다. 배제 열거를 그만두고 **받을 형태만** 허용하도록 뒤집었다.
+for d in '[]' '{}' '[x]' '{a: b}' '%YAML' '@reserved' ', 쉼표' '? 물음표' ': 콜론'; do
+  new_case desc-coll; behavior . alpha '왜' '실패'; agent a1 alpha
+  python3 -c "
+import io,re,sys
+p,v=sys.argv[1],sys.argv[2]; t=io.open(p,encoding='utf-8').read()
+io.open(p,'w',encoding='utf-8').write(re.sub(r'^description:.*$','description: '+v,t,count=1,flags=re.M))" "$CASE/.agents/behaviors/alpha/BEHAVIOR.md" "$d"
+  [ "$(rc_of)" != 0 ] && ok "비-스칼라 description [$d] 거부" || no "[$d] 통과 — 거짓 통과"
+done
+# 정상 평문·따옴표는 계속 통과해야 한다(허용 규칙이 과잉 거부하지 않는지)
+for d in '게이트 판단 기준' '"따옴표 설명"' "'작은따옴표 설명'" '이슈 #7 처리' 'a-b_c 123'; do
+  new_case desc-ok2; behavior . alpha '왜' '실패'; agent a1 alpha
+  python3 -c "
+import io,re,sys
+p,v=sys.argv[1],sys.argv[2]; t=io.open(p,encoding='utf-8').read()
+io.open(p,'w',encoding='utf-8').write(re.sub(r'^description:.*$','description: '+v,t,count=1,flags=re.M))" "$CASE/.agents/behaviors/alpha/BEHAVIOR.md" "$d"
+  [ "$(rc_of)" = 0 ] && ok "정상 description [$d] 통과" || no "[$d] 오탐 — 정상인데 거부"
+done
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"
