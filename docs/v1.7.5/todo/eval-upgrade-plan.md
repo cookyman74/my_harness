@@ -300,6 +300,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 
 ### 게이트
 - [ ] 정책 감사 PASS(`check-behaviors.sh` 호출 포함) · `tests/test-harness-update.sh` PASS
+- [ ] **`Axis` 유니온 4개 유지 타입 테스트**(ADR D6 코드 계약·R23 agy HIGH — ADR 이 "B1 착수 조건"으로 명시했는데 체크리스트에 없었다): 5번째 축이 조용히 추가되는 것을 막는다
 - [ ] **참조 무결성 픽스처**(frontmatter 기반 — 본문 파싱 없음): `behaviors:` 미선언 · 실재하지 않는 BEHAVIOR · **경로 탈출 시도**(`../x`·특수문자 → 디렉토리명 규칙 불일치로 거부)
 - [ ] **내용 충실도 픽스처**(R10 codex): `Intent`·`Failure modes` 각각에 대해 **누락 / heading 만 / 공백만 / 정상 본문** 4케이스. *"포인터만" 케이스는 뺐다 — **BEHAVIOR 파일은 참조 대상이라 섹션 포인터를 갖지 않는다**(R21 agy HIGH). 판정은 "heading 외 내용 존재" 단순 검사이고 B2 의 "실체 줄" 잣대와 연동하지 않는다*. *⚠ **"정의에 실체 1줄" 검사는 B1 소관이 아니다** — ADR D7 이 검사 주체를 `scoreStructure`(B2)로 명시했다. B1 게이트에서 그 픽스처를 요구하면 B1 이 범위 밖을 구현하거나 B2 에 막힌다(R20 agy HIGH). 해당 픽스처는 **§B2 게이트**에 둔다*
 - [ ] **픽스처 테스트**(R5 codex·R6 codex — 게이트에 없으면 빈 출력·부분 출력으로도 통과한다): ① 정의별 **참조 목록** — **에이전트+스킬 둘 다** · **여러 정의→같은 BEHAVIOR** · **한 정의→여러 BEHAVIOR** 조합에서 **모든 (정의, BEHAVIOR) 간선이 정확히 한 번** 출력되는가 ② **끊긴 참조**를 잡는가 ③ **고아 BEHAVIOR** 를 잡는가 ④ BEHAVIOR 가 없는 하네스에서 **graceful skip**(종료코드 0)
@@ -323,7 +324,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 - [ ] 현행 필수 섹션(`SKILL.md:113` — 핵심 역할·작업 원칙·입출력 프로토콜·에러 핸들링·협업)과의 **매핑표** 작성 → `agent-design-patterns.md`
 - [ ] **강제하지 않고 권장**으로 추가(기존 5개 섹션과 충돌하지 않음: 에러 핸들링 ⊂ Recovery, 작업 원칙 ⊃ Intent/Decision)
 - [ ] **`Failure modes` 를 특히 명시** — 현행 정의에 대응물이 없고 4축 ③유도·④가지치기 판정에 직접 쓰인다
-- [ ] **섹션 포인터 파서**(R21 agy — B1 에서 이관): 판독 규칙 전체(코드펜스 안 제외·들여쓰기 3칸·중첩 blockquote·HTML 주석·frontmatter·리스트 안 blockquote·**닫히지 않은 코드펜스 → 종료 실패**·** 물결표 fence**)를 TS 로 구현. **13케이스 픽스처**로 고정
+- [ ] **섹션 포인터 파서**(R21 agy — B1 에서 이관): 판독 규칙 전체(코드펜스 안 제외·들여쓰기 3칸·중첩 blockquote·HTML 주석·frontmatter·리스트 안 blockquote·**닫히지 않은 코드펜스 → 포인터 0개 → 해당 정의 과락(D)**(프로세스 종료 금지 — TS 파서가 exit/throw 하면 평가 루프·UI 가 죽는다·R23 agy HIGH)·** 물결표 fence**)를 TS 로 구현. **13케이스 픽스처**로 고정
 - [ ] **정의 실체 픽스처**(ADR D7 조건 ④ — 검사 주체가 `scoreStructure` 라 **B2 소관**): 필수 섹션 중 최소 하나에 포인터 아닌 본문이 있는 **양·음성** 케이스
 - [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
 
