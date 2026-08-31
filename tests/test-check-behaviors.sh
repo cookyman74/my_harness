@@ -227,6 +227,25 @@ done
 new_case notab; behavior . alpha '왜' '실패'; agent a1 alpha
 [ "$(rc_of)" = 0 ] && ok "tab 없는 정상 정의는 통과" || no "tab 검사가 정상 정의를 오탐"
 
+# R5 agy HIGH — 정의 파일의 frontmatter 가 어긋나면 조용히 건너뛰어 dead 참조가 통째로 누락되던 것
+new_case def-crlf; behavior . alpha '왜' '실패'
+printf -- '---\r\nname: a1\r\ndescription: t\r\nbehaviors:\r\n  - alpha\r\n\r\n  - nosuch\r\n---\r\n## 역할\r\n내용\r\n' > "$CASE/.claude/agents/a1.md"
+OUT="$(run)"
+has 'REF .claude/agents/a1.md -> alpha' && ok "CRLF 정의 파일 스캔됨" || no "CRLF 정의 조용히 누락: $OUT"
+has 'REF .claude/agents/a1.md -> nosuch' && ok "CRLF 빈 줄이 목록을 닫지 않음" || no "CRLF 빈 줄이 목록을 닫음 — 조용한 축소"
+has 'dead' && ok "CRLF 파일의 끊긴 참조 검출" || no "CRLF dead 미검출"
+
+new_case def-nofm; behavior . alpha '왜' '실패'
+printf -- '\n---\nname: a1\ndescription: t\nbehaviors:\n  - nosuch\n---\n## 역할\n' > "$CASE/.claude/agents/a1.md"
+OUT="$(run)"
+hasi 'frontmatter 가 없다' && ok "frontmatter 없는 정의를 fail(숨기지 않음)" || no "frontmatter 없는 정의를 조용히 skip: $OUT"
+[ "$(rc_of)" != 0 ] && ok "frontmatter 없는 정의 exit≠0" || no "exit 0 — 거짓 통과"
+
+new_case def-unclosed; behavior . alpha '왜' '실패'
+printf -- '---\nname: a1\ndescription: t\nbehaviors:\n  - nosuch\n## 역할\n' > "$CASE/.claude/agents/a1.md"
+OUT="$(run)"
+hasi '닫히지 않았다' && ok "frontmatter 미종료 정의를 fail" || no "미종료 정의를 조용히 skip: $OUT"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"

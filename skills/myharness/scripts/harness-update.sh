@@ -45,7 +45,7 @@ atomic_cp() {
 }
 
 # 관리 대상 화이트리스트(상대경로) — 생성 하네스에 번들되는 것만.
-MANAGED_RELS="references/dev-rules.md references/tdd-doctrine.md scripts/check-review-tools.sh scripts/run-review.sh scripts/build-scorecard.sh scripts/emit-loop-scorecard.sh scripts/check-artifacts.sh scripts/check-behaviors.sh"
+MANAGED_RELS="references/dev-rules.md references/tdd-doctrine.md references/behavior-specs.md scripts/check-review-tools.sh scripts/run-review.sh scripts/build-scorecard.sh scripts/emit-loop-scorecard.sh scripts/check-artifacts.sh scripts/check-behaviors.sh"
 
 # 관리 파일 상대경로 열거(skill_dir에 존재하는 것). .local.* 제외.
 list_managed() {

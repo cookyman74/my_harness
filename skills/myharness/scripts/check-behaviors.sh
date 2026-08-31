@@ -104,9 +104,16 @@ scan_defs(){
   local f fm_end fm inlist ref
   for f in "$@"; do
     [ -f "$f" ] || continue
-    [ "$(head -1 "$f")" = "---" ] || continue
-    fm_end="$(awk 'NR>1 && /^---[[:space:]]*$/ {print NR; exit}' "$f")"
-    [ -n "$fm_end" ] || continue
+    # frontmatter 가 어긋난 정의를 **조용히 건너뛰면** 그 파일의 dead 참조가 통째로 누락되고
+    # 쓰이던 BEHAVIOR 가 고아로 오탐된다(R5 agy HIGH). CRLF 는 흡수하고, 그래도 어긋나면
+    # 숨기지 말고 fail 한다.
+    if [ "$(head -1 "$f" | tr -d '\r')" != "---" ]; then
+      no "$f: frontmatter 가 없다 — 첫 줄이 '---' 이어야 한다 (참조 검사 불가)"; continue
+    fi
+    fm_end="$(awk 'NR>1 { sub(/\r$/,""); if ($0 ~ /^---[[:space:]]*$/) { print NR; exit } }' "$f")"
+    if [ -z "$fm_end" ]; then
+      no "$f: frontmatter 가 닫히지 않았다 (참조 검사 불가)"; continue
+    fi
     fm="$(sed -n "2,$((fm_end-1))p" "$f")"
     printf '%s\n' "$fm" | grep -qE '^behaviors:' || continue
     # YAML 은 들여쓰기에 tab 을 금지한다. 그런데 종료 판정 `[!\ -]` 은 **literal space** 만 보므로
@@ -133,6 +140,9 @@ scan_defs(){
     if [ -z "$inline" ]; then
       inlist=0
       while IFS= read -r line; do
+        # CRLF 파일에서 빈 줄은 "" 가 아니라 "\r" 이다. `\r` 은 공백도 하이픈도 아니라
+        # 종료 패턴 `[!\ -]*` 에 매치돼 **목록을 조용히 닫는다**(R5 agy HIGH).
+        line="${line%$'\r'}"
         case "$line" in
           behaviors:*) inlist=1; continue ;;
           "#"*)        continue ;;                       # 들여쓰기 없는 주석은 **목록을 닫지 않는다**
