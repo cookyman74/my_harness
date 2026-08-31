@@ -255,7 +255,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 
 ---
 
-## B0 — 아티팩트 소유권 ADR `🔍 리뷰중(R1)`
+## B0 — 아티팩트 소유권 ADR `✅ 완료`
 
 **목표:** BEHAVIOR 도입 전 소유권을 정해 "다층 혼재" 재발을 막는다. **B1 선행.**
 **등급:** 경량 · **근거:** 제안서 §3 B0
@@ -271,7 +271,9 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
   - ⚠ *처음 쓴 "최소 계약"도 사실이 아니었다 — `check-artifacts.sh` 는 결과서 크기와 heading 만 검사하지 BEHAVIOR 변경을 강제하지 않는다(`:19-22`). 위 규약은 **사람이 지키는 것**임을 ADR 에 명시.*
 - [x] **UI 노출 계약**(ADR D6) — 최상위는 **4축 카드 1개 유지**(P0-c 불변 계승). BEHAVIOR 정보는 **구성 건강도 진단 접기 안**에만(P0-c 가 만든 뷰 재사용). 별도 점수·카드·5번째 축 없음. **코드 계약:** `Axis` 유니온 4개 유지 — 늘리려면 ADR 을 먼저 개정. B1 에서 테스트로 고정
   - **B1 범위 = CLI 까지**(R1 codex): UI 연결은 `FindingType` 유니온을 늘리는 일이라 P0-c 가 확정한 진단 뷰 계약을 건드린다 → **`B5 — BEHAVIOR 진단 UI 연결` 단계를 신설해 등록**(R2 양 엔진: 채택된 결정의 결과가 어느 단계에서도 구현되지 않으면 ADR 이 거짓말을 한다). 이월 결정: 새 분류를 만들지 말고 기존 `dead_link`·`orphan` 에 `subject_kind: "behavior"` 로 얹는다
-- [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
+- [x] 외부리뷰 **R1~R33**(codex `gpt-5.4-mini` high + agy) · **R32·R33 양 엔진 HIGH 0 · 2연속** → `converged` · 측정 꼬리 발행(`alignment 1.0` · `regression_catch 15` · confirmed 64 · deferred 2) · 결과서 `working_history/B0-ownership-adr.md`
+  - **R20~R31 은 codex 가 12연속 clean 인 동안 agy 만 지적했고, 12건 전부 실재했다** — 엔진 불일치는 수렴 신호가 아니라 **탐색 신호**다
+  - **범위 밖 관측:** `build-scorecard.sh` 가 빈 `issues` 원장을 무경고 통과시켜 "측정했다"는 거짓 신호를 남긴다(팩토리 정본 · stabilizer 게이트 대상 · 결과서 §5)
 
 ---
 
