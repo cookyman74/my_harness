@@ -197,9 +197,16 @@ R4~R11 의 왕복이 여기서 수렴했다. 둘을 하나로 묶으려 할 때�
 > *`stage:` 를 줄에 명시하게 하는 이유는 diff 만으로 "이 체크박스가 어느 단계 것인지"를
 > 안정적으로 알 수 없기 때문이다 — 헤딩 파싱에 기대면 문서 구조 변경에 깨진다.*
 | **이미 `[x]` 인 단계**의 결과서 수정 | **요구 없음**(§4 와 같은 이유 — 아래) |
-| 아직 `[ ]` 인 단계의 결과서에 **`termination_reason` 이 적힘**(= 루프가 끝났다는 주장) | **attestation 존재**만 요구(terminal 종류·해시는 안 본다) |
+| 아직 `[ ]` 인 단계의 결과서에 **`termination_reason` 이 적힘**(= 루프가 끝났다는 주장) | attestation 이 **유효**해야 한다 — 아래 최소 검증. **terminal 종류·`claim_ref` 해시·`eval_status` 는 안 본다** |
 | 아직 `[ ]` 인 단계의 **순수 초안**(라운드 결과 서술 없음) | **요구 없음** |
 
+> **"존재만 요구"는 빈 스텁으로 뚫린다**(R27 codex HIGH). 파일이 있기만 하면 통과시키면
+> **0바이트·`{}`·다른 루프의 잔해**로도 종료 기록 커밋이 지나간다. → **최소 스키마 검증**을 건다:
+> ① JSON 파싱 성공 ② 필수 필드(`schema_version`·`loop_instance_id`·`stage_id`·`terminal`·
+> `artifacts`) 존재 ③ `loop_instance_id` 의 stage 부분이 그 단계와 일치 ④ `rounds` 비어 있지 않음.
+> 하나라도 어긋나면 **`eval-error` 로 차단**한다.
+> **여기서도 terminal 종류는 묻지 않는다** — `failed` 기록은 통과해야 한다(§7).
+>
 > ⚠ **루프 *중간* 커밋을 막으면 안 된다**(R14 agy HIGH). 정본(`external-review-loop.md`)의
 > Step 5~7 은 **루프 안에서 라운드마다 반복**된다 — 결함이 나오면 수정하고 **커밋**한다.
 > 트리거를 "라운드 결과가 적힘"으로 넓게 잡으면 그 **중간 커밋이 전부 차단**된다(attestation 은
@@ -395,7 +402,7 @@ scorecard·attestation 이 있어도 **영속 원장 누락이 성공처럼 통�
 | 기준 | 이 설계 |
 |---|---|
 | 호출자 **외부**의 fail-closed | `pre-commit` hook — 오케스트레이터가 타이핑하지 않아도 돈다 |
-| 정상 3경로 통과·"측정 건너뜀"만 차단 | 리뷰 없음=통과 · **순수 초안**=통과 · **루프 중간 커밋**=통과 · 리뷰 실패=발행 후 **기록 커밋 통과**(`eval-failed` 도 통과 — `ok` 를 요구하지 않는다) · **이미 `[x]` 인 단계의 사후 수정**=통과. 차단은 ① **`termination_reason` 을 적었는데 attestation 부재** ② **`[ ]`→`[x]` 전환 시** stage 3자 불일치 · `claim_ref` 해시 불일치 · terminal 이 `failed`/`degraded-blocked` · `eval_status != "ok"` |
+| 정상 3경로 통과·"측정 건너뜀"만 차단 | 리뷰 없음=통과 · **순수 초안**=통과 · **루프 중간 커밋**=통과 · 리뷰 실패=발행 후 **기록 커밋 통과**(`eval-failed` 도 통과 — `ok` 를 요구하지 않는다) · **이미 `[x]` 인 단계의 사후 수정**=통과. 차단은 ① **`termination_reason` 을 적었는데 attestation 이 없거나 최소 스키마 검증 실패**(빈 스텁 차단) ② **`[ ]`→`[x]` 전환 시** stage 3자 불일치 · `claim_ref` 해시 불일치 · terminal 이 `failed`/`degraded-blocked` · `eval_status != "ok"` |
 | 우회가 복구보다 어려움 | 우회=게이트 체크박스를 켜지 않기(= **완료를 기록하지 못함**) · 복구=`emit-attestation.sh` 1회 |
 | 판정 대상 = 산출물 실재 | scorecard `eval_status == "ok"` · 영속 추세 레코드 append 행 · attestation 해시 일치. **`issues` 길이는 판정에 쓰지 않는다**(결함 0건 수렴은 정상·§7) |
 
