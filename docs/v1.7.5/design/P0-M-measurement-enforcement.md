@@ -33,7 +33,8 @@
 
 | # | 산출물 | 무결성 조건 |
 |---|---|---|
-| A | `scorecard.json` | `eval_status == "ok"` · `issues` 비지 않음 · `stage_id`/`run_id` 가 attestation 과 일치 |
+| A | `scorecard.json` | `eval_status == "ok"` · `stage_id`/`run_id` 가 attestation 과 일치 |
+| | ⚠ **`issues` 비어 있음을 무조건 실패로 보지 않는다** | **결함 0건 수렴은 정당한 결과다**(R3 agy HIGH). 처음엔 "`issues` 비지 않음"을 무결성 조건에 넣었는데, 그러면 **완벽한 산출물이 첫 라운드에 clean 수렴하면 커밋이 영구 차단**되고 게이트를 통과하려면 **거짓 결함을 지어내야** 한다 — 제약 ⑧ 교착의 변종이다. **판정은 `termination_reason` 이 한다**(아래 §7) |
 | | ⚠ **생산자·소비자 계약을 함께 고쳐야 한다** | 실측(R2 codex HIGH): **정상 경로의 scorecard 에는 `eval_status` 필드가 아예 없고**, `emit-loop-scorecard.sh:26` 은 `.eval_status // "ok"` 로 **없으면 성공으로 간주**한다. 지금 계약대로면 형식이 깨졌거나 빈 scorecard 가 그대로 통과하고 `eval-empty` 차단 의도도 무력해진다 |
 | B | `summary.jsonl` 의 append 행 | A 와 같은 `stage_id`·`rounds`·`termination_reason` |
 | C | **영속 attestation** | 아래 §2 |
@@ -176,8 +177,12 @@ Step 4 판정 → Step 5 수정 → Step 6 재리뷰 → [루프 종료 판정]
 | `failed`·`no-reviewers` | **발행한다**(`issues: []` 허용·`eval_status: "eval-empty"`) | **조건부**(아래) | 제외 |
 
 **생산자·소비자 계약(구현 범위):**
-- `build-scorecard.sh` 는 **항상 `eval_status` 를 쓴다** — `ok` · `eval-empty`(issues 0) ·
-  `eval-failed`(생성 실패) · `eval-unavailable`(jq 부재).
+- `build-scorecard.sh` 는 **항상 `eval_status` 를 쓴다**:
+  - `ok` — 산출물이 정상이다. **`issues` 가 비어 있어도 `termination_reason` 이 정상 종료
+    (`converged`·`max-rounds`·`degraded-*`)면 `ok` 다.** 결함 0건은 성공이지 실패가 아니다.
+  - `eval-empty` — **원장 자체가 없거나 읽을 수 없을 때만**(파일 부재·JSON 파손·`issues` 키 부재).
+    "빈 배열"과 "키가 없다"는 다르다 — 전자는 결과이고 후자는 측정 실패다.
+  - `eval-failed`(생성 실패) · `eval-unavailable`(jq 부재).
 - 소비자는 **`eval_status` 가 없거나 모르는 값이면 실패로 처리**한다. `// "ok"` 기본값은 제거한다 —
   "필드가 없다"를 "성공"으로 읽는 것이 §1 이 지적한 바로 그 거짓 신호다.
 - `issues` 비어 있음이 **실제로 성공 판정에 반영**돼야 한다(현행은 반영되지 않는다).
@@ -201,9 +206,18 @@ Step 4 판정 → Step 5 수정 → Step 6 재리뷰 → [루프 종료 판정]
 실패 기록 커밋이 막히지 않으므로 제약 ⑧의 교착은 성립하지 않는다. 동시에
 **"실패했는데 완료로 적는" 경로만** 물리적으로 닫힌다.
 
-**빈 원장을 성공으로 보고하지 않는다:** `build-scorecard.sh` 가 `issues` 가 비면
-`eval_status: "eval-empty"` 로 낮추고 경고한다. 지금은 `alignment=null · warnings=[]` 를
-"발행"으로 보고한다(B0 §5 실측) — 이건 **이 설계의 구현 범위에 포함**한다.
+**빈 원장을 성공으로 보고하지 않는다 — 단 "빈 배열"과 "원장 없음"을 구분한다:**
+지금 `build-scorecard.sh` 는 `issues` 키가 아예 없어도 `alignment=null · warnings=[]` 를
+"발행"으로 보고한다(B0 §5 실측). 그건 측정 실패이므로 `eval-empty` 로 낮춘다.
+
+> ⚠ **그러나 `issues: []`(빈 배열) 자체는 실패가 아니다**(R3 agy HIGH). 첫 라운드에 결함이
+> 0건이면 그건 **정당한 수렴**이고, 그걸 막으면 게이트 통과를 위해 **거짓 결함을 지어내야**
+> 하는 모순이 생긴다. 판정 기준은 **`termination_reason`** 이다:
+> - `converged`·`max-rounds`·`degraded-*` + `issues: []` → **`ok`**(결함 0건 수렴)
+> - `failed`·`no-reviewers` → 표본 제외(§7 표) · 원장 키 부재·파손 → `eval-empty`
+>
+> `alignment_score` 등 비율 지표는 분모가 0이라 `null` 이 되는데, **그 `null` 은 "측정 실패"가
+> 아니라 "해당 없음"** 이다. 집계는 그 둘을 구분해야 한다.
 
 ## 8. 제약 12건 대응표 (재발명 금지)
 
