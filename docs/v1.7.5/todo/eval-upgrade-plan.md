@@ -287,8 +287,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 ### 구현
 - [ ] myharness Phase 5 산출물에 `.agents/behaviors/` 편입 · `CLAUDE.md`/`AGENTS.md` 포인터 1줄
 - [ ] `check-behaviors.sh` 신설(자체 검증) — 위치·frontmatter 필수 필드(`name`·`description`)·**디렉토리명 일치**
-- [ ] **닫히지 않은 코드펜스 → 종료코드 1**(R19 이월·R20 agy): 경고만 내고 exit 0 하면 거짓 통과다. `run-policy-audit.sh` 는 `warn` 을 실패로 승격하지 않는다(`:95-96`)
-- [ ] **`~~~` 물결표 코드펜스도 지원**(R19 이월): 백틱만 처리하면 물결표 fence 안의 예제가 포인터로 오탐된다
+> ⚠ **섹션 포인터 파싱은 B1 소관이 아니다**(R21 agy HIGH). `check-behaviors.sh` 는 frontmatter `behaviors:` 만 읽으면 참조 무결성(ADR D3)을 확인할 수 있다. 본문의 섹션 포인터(코드펜스·중첩 인용 경계 포함)를 판독해야 하는 곳은 **B2 의 `scoreStructure`(TypeScript)** 뿐이다. bash 에 markdown AST 수준 파싱을 강제하면 구현이 사실상 불가능하고, B2 에서 **같은 것을 다시 구현**하게 된다. 관련 이월 2건(닫히지 않은 코드펜스 종료코드·`~~~` fence)도 **B2 로 이관**했다.
 - [ ] **BEHAVIOR 내용 충실도 검사**(ADR D7·R9 양 엔진): 6차원 중 최소 `Intent`·`Failure modes` 에 **heading 외 본문이 있는가**. 없으면 빈 BEHAVIOR 를 가리켜 정의의 "본문 부실" 과락을 우회할 수 있다
 - [ ] **`behaviors:` 참조 목록을 정의 파일별로 출력**(ADR-001 D5 요구·R4 codex MED — 계획서에 없으면 구현자가 빼먹고 D5 의 역인덱스 수단이 사라진다). 끊긴 참조·고아도 함께
 - [ ] ⚠ `name` 정규식은 스펙 문구대로 `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` — **연속 하이픈 허용**. 원본 구현의 스펙↔코드 불일치(참고자료 §7 #3)를 그대로 베끼지 말 것
@@ -301,8 +300,8 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 
 ### 게이트
 - [ ] 정책 감사 PASS(`check-behaviors.sh` 호출 포함) · `tests/test-harness-update.sh` PASS
-- [ ] **섹션 포인터 픽스처**(R16 양 엔진): 유효 포인터 · `behaviors:` 미선언 이름 · 실재하지 않는 BEHAVIOR · **문법 불일치**(자유 서술) · **코드펜스 안**(오탐 금지) · **3칸 들여쓰기**(미탐 금지) · **4칸 들여쓰기**(코드 블록) · **중첩 blockquote**(`> >`) · **HTML 주석 안** · **frontmatter 안** · **리스트 안 blockquote**(`- >`) · **닫히지 않은 코드펜스**(이후 전부 코드 · **종료코드 non-zero 확인** — 경고만 내고 exit 0 이면 정책 감사를 조용히 통과한다·R20 agy HIGH) · **경로 탈출 시도**(`../x`·특수문자 → 형식 불일치로 거부) **13케이스**에서 판정이 갈리는가
-- [ ] **내용 충실도 픽스처**(R10 codex): `Intent`·`Failure modes` 각각에 대해 **누락 / heading 만 / 공백만 / 포인터만 / 정상 본문** 5케이스. 통과 기준이 "실체 줄" 정의와 일치하는지 단언. *⚠ **"정의에 실체 1줄" 검사는 B1 소관이 아니다** — ADR D7 이 검사 주체를 `scoreStructure`(B2)로 명시했다. B1 게이트에서 그 픽스처를 요구하면 B1 이 범위 밖을 구현하거나 B2 에 막힌다(R20 agy HIGH). 해당 픽스처는 **§B2 게이트**에 둔다*
+- [ ] **참조 무결성 픽스처**(frontmatter 기반 — 본문 파싱 없음): `behaviors:` 미선언 · 실재하지 않는 BEHAVIOR · **경로 탈출 시도**(`../x`·특수문자 → 디렉토리명 규칙 불일치로 거부)
+- [ ] **내용 충실도 픽스처**(R10 codex): `Intent`·`Failure modes` 각각에 대해 **누락 / heading 만 / 공백만 / 정상 본문** 4케이스. *"포인터만" 케이스는 뺐다 — **BEHAVIOR 파일은 참조 대상이라 섹션 포인터를 갖지 않는다**(R21 agy HIGH). 판정은 "heading 외 내용 존재" 단순 검사이고 B2 의 "실체 줄" 잣대와 연동하지 않는다*. *⚠ **"정의에 실체 1줄" 검사는 B1 소관이 아니다** — ADR D7 이 검사 주체를 `scoreStructure`(B2)로 명시했다. B1 게이트에서 그 픽스처를 요구하면 B1 이 범위 밖을 구현하거나 B2 에 막힌다(R20 agy HIGH). 해당 픽스처는 **§B2 게이트**에 둔다*
 - [ ] **픽스처 테스트**(R5 codex·R6 codex — 게이트에 없으면 빈 출력·부분 출력으로도 통과한다): ① 정의별 **참조 목록** — **에이전트+스킬 둘 다** · **여러 정의→같은 BEHAVIOR** · **한 정의→여러 BEHAVIOR** 조합에서 **모든 (정의, BEHAVIOR) 간선이 정확히 한 번** 출력되는가 ② **끊긴 참조**를 잡는가 ③ **고아 BEHAVIOR** 를 잡는가 ④ BEHAVIOR 가 없는 하네스에서 **graceful skip**(종료코드 0)
 - [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
 
@@ -324,6 +323,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 - [ ] 현행 필수 섹션(`SKILL.md:113` — 핵심 역할·작업 원칙·입출력 프로토콜·에러 핸들링·협업)과의 **매핑표** 작성 → `agent-design-patterns.md`
 - [ ] **강제하지 않고 권장**으로 추가(기존 5개 섹션과 충돌하지 않음: 에러 핸들링 ⊂ Recovery, 작업 원칙 ⊃ Intent/Decision)
 - [ ] **`Failure modes` 를 특히 명시** — 현행 정의에 대응물이 없고 4축 ③유도·④가지치기 판정에 직접 쓰인다
+- [ ] **섹션 포인터 파서**(R21 agy — B1 에서 이관): 판독 규칙 전체(코드펜스 안 제외·들여쓰기 3칸·중첩 blockquote·HTML 주석·frontmatter·리스트 안 blockquote·**닫히지 않은 코드펜스 → 종료 실패**·** 물결표 fence**)를 TS 로 구현. **13케이스 픽스처**로 고정
 - [ ] **정의 실체 픽스처**(ADR D7 조건 ④ — 검사 주체가 `scoreStructure` 라 **B2 소관**): 필수 섹션 중 최소 하나에 포인터 아닌 본문이 있는 **양·음성** 케이스
 - [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
 
