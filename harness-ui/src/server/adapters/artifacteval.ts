@@ -582,7 +582,10 @@ async function readBehaviorBodies(root: string, names: readonly string[]): Promi
     if (!isSafeSegment(nm)) return null;
     try {
       const raw = await readCappedDef(join(root, ".agents", "behaviors", nm, "BEHAVIOR.md"));
-      if (raw != null) out.set(nm, splitBody(raw).body);
+      // **검증된 스펙만 합성 입력에 넣는다**(R8 codex HIGH). frontmatter 가 깨졌어도 본문만
+      // 살아 있으면 `induction`·`pruning`·구조 점수를 중립화해 주는 우회가 된다 —
+      // 무효 스펙은 참조가 해석되지 않으므로 **끊긴 참조와 같게** 다뤄야 한다.
+      if (raw != null && isValidBehaviorSpec(raw, nm)) out.set(nm, splitBody(raw).body);
     } catch { /* 없으면 끊긴 참조 — 조건 ⓑ 가 잡는다 */ }
     return null;
   });

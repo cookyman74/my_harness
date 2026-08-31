@@ -137,6 +137,18 @@ describe("ADR D7 — 채점 중립성", () => {
     expect(s.findings.some((f) => f.why.includes("대용량 인라인 블록")), "짝 안 맞는 펜스를 묶어 거짓 감점").toBe(false);
   });
 
+  it("frontmatter 가 깨진 BEHAVIOR 는 합성 입력에 안 들어간다 — 점수 중립화 우회 차단(R8 codex)", async () => {
+    await writeAgent(AGENT_MOVED, ["gate-rule"]);
+    // 본문은 멀쩡하지만 frontmatter 의 name 이 디렉토리명과 다르다 = 무효 스펙.
+    await mkdir(join(root, ".agents", "behaviors", "gate-rule"), { recursive: true });
+    await writeFile(join(root, ".agents", "behaviors", "gate-rule", "BEHAVIOR.md"),
+      `---\nname: other\ndescription: 이름 불일치\n---\n${BEHAVIOR_BODY}`);
+    const a = await scoreOf();
+    // 무효 스펙은 해석되지 않으므로 **끊긴 참조와 같게** 다뤄야 한다.
+    expect(a.findings.some((f) => f.why.includes("끊긴 참조")), "무효 스펙이 유효 참조로 통과했다").toBe(true);
+    expect(a.grade).toBe("D");
+  });
+
   it("끊긴 참조는 구조 과락(조건 ⓑ)", async () => {
     await writeAgent(AGENT_MOVED, ["nosuch"]);
     const a = await scoreOf();
