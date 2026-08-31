@@ -101,6 +101,12 @@ function correspond(a: string, b: string): boolean { return overlap(a, b) >= COR
 export function deletionGuard(inp: GuardInput): GuardVerdict {
   const line = inp.line.trim();
   if (!line) return { autoApply: false, reason: "빈 줄 — 판정 대상이 아니다", layer: "uncertain" };
+  // **섹션 정보가 없으면 필수 섹션 여부를 판정할 수 없다** → 불확실이므로 거부한다
+  // (R4 codex HIGH). 이걸 통과시키면 필수 섹션 문장이 `sectionHeading: ""` 로 1층을 빠져나가
+  // 뒤에서 `semanticJudge=false` + `dynamicGate` 통과 시 자동 삭제된다.
+  if (!inp.sectionHeading.trim()) {
+    return { autoApply: false, reason: "섹션 정보 없음 — 필수 섹션 여부를 판정할 수 없다(불확실)", layer: "uncertain" };
+  }
 
   // ── 1층: 결정적 가드(기존·불변) ──────────────────────────────────────
   // 필수 섹션 안의 문장은 자동 삭제하지 않는다. 접촉 시 자동 거부는 불변이다.

@@ -154,6 +154,15 @@ describe("B4 — 불확실은 전부 거부", () => {
     expect(v.reason).toContain(want);
   });
 
+  it.each([
+    ["필수 섹션 문장", "역할을 조율한다"],
+    ["평범한 문장", "임의의 설명 문장이다"],
+  ])("`sectionHeading` 이 비면 자동 적용 불가 — %s", (_n, line) => {
+    const v = g({ line, sectionHeading: "", semanticJudge: judged, dynamicGate: pass });
+    expect(v.autoApply, "섹션 정보 없이 자동 삭제가 허용됐다").toBe(false);
+    expect(v.layer).toBe("uncertain");
+  });
+
   it("빈 줄은 판정 대상이 아니다", () => {
     expect(g({ line: "   ", sectionHeading: "## 부록", dynamicGate: pass }).autoApply).toBe(false);
   });
