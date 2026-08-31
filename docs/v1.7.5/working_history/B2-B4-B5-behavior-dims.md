@@ -5,7 +5,7 @@
 
 | 단계 | 라운드 | 종료 | 측정 꼬리 |
 |---|---|---|---|
-| **B2** 행동 차원 도입 | R1~R15 | R14·R15 agy clean — **codex 확정 대기** | align 1.0 · regr 4 · confirmed 10 |
+| **B2** 행동 차원 도입 | R1~R16 | `converged`(R15 agy·R16 codex) | align 1.0 · regr 4 · confirmed 10 |
 | **B4** 삭제 가드 | R1~R8 | `converged`(R7 agy·R8 codex) | align 1.0 · regr 1.5 · confirmed 10 |
 | **B5** 진단 연결 | R1~R10 | `converged`(R9 agy·R10 codex) | align 1.0 · regr 7 · confirmed 16 |
 

@@ -314,7 +314,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 
 ---
 
-## B2 — 에이전트 정의에 행동 차원 도입 `🔨 구현중`
+## B2 — 에이전트 정의에 행동 차원 도입 `✅ 완료`
 
 **목표:** 6차원(Intent·Evidence·Decision·Execution·Recovery·**Failure modes**)을 권장으로 추가.
 **등급:** 경량 · **근거:** 제안서 §3 B2
@@ -334,7 +334,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 - [x] **`Failure modes` 를 특히 명시** — 매핑표에서 유일한 **신설**(대응물 없음)로 표시. 협업의 "월권 금지" 류가 갈 자리
 - [x] **섹션 포인터 파서**(R21 agy — B1 에서 이관) — `scanPointers` TS 구현 + **13케이스 픽스처** 전건 통과(평문·들여쓰기 3칸/4칸·백틱/물결표 펜스·중첩 blockquote·HTML 주석·리스트 안 blockquote·뒤 문자·대문자·경로 탈출·하이픈 시작·연속 하이픈). 미종료 펜스는 정의·BEHAVIOR 양쪽 검사 후 즉시 과락(프로세스 종료 없음). 원문: 판독 규칙 전체(코드펜스 안 제외·들여쓰기 3칸·중첩 blockquote·HTML 주석·frontmatter·리스트 안 blockquote·**닫히지 않은 코드펜스 → 파서가 그 정의를 즉시 과락(D) 판정**(**정의 body 와 참조 BEHAVIOR body 둘 다 검사** — 정의에만 걸면 BEHAVIOR 안의 깨진 펜스가 무검사로 합성된다·R27 agy)(구조 검사에 넘기지 않는다 — "포인터 0개→과락" 연쇄는 성립하지 않는다: 펜스 안 내용이 실체로 세어져 오히려 통과한다·R26 agy HIGH / 프로세스 종료는 금지 — TS 파서가 exit 하면 평가 루프·UI 가 죽는다·R23 agy)·** 물결표 fence**)를 TS 로 구현. **13케이스 픽스처**로 고정
 - [x] **정의 실체 픽스처**(ADR D7 조건 ⓔ) — 양성(이관 후에도 실체 남음·등급 유지)·음성(전부 포인터 = 껍데기 → D 과락) 양쪽
-- [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
+- [x] 외부리뷰 **R1~R16**(codex `gpt-5.4-mini` high + agy·순차) · **R15 agy·R16 codex 2연속 HIGH 0** → `converged` · 측정 꼬리(`align 1.0`·`regr 4`·confirmed 10) · 결과서 `working_history/B2-B4-B5-behavior-dims.md`
 
 ---
 
