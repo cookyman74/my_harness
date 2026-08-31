@@ -180,6 +180,17 @@ OUT="$(run)"
 has 'REF .claude/agents/a1.md -> alpha' && ok "항목 뒤 주석 제거" || no "주석이 참조에 섞임: $OUT"
 [ "$(rc_of)" = 0 ] && ok "주석 붙은 정상 참조 통과" || no "주석 때문에 오탐"
 
+# `behaviors:` 선언 + 참조 0개 — 선언만으로 채점 기준이 바뀌므로(D7 줄 수 하한 면제) 우회 경로다
+for form in 'behaviors: []' 'behaviors:'; do
+  new_case zero-ref; behavior . alpha '왜' '실패'
+  printf -- '---\nname: a1\ndescription: t\n%s\nmodel: opus\n---\n## 역할\n내용\n' "$form" > "$CASE/.claude/agents/a1.md"
+  OUT="$(run)"
+  hasi '참조가 0개' && ok "0참조 선언 검출 [$form]" || no "0참조 선언 통과 [$form]: $OUT"
+done
+new_case no-key; behavior . alpha '왜' '실패'; agent a1
+OUT="$(run)"
+hasi '참조가 0개' && no "미선언 정의를 0참조로 오판" || ok "`behaviors:` 미선언은 정상(부채 아님)"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"

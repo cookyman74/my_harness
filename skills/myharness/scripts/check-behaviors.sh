@@ -133,15 +133,16 @@ scan_defs(){
           [[:space:]]*|-*) ;;                            # 항목 후보
           *) continue ;;
         esac
-        printf '%s\n' "$line" >> /dev/null
         refs_raw="$refs_raw
 $line"
       done <<< "$fm"
     fi
+    nref=0
     while IFS= read -r line; do
       [ -n "$line" ] || continue
       ref="$(printf '%s' "$line" | sed -e 's/[[:space:]]*#.*$//' -e 's/^[[:space:]]*//' -e 's/^-[[:space:]]*//' | tr -d '\r"'"'" | sed 's/[[:space:]]*$//')"
       [ -n "$ref" ] || continue
+      nref=$((nref+1))
       echo "REF $f -> $ref"
       USED+=("$ref")
       # 경로 탈출·특수문자는 디렉토리명 규칙에 걸려 거부된다(별도 경로 해석을 하지 않는다).
@@ -151,6 +152,10 @@ $line"
         no "$f: dead 참조 '$ref' — $BDIR/$ref 가 없거나 무효하다"
       fi
     done <<< "$refs_raw"
+    # `behaviors:` 를 선언했는데 참조가 0개면 **막는다.** 빈 `[]` 나 항목 없는 블록은
+    # "미선언"과 같은 뜻인데, 선언 사실만으로 **채점 기준이 바뀐다**(D7: 선언 정의는 줄 수
+    # 하한 `n < 5` 를 적용받지 않는다). 아무것도 소유하지 않으면서 하한만 면제받는 우회다.
+    [ "$nref" -gt 0 ] || no "$f: behaviors: 를 선언했으나 참조가 0개다 — 쓰지 않으려면 키를 지운다"
   done
 }
 defs=()
