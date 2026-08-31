@@ -207,9 +207,14 @@ is_valid(){ local n; for n in ${VALID+"${VALID[@]}"}; do [ "$n" = "$1" ] && retu
 # ADR D5 는 `behaviors:` 역인덱스를 요구하는데 전용 도구가 없다 — 이 출력이 그 역할을 겸한다.
 declare -a USED=()
 scan_defs(){
-  local f fm_end fm inlist ref
+  local f fm_end fm inlist ref real
+  local seen=""
   for f in "$@"; do
     [ -f "$f" ] || continue
+    # 심링크를 따라가면 같은 파일이 두 경로로 잡힌다 — 간선을 두 번 세지 않는다.
+    real="$(cd "$(dirname "$f")" 2>/dev/null && pwd -P)/$(basename "$f")"
+    case " $seen " in *" $real "*) continue ;; esac
+    seen="$seen $real"
     # ⚠ **`behaviors:` 선언 흔적을 파일 전체에서 먼저 본다**(R3 agy HIGH). frontmatter 검사를
     # 앞에 두면 **선언과 무관한 레거시 정의**가 "frontmatter 없음"만으로 fail 해, 그런 파일을
     # 정상 통과시키는 서버(scorecard)와 판정이 갈린다. 이 스크립트의 관심사는 BEHAVIOR 참조다.
@@ -305,11 +310,23 @@ scan_defs(){
   done
 }
 defs=()
-[ -d .claude/agents ] && while IFS= read -r p; do defs+=("$p"); done < <(find .claude/agents -name '*.md' | sort)
-[ -d .claude/skills ] && while IFS= read -r p; do defs+=("$p"); done < <(find .claude/skills -name 'SKILL.md' | sort)
+# `-L` 로 **심링크를 따라간다** — 정본은 `.agents/skills/{name}` → `.claude/skills/{name}` 심링크
+# 운영을 **권장**하는데, 안 따라가면 **권장 설정을 따른 하네스일수록 스캔이 0건으로 축소**된다
+# (R5 agy HIGH). 같은 파일이 두 경로로 잡히면 아래 `seen` 으로 걸러 간선 중복을 막는다.
+[ -d .claude/agents ] && while IFS= read -r p; do defs+=("$p"); done < <(find -L .claude/agents -name '*.md' 2>/dev/null | sort)
+[ -d .claude/skills ] && while IFS= read -r p; do defs+=("$p"); done < <(find -L .claude/skills -name 'SKILL.md' 2>/dev/null | sort)
 # 듀얼 런타임 — Codex 스킬(.agents/skills/)도 정의다. 빼면 그쪽 끊긴 참조가 통째로
 # 검사에서 누락된다(R1 agy HIGH). `.agents/behaviors` 는 스펙 디렉토리라 대상이 아니다.
-[ -d .agents/skills ] && while IFS= read -r p; do defs+=("$p"); done < <(find .agents/skills -name 'SKILL.md' | sort)
+[ -d .agents/skills ] && while IFS= read -r p; do defs+=("$p"); done < <(find -L .agents/skills -name 'SKILL.md' 2>/dev/null | sort)
+# ⚠ **`.codex/agents/*.toml` 은 스캔하지 않는다** — ADR-001 이 참조 문법을 **frontmatter
+# `behaviors:` 배열**로만 정의했고 TOML(`behaviors = [...]`) 대응 문법은 **정하지 않았다**.
+# 여기서 발명하면 ADR 없는 계약이 생긴다. 대신 **조용히 넘기지 않고** 아래에서 감지해 보고한다.
+if [ -d .codex/agents ]; then
+  while IFS= read -r p; do
+    grep -Eq '^[[:space:]]*behaviors[[:space:]]*=' "$p" 2>/dev/null || continue
+    no "$p: TOML 에이전트의 behaviors 참조는 **미지원**이다 — ADR-001 이 frontmatter 배열만 정의했다(ADR 개정 필요)"
+  done < <(find -L .codex/agents -name '*.toml' 2>/dev/null | sort)
+fi
 [ ${#defs[@]} -gt 0 ] && scan_defs "${defs[@]}"
 
 # --- 3) 고아 BEHAVIOR ---------------------------------------------------------

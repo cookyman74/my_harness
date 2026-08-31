@@ -493,6 +493,24 @@ mkdir -p "$CASE/.agents/behaviors/hc2"
 agent a1 hc2
 [ "$(rc_of)" = 0 ] && ok "주석 뒤 실제 내용은 본문으로 센다" || no "정상 스펙 오탐: $(run)"
 
+# R5 agy HIGH — 심링크 운영(정본 권장)에서 스캔이 0건으로 축소되던 것
+new_case symlink-skill; behavior . alpha '왜' '실패'
+mkdir -p "$CASE/.claude/skills/s1" "$CASE/.agents"
+printf -- '---\nname: s1\ndescription: t\nbehaviors:\n  - nosuch\n---\n## 절차\n내용\n' > "$CASE/.claude/skills/s1/SKILL.md"
+ln -s ../.claude/skills "$CASE/.agents/skills"
+OUT="$(run)"
+has 'dead' && ok "심링크 스킬 디렉토리도 스캔된다" || no "심링크 운영에서 스캔 0건 축소: $OUT"
+[ "$(echo "$OUT" | grep -c '^REF ')" = 1 ] && ok "같은 파일이 두 경로로 잡혀도 간선은 1회" \
+  || no "간선 중복: $(echo "$OUT" | grep -c '^REF ')회"
+
+# TOML 에이전트의 behaviors 는 **미지원**이지만 조용히 넘기지 않는다
+new_case toml-agent; behavior . alpha '왜' '실패'
+mkdir -p "$CASE/.codex/agents"
+printf 'name = "t1"\ndescription = "toml"\nbehaviors = ["alpha"]\n' > "$CASE/.codex/agents/t1.toml"
+agent a1 alpha
+OUT="$(run)"
+hasi '미지원' && ok "TOML behaviors 를 미지원으로 명시 보고" || no "TOML behaviors 조용히 통과: $OUT"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"

@@ -110,6 +110,13 @@ describe("B5 — TS ↔ CLI 판정 일치", () => {
       await writeAgentRaw(goodFm("behaviors:\n  - bs"));
       await writeSpecRaw("bs", "---\nname: bs\nnotes: >\n  name: 본문이다\ndescription: 정상\n---\n## Intent\n의도.\n## Failure modes\n실패.\n");
     }],
+    ["TOML 에이전트의 behaviors 참조(미지원·명시 보고)", async () => {
+      await writeAgentRaw(goodFm());
+      await mkdir(join(root, ".codex", "agents"), { recursive: true });
+      await writeFile(join(root, ".codex", "agents", "t1.toml"),
+        'name = "t1"\ndescription = "toml 에이전트"\nbehaviors = ["gate"]\n');
+      await writeSpecRaw("gate", goodSpec("gate"));
+    }],
     ["스펙 과대(256KB 초과)", async () => {
       await writeAgentRaw(goodFm("behaviors:\n  - big"));
       const pad = Array.from({ length: 9000 }, (_, i) => `padding line padding line ${i}`).join("\n");

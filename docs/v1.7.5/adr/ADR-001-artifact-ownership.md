@@ -42,6 +42,11 @@ BEHAVIOR 를 안 쓰는 하네스가 정상이며(B1 은 권장이지 필수가 
 - **값:** BEHAVIOR 디렉토리명(`.agents/behaviors/<name>/BEHAVIOR.md` 의 `<name>`).
   경로가 아니라 이름 — 경로를 쓰면 디렉토리 구조가 바뀔 때 전부 깨진다.
 - **대상:** 에이전트 정의(`.claude/agents/*.md`)와 스킬(`SKILL.md`) 둘 다 쓸 수 있다.
+- **TOML 에이전트(`.codex/agents/*.toml`)는 범위 밖이다**(B1 R5 agy HIGH — 조용한 축소로 발견).
+  이 ADR 은 참조 문법을 **frontmatter `behaviors:` 배열**로만 정의했고 TOML 대응
+  (`behaviors = [...]`)은 **정하지 않았다.** 검사기가 임의로 발명하면 ADR 없는 계약이 생긴다.
+  → **CLI·TS 양쪽이 TOML 의 `behaviors` 선언을 감지해 "미지원"으로 보고**한다(조용히 넘기지
+  않는다). TOML 참조가 필요해지면 **이 ADR 을 먼저 개정**한다.
 - **미선언의 의미:** `behaviors:` 가 **없으면** "이 정의는 BEHAVIOR 를 쓰지 않는다"이지
   "미마이그레이션"이 아니다. `skills:` 의 `link_unknown` 과 **다르게 취급한다** —
   BEHAVIOR 는 권장이지 필수가 아니므로 미선언이 부채가 아니다.
