@@ -246,7 +246,7 @@ Step 4 판정 → Step 5 수정 → Step 6 재리뷰 → [루프 종료 판정]
 | `converged` | 발행 | 통과 | **정상 표본** |
 | `max-rounds` | 발행(`termination_reason` 그대로) | 통과 | 정상 표본(규칙 이탈 명시) |
 | `degraded-accepted`·`degraded-override` | 발행 + `degraded` 필드 | 통과 | **정상 표본에서 제외** |
-| `degraded-blocked` | 발행 | 통과 | 제외 |
+| `degraded-blocked` | 발행 | **정본이 커밋 자체를 막는다**(아래) | 제외 |
 | `failed`·`no-reviewers` | **발행한다**(`issues: []` 허용·`eval_status: "eval-failed"`) | **조건부**(아래) | 제외 |
 | *(terminal 아님)* **측정 파손** | **발행하지 않는다**(`eval-error`) — 파손을 성공으로 적지 않는다 | 완료 주장 **차단** | 제외 |
 
@@ -279,13 +279,29 @@ Step 4 판정 → Step 5 수정 → Step 6 재리뷰 → [루프 종료 판정]
 > **`degraded-blocked`(중대 단계·리뷰어 축소·미승인) 상태로 완료를 주장**할 수 있다 —
 > 외부 리뷰 게이트가 통째로 무력해진다.
 
+> ⚠ **`degraded-blocked` 는 이 설계의 소관이 아니다**(R18 codex HIGH). 정본
+> `external-review-loop.md:91` 은 중대+미승인 축소에서 `BLOCKED` 를 반환하고,
+> `orchestrator-template.md:373` 은 그때 **`check-artifacts`·승인·커밋·후속 단계에 진입하지
+> 않는다**고 규정한다 — **커밋 자체가 일어나지 않으므로 pre-commit hook 이 볼 기회가 없다.**
+> 설계서가 "발행하고 기록 커밋은 통과"라고 적은 것은 **그 실제 동작과 어긋났다.**
+>
+> → **정본의 진행 금지를 그대로 존중한다.** 이 설계는 `BLOCKED` 를 재정의하지 않는다.
+> 복구 경로도 정본에 이미 있다: 승인(`{stageID}_override.json`)을 받거나 리뷰어를 복구한 뒤
+> **게이트를 재호출**하면 새 판정이 나오고, 그때 terminal 이 `degraded-override` 등으로 바뀐다.
+> **측정 꼬리는 그 재호출이 끝난 뒤 Step 7.5 에서 발행된다** — 차단 상태에서 억지로 발행하려
+> 하면 정본의 진행 금지를 우회하는 셈이 된다.
+>
+> *"막을 수 없는 것을 막지 않는다"의 반대편이다 — **이미 다른 장치가 막고 있는 것을 여기서
+> 또 다루지 않는다.** 두 장치가 같은 상태를 서로 다르게 처리하면 그 차이가 곧 구멍이다.*
+
 **조건부 차단 — 교착을 만들지 않으면서 우회만 막는다:**
 
 | terminal | 기록만 하는 커밋 | **완료를 주장하는 커밋**(게이트 체크박스 `[x]`) |
 |---|---|---|
 | `converged` | 통과 | 통과 |
 | `max-rounds` · `degraded-accepted` · `degraded-override` | 통과 | 통과(사유가 attestation 에 남는다) |
-| `failed` · `no-reviewers` · `degraded-blocked` | **통과**(실패 기록은 언제나 커밋된다) | **차단** |
+| `failed` · `no-reviewers` | **통과**(실패 기록은 언제나 커밋된다) | **차단** |
+| `degraded-blocked` | *(해당 없음 — 정본이 커밋 단계에 진입하지 않는다)* | *(해당 없음)* |
 
 실패 기록 커밋이 막히지 않으므로 제약 ⑧의 교착은 성립하지 않는다. 동시에
 **"실패했는데 완료로 적는" 경로만** 물리적으로 닫힌다.
