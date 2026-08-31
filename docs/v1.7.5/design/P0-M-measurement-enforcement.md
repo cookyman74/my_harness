@@ -279,7 +279,7 @@ Step 8 (측정 꼬리)               ← scorecard·summary 발행. 조건문 �
 | `converged` | 발행 | 통과 | **정상 표본** |
 | `max-rounds` | 발행(`termination_reason` 그대로) | 통과 | 정상 표본(규칙 이탈 명시) |
 | `degraded-accepted`·`degraded-override` | 발행 + `degraded` 필드 | 통과 | **정상 표본에서 제외** |
-| `degraded-blocked` | 발행 | **정본이 커밋 자체를 막는다**(아래) | 제외 |
+| `degraded-blocked` | **발행**(Step 8 이 BLOCK 검사보다 앞·정본 req) | **조건부**(아래) | 제외 |
 | `failed`·`no-reviewers` | **발행한다**(`issues: []` 허용·`eval_status: "eval-failed"`) | **조건부**(아래) | 제외 |
 | *(terminal 아님)* **측정 파손** | **발행하지 않는다**(`eval-error`) — 파손을 성공으로 적지 않는다 | 완료 주장 **차단** | 제외 |
 
@@ -312,20 +312,16 @@ Step 8 (측정 꼬리)               ← scorecard·summary 발행. 조건문 �
 > **`degraded-blocked`(중대 단계·리뷰어 축소·미승인) 상태로 완료를 주장**할 수 있다 —
 > 외부 리뷰 게이트가 통째로 무력해진다.
 
-> ⚠ **`degraded-blocked` 는 이 설계의 소관이 아니다**(R18 codex HIGH). 정본
-> `external-review-loop.md:91` 은 중대+미승인 축소에서 `BLOCKED` 를 반환하고,
-> `orchestrator-template.md:373` 은 그때 **`check-artifacts`·승인·커밋·후속 단계에 진입하지
-> 않는다**고 규정한다 — **커밋 자체가 일어나지 않으므로 pre-commit hook 이 볼 기회가 없다.**
-> 설계서가 "발행하고 기록 커밋은 통과"라고 적은 것은 **그 실제 동작과 어긋났다.**
+> ⚠ **`degraded-blocked` 에서도 attestation 은 발행된다**(R24 agy HIGH — R18 에서 내가 반대로
+> 적었다). 정본 `external-review-loop.md:71-77` 을 보면 **Step 8(측정 꼬리)이 `action == BLOCK`
+> 검사보다 앞**에 있고 "모든 종료 경로 공통 필수(req)"로 못 박혀 있다. 즉 차단 상태에서도
+> attestation 은 이미 존재한다.
 >
-> → **정본의 진행 금지를 그대로 존중한다.** 이 설계는 `BLOCKED` 를 재정의하지 않는다.
-> 복구 경로도 정본에 이미 있다: 승인(`{stageID}_override.json`)을 받거나 리뷰어를 복구한 뒤
-> **게이트를 재호출**하면 새 판정이 나오고, 그때 terminal 이 `degraded-override` 등으로 바뀐다.
-> **측정 꼬리는 그 재호출이 끝난 뒤 Step 8 에서 발행된다** — 차단 상태에서 억지로 발행하려
-> 하면 정본의 진행 금지를 우회하는 셈이 된다.
->
-> *"막을 수 없는 것을 막지 않는다"의 반대편이다 — **이미 다른 장치가 막고 있는 것을 여기서
-> 또 다루지 않는다.** 두 장치가 같은 상태를 서로 다르게 처리하면 그 차이가 곧 구멍이다.*
+> **그러면 hook 이 볼 일이 없다는 내 R18 서술은 절반만 맞았다:** 오케스트레이터는 후속 단계에
+> 진입하지 않지만, **사람이 손으로 체크박스를 켜고 커밋하면** hook 이 그 attestation 을 발견한다.
+> 차단 규칙이 없으면 **그 경로로 우회**된다.
+> → **`degraded-blocked` 인 attestation 으로 완료를 주장하는 커밋은 차단한다**(아래 표).
+> 기록 커밋은 통과시킨다 — 정본이 이미 진행을 막고 있으므로 여기서 기록까지 막으면 이중이다.
 
 **조건부 차단 — 교착을 만들지 않으면서 우회만 막는다:**
 
@@ -334,7 +330,7 @@ Step 8 (측정 꼬리)               ← scorecard·summary 발행. 조건문 �
 | `converged` | 통과 | 통과 |
 | `max-rounds` · `degraded-accepted` · `degraded-override` | 통과 | 통과(사유가 attestation 에 남는다) |
 | `failed` · `no-reviewers` | **통과**(실패 기록은 언제나 커밋된다) | **차단** |
-| `degraded-blocked` | *(해당 없음 — 정본이 커밋 단계에 진입하지 않는다)* | *(해당 없음)* |
+| `degraded-blocked` | **통과**(기록은 남긴다) | **차단** — 정본이 진행을 금지한 상태로 완료를 주장할 수 없다 |
 
 실패 기록 커밋이 막히지 않으므로 제약 ⑧의 교착은 성립하지 않는다. 동시에
 **"실패했는데 완료로 적는" 경로만** 물리적으로 닫힌다.
@@ -357,7 +353,7 @@ Step 8 (측정 꼬리)               ← scorecard·summary 발행. 조건문 �
 | # | 반박된 안 | 이 설계는 어떻게 피하나 |
 |---|---|---|
 | 1 | `run-review.sh` 종료에 측정 배선 | 발행 지점을 **Step 8**(루프 종료 후·정본이 이미 측정 꼬리를 두는 곳)로 뒀다. 라운드 종료가 아니다 |
-| 2 | 런처가 `gate_action` 기록 | `gate_action` 은 Step 7 에서 확정돼 **7.5 에서** attestation 에 들어간다. 런처는 `run_id`·`status` 만 쓴다 |
+| 2 | 런처가 `gate_action` 기록 | `gate_action` 은 루프 안 Step 7 에서 확정되고 **루프 종료 후 Step 8 에서** attestation 에 들어간다(§6). 런처는 `run_id`·`status` 만 쓴다 |
 | 3 | 발행 조건 = "원장 존재" | 발행은 terminal 전부에 대해 하고, **집계 표본에서 제외**하는 방식으로 분리했다(§7) |
 | 4 | 조건 5종 전부 AND 금지 + 일부 분리 발행 | 발행은 **항상 1건**, 조건은 **집계 포함 여부**로만 쓴다 — 자기모순이 성립하지 않는다 |
 | 5 | 스크립트 이름 교체 | 강제 주체를 **hook(호출자 외부)** 으로 옮겼다. 이름이 아니라 **주체**를 바꿨다 |
