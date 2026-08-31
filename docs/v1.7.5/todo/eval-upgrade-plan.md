@@ -324,7 +324,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 - [ ] 현행 필수 섹션(`SKILL.md:113` — 핵심 역할·작업 원칙·입출력 프로토콜·에러 핸들링·협업)과의 **매핑표** 작성 → `agent-design-patterns.md`
 - [ ] **강제하지 않고 권장**으로 추가(기존 5개 섹션과 충돌하지 않음: 에러 핸들링 ⊂ Recovery, 작업 원칙 ⊃ Intent/Decision)
 - [ ] **`Failure modes` 를 특히 명시** — 현행 정의에 대응물이 없고 4축 ③유도·④가지치기 판정에 직접 쓰인다
-- [ ] **섹션 포인터 파서**(R21 agy — B1 에서 이관): 판독 규칙 전체(코드펜스 안 제외·들여쓰기 3칸·중첩 blockquote·HTML 주석·frontmatter·리스트 안 blockquote·**닫히지 않은 코드펜스 → 포인터 0개 → 해당 정의 과락(D)**(프로세스 종료 금지 — TS 파서가 exit/throw 하면 평가 루프·UI 가 죽는다·R23 agy HIGH)·** 물결표 fence**)를 TS 로 구현. **13케이스 픽스처**로 고정
+- [ ] **섹션 포인터 파서**(R21 agy — B1 에서 이관): 판독 규칙 전체(코드펜스 안 제외·들여쓰기 3칸·중첩 blockquote·HTML 주석·frontmatter·리스트 안 blockquote·**닫히지 않은 코드펜스 → 파서가 그 정의를 즉시 과락(D) 판정**(구조 검사에 넘기지 않는다 — "포인터 0개→과락" 연쇄는 성립하지 않는다: 펜스 안 내용이 실체로 세어져 오히려 통과한다·R26 agy HIGH / 프로세스 종료는 금지 — TS 파서가 exit 하면 평가 루프·UI 가 죽는다·R23 agy)·** 물결표 fence**)를 TS 로 구현. **13케이스 픽스처**로 고정
 - [ ] **정의 실체 픽스처**(ADR D7 조건 ④ — 검사 주체가 `scoreStructure` 라 **B2 소관**): 필수 섹션 중 최소 하나에 포인터 아닌 본문이 있는 **양·음성** 케이스
 - [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
 
