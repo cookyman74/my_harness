@@ -281,7 +281,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 
 ---
 
-## B1 — BEHAVIOR.md 포맷 채택 `🔍 리뷰중(R1)`
+## B1 — BEHAVIOR.md 포맷 채택 `✅ 완료`
 
 **목표:** 팩토리가 `.agents/behaviors/<name>/BEHAVIOR.md` 를 출력하고 자체 스크립트로 검증한다.
 **등급:** **중대**(ⓐ 검증기 전파분 — `stabilizer` 3층) · ⓑ 정의·포인터 신설분은 경량 · **근거:** 제안서 §3 B1 · 참고자료 §2·§4 · 전파 실측(§게이트·순서 요약 표)
@@ -310,7 +310,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 - [x] **참조 무결성 픽스처**(frontmatter 기반 — 본문 파싱 없음): `behaviors:` 미선언 · 실재하지 않는 BEHAVIOR · **경로 탈출 시도**(`../x`·특수문자 → 디렉토리명 규칙 불일치로 거부)
 - [x] **내용 충실도 픽스처**(R10 codex): `Intent`·`Failure modes` 각각에 대해 **누락 / heading 만 / 공백만 / 정상 본문** 4케이스. *"포인터만" 케이스는 뺐다 — **BEHAVIOR 파일은 참조 대상이라 섹션 포인터를 갖지 않는다**(R21 agy HIGH). 판정은 "heading 외 내용 존재" 단순 검사이고 B2 의 "실체 줄" 잣대와 연동하지 않는다*. *⚠ **"정의에 실체 1줄" 검사는 B1 소관이 아니다** — ADR D7 이 검사 주체를 `scoreStructure`(B2)로 명시했다. B1 게이트에서 그 픽스처를 요구하면 B1 이 범위 밖을 구현하거나 B2 에 막힌다(R20 agy HIGH). 해당 픽스처는 **§B2 게이트**에 둔다*
 - [x] **픽스처 테스트**(R5 codex·R6 codex — 게이트에 없으면 빈 출력·부분 출력으로도 통과한다): ① 정의별 **참조 목록** — **에이전트+스킬 둘 다** · **여러 정의→같은 BEHAVIOR** · **한 정의→여러 BEHAVIOR** 조합에서 **모든 (정의, BEHAVIOR) 간선이 정확히 한 번** 출력되는가 ② **끊긴 참조**를 잡는가 ③ **고아 BEHAVIOR** 를 잡는가 ④ BEHAVIOR 가 없는 하네스에서 **graceful skip**(종료코드 0)
-- [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
+- [x] 외부리뷰 **R1~R18**(codex `gpt-5.4-mini` high + agy·순차) · **R6 codex·R7 agy 2연속 HIGH 0** → `converged` · 측정 꼬리(`align 1.0`·`regr 13`·confirmed 28) · 결과서 `working_history/B1-behavior-format.md`
 
 ---
 
@@ -394,7 +394,7 @@ B3 구현을 중단하고 이 과제로 분리한다.
 
 ---
 
-## B4 — 삭제 테스트 가드 강화 `🔨 구현중`
+## B4 — 삭제 테스트 가드 강화 `✅ 완료`
 
 **목표:** 기존 결정적 가드를 **유지한 채** behavior 보존 가드를 AND 로 추가한다. **E3 선결.**
 **등급:** 중대 · **근거:** 제안서 §3 B4
@@ -406,12 +406,12 @@ B3 구현을 중단하고 이 과제로 분리한다.
 - [x] ⚠ **`Failure modes` 누락 금지** — 상수에 포함 + **누락 시 깨지는 테스트**로 고정
 - [x] **불확실은 전부 거부** — BEHAVIOR 미포괄(**"대응 없음"으로 읽지 않는다** — 그게 계획서가 경고한 false negative) · 대응 미발견 · 게이트 2 결과 없음 · 게이트 2 실패 → 전부 `autoApply:false`. **막는 것은 자동 적용이지 제안이 아니다**
 - [x] behavior 판정은 **게이트 2를 대체하지 않는다** — **4층 AND**: ①결정적 ②정적 대응(토큰 겹침) ③**의미 판정기**(계층B/E3 — "대응 없음"을 적극 확인) ④`dynamicGate`(트리거 eval·outcome holdout). *③을 R3 에서 신설했다(agy HIGH): 정적 토큰 겹침은 "대응 없음"과 "찾지 못했다"를 **구분하지 못하므로** 그것만으로 자동 적용을 허용하면 계획서의 "매핑 불확실은 거부"를 어긴다 — 머리말엔 막는다고 적고 구현은 허용하고 있었다.* E3 전에는 ③④가 항상 `undefined` 라 **어느 문장도 자동 삭제되지 않는다**(테스트로 고정)
-- [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
+- [x] 외부리뷰 **R1~R8** · **R7 agy·R8 codex 2연속 HIGH 0** → `converged` · 측정 꼬리(`align 1.0`·`regr 1.5`·confirmed 10) · 결과서 `working_history/B2-B4-B5-behavior-dims.md`
 - [x] **B4 완료 전 E3 착수 금지** — 가드가 먼저 섰다. E3 는 `dynamicGate` 를 채우는 쪽으로 붙는다(가드를 우회하는 게 아니라)
 
 ---
 
-## B5 — BEHAVIOR 진단 UI 연결 `🔨 구현중`
+## B5 — BEHAVIOR 진단 UI 연결 `✅ 완료`
 
 **목표:** ADR-001 D6 이 채택한 "진단 접기 안에 보인다"를 **실제로 구현**한다. B1 후속.
 **등급:** 표준 · **근거:** ADR-001 D6 · *B0 R2 양 엔진 — 채택된 결정의 관찰 가능한 결과가
@@ -437,7 +437,7 @@ B3 구현을 중단하고 이 과제로 분리한다.
 
 ### 게이트
 - [x] `npx vitest run` **1323 pass** · `npx tsc --noEmit` 클린
-- [ ] 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
+- [x] 외부리뷰 **R1~R10** · **R9 agy·R10 codex 2연속 HIGH 0** → `converged` · 측정 꼬리(`align 1.0`·`regr 7`·confirmed 16) · 결과서 `working_history/B2-B4-B5-behavior-dims.md`
 
 ---
 
