@@ -86,6 +86,17 @@ describe("B5 — TS ↔ CLI 판정 일치", () => {
       await writeAgentRaw("name: a1\ndescription: t\n  behaviors: [nosuch]");
       await writeSpecRaw("gate", goodSpec("gate"));
     }],
+    // ── R3 agy 가 잡은 갈라짐 ──
+    ["무효 스펙(참조 없음)", async () => { await writeAgentRaw(goodFm()); await writeSpecRaw("broken", "본문만\n"); }],
+    ["스펙 name↔디렉토리명 불일치(참조 없음)", async () => { await writeAgentRaw(goodFm()); await writeSpecRaw("mism", goodSpec("other")); }],
+    ["미지원 스칼라 표기", async () => { await writeAgentRaw(goodFm("behaviors: gate")); await writeSpecRaw("gate", goodSpec("gate")); }],
+    ["빈 목록 `behaviors: []`", async () => { await writeAgentRaw(goodFm("behaviors: []")); await writeSpecRaw("gate", goodSpec("gate")); }],
+    ["레거시 정의(frontmatter 없음·behaviors 무관)", async () => {
+      await writeFile(join(root, ".claude", "agents", "a1.md"), "# a1\n본문만 있는 레거시 정의\n");
+      await writeSpecRaw("gate", goodSpec("gate"));
+      await mkdir(join(root, ".claude", "agents"), { recursive: true });
+      await writeFile(join(root, ".claude", "agents", "a2.md"), `---\n${goodFm("behaviors:\n  - gate")}\n---\n${BODY}`);
+    }],
     ["스펙 과대(256KB 초과)", async () => {
       await writeAgentRaw(goodFm("behaviors:\n  - big"));
       const pad = Array.from({ length: 9000 }, (_, i) => `padding line padding line ${i}`).join("\n");

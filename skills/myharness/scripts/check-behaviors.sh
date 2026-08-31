@@ -188,9 +188,14 @@ scan_defs(){
   local f fm_end fm inlist ref
   for f in "$@"; do
     [ -f "$f" ] || continue
-    # frontmatter 가 어긋난 정의를 **조용히 건너뛰면** 그 파일의 dead 참조가 통째로 누락되고
-    # 쓰이던 BEHAVIOR 가 고아로 오탐된다(R5 agy HIGH). CRLF 는 흡수하고, 그래도 어긋나면
-    # 숨기지 말고 fail 한다.
+    # ⚠ **`behaviors:` 선언 흔적을 파일 전체에서 먼저 본다**(R3 agy HIGH). frontmatter 검사를
+    # 앞에 두면 **선언과 무관한 레거시 정의**가 "frontmatter 없음"만으로 fail 해, 그런 파일을
+    # 정상 통과시키는 서버(scorecard)와 판정이 갈린다. 이 스크립트의 관심사는 BEHAVIOR 참조다.
+    # 게이트는 **관대하게** 본다 — `^behaviors:` 로만 보면 `behaviors :`·`  behaviors:`·
+    # `"behaviors":` 가 형식 검사에 닿기도 전에 걸러져 R10·R12 가 막은 우회가 되살아난다.
+    grep -Ei '^[[:space:]]*"?'"'"'?behaviors"?'"'"'?[[:space:]]*:' "$f" >/dev/null || continue
+    # 선언 흔적이 있는데 frontmatter 가 어긋나면 **조용히 건너뛰지 않는다**(R5 agy HIGH) —
+    # 그 파일의 dead 참조가 통째로 누락되고 쓰이던 BEHAVIOR 가 고아로 오탐된다.
     if [ "$(head -1 "$f" | tr -d '\r')" != "---" ]; then
       no "$f: frontmatter 가 없다 — 첫 줄이 '---' 이어야 한다 (참조 검사 불가)"; continue
     fi
@@ -199,12 +204,7 @@ scan_defs(){
       no "$f: frontmatter 가 닫히지 않았다 (참조 검사 불가)"; continue
     fi
     fm="$(sed -n "2,$((fm_end-1))p" "$f")"
-    # 형식 검사는 **`behaviors:` 를 선언한 파일에만** 적용한다 — 이 스크립트의 관심사는
-    # BEHAVIOR 참조다. 선언도 안 한 파일의 frontmatter 형식까지 막으면 서버 진단(scorecard)과
-    # 범위가 갈라지고(B5 R1 파생) 기존 하네스에 무관한 fail 이 쏟아진다.
-    # ⚠ 게이트는 **관대하게** 본다 — `^behaviors:` 로만 보면 `behaviors :`(콜론 앞 공백)·
-    # `  behaviors:`(들여쓰기)·`"behaviors":`(따옴표) 가 **형식 검사에 닿기도 전에** 걸러져
-    # R10·R12 가 막은 우회가 되살아난다. "선언하려 한 흔적"을 잡고 형식은 아래에서 판정한다.
+    # frontmatter **밖**에 있는 behaviors 문자열(본문 예시 등)은 선언이 아니다.
     printf '%s\n' "$fm" | grep -Ei '^[[:space:]]*"?'"'"'?behaviors"?'"'"'?[[:space:]]*:' >/dev/null || continue
     odds="$(odd_keys "$fm")"
     if [ -n "$odds" ]; then
