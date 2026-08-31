@@ -371,7 +371,7 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 
 #### 6-4. 트리거 검증
 
-각 스킬의 description이 올바르게 트리거되는지 검증한다:
+각 스킬의 description이 올바르게 트리거되는지 검증한다. **BEHAVIOR 의 `Intent`·`Failure modes` 가 바뀌었으면 그것을 참조하는 정의의 쿼리를 재검토 대상으로 표시하고, 결과서에 필수 4필드(바뀐 BEHAVIOR·바뀐 차원·영향받은 정의·재생성 여부와 이유)를 적는다** — 자동 무효화는 하지 않는다(`references/behavior-specs.md` §6):
 
 1. **Should-trigger 쿼리** (8~10개) — 스킬을 트리거해야 하는 다양한 표현 (공식적/캐주얼, 명시적/암시적)
 2. **Should-NOT-trigger 쿼리** (8~10개) — 키워드가 유사하지만 이 스킬이 아닌 다른 도구/스킬이 적합한 "near-miss" 쿼리
@@ -479,7 +479,7 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 - [ ] `.claude/commands/` — 아무것도 생성하지 않음
 - [ ] 스킬 description이 적극적("pushy")으로 작성됨 — **후속 작업 키워드 포함**
 - [ ] SKILL.md 본문이 500줄 이내, 초과 시 references/ 분리
-- [ ] 테스트 프롬프트 2~3개 실행 검증 + 트리거 검증(should/should-NOT) 완료
+- [ ] 테스트 프롬프트 2~3개 실행 검증 + 트리거 검증(should/should-NOT) 완료 (BEHAVIOR `Intent`·`Failure modes` 변경분은 결과서에 **4필드 기록**·`behavior-specs.md` §6)
 - [ ] **CLAUDE.md 포인터 등록 + 변경 이력에 에이전트/스킬 추가·삭제·수정 기록**
 - [ ] **오케스트레이터 Phase 0에 컨텍스트 확인 단계** (초기/후속/부분 재실행 판별)
 - [ ] **듀얼 런타임:** 루트 `AGENTS.md` + `.agents/skills/` 출력(references/scripts 동봉) + `.codex/agents/*.toml` 생성 + `.claude`↔`.codex` 역할 동등성 + 오케스트레이터에 어댑터(Agent 팀원 spawn / Codex subagents·subprocess) 명시 (`references/runtime-adapters.md`)

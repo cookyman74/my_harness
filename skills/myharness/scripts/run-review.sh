@@ -36,6 +36,9 @@ fi
 
 D=_workspace/reviews
 # 상황별 모델 선택(오케스트레이터가 리스크등급에 맞춰 설정). 미설정 시 기본.
+#  AGY_PRINT_TIMEOUT: agy 자체 응답 대기(기본 300s). 읽을 파일이 많은 프롬프트는 초과한다 —
+#  실측: 10파일 스코프에서 단독 실행인데도 `Error: timeout waiting for response`.
+#  기본값을 바꾸지 않는다(미설정 시 기존과 동일 동작). 필요한 라운드에서만 올린다.
 #  ⚠️ AGY_MODEL은 반드시 Gemini 계열만 — agy를 Claude/GPT로 돌리면 러너와 엔진 충돌(자기검증).
 AGY_MODEL="${AGY_MODEL:-Gemini 3.1 Pro (High)}"   # 경량: "Gemini 3.5 Flash (High)" / 중대: "Gemini 3.1 Pro (High)"
 CODEX_MODEL="${CODEX_MODEL:-}"                     # 비우면 codex 기본. 중대 시 고추론 모델명 지정.
@@ -160,7 +163,7 @@ case " $REVIEWERS " in
   # 필수 — 없으면 sandbox 파일 read가 권한 프롬프트→응답 불가→hang.
   *" agy "*)    run_reviewer_argv agy agy -p "$(cat "$PERF")" \
       --model "$AGY_MODEL" --add-dir "$REPO_ROOT" --dangerously-skip-permissions \
-      --sandbox --print-timeout 300s & ;;
+      --sandbox --print-timeout "${AGY_PRINT_TIMEOUT:-300s}" & ;;
   # gemini(legacy)는 --add-dir/--dangerously-skip-permissions 미지원(-s만) → plain 호출.
   *" gemini "*) run_reviewer_argv gemini gemini -p "$(cat "$PERF")" & ;;
 esac

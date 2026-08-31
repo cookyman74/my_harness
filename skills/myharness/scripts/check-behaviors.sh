@@ -35,10 +35,16 @@ fi
 # 구조적으로 무효한 스펙은 **건너뛰고 진단만 노출**한다(부분 로드 금지 — 참고자료 §4).
 declare -a VALID=()
 found=0
-for d in "$BDIR"/*/; do
-  [ -d "$d" ] || continue
+for d in "$BDIR"/*; do
+  [ -e "$d" ] || continue          # glob 미매치(빈 디렉토리)면 리터럴이 남는다
   found=$((found+1))
   dname="$(basename "$d")"
+  # 디렉토리가 아니면 무효 스펙이다. `*/` 로 순회하면 사용자가 실수로
+  # `.agents/behaviors/foo.md` 를 만들었을 때 found=0 → "미적용" 으로 **조용히 통과**한다
+  # (R1 agy HIGH — 이 저장소가 반복해 당한 "조용한 축소" 계열).
+  if [ ! -d "$d" ]; then
+    no "$dname: 디렉토리가 아니다 — 스펙은 $BDIR/<name>/BEHAVIOR.md 구조여야 한다 (건너뜀)"; continue
+  fi
   f="$d/BEHAVIOR.md"
   if [ ! -f "$f" ]; then no "$dname: BEHAVIOR.md 없음 (건너뜀)"; continue; fi
 
@@ -51,7 +57,16 @@ for d in "$BDIR"/*/; do
   fm="$(sed -n "2,$((fm_end-1))p" "$f")"
 
   bname="$(printf '%s\n' "$fm" | sed -n 's/^name:[[:space:]]*//p' | head -1 | tr -d '\r' | sed 's/[[:space:]]*$//')"
-  bdesc="$(printf '%s\n' "$fm" | sed -n 's/^description:[[:space:]]*//p' | head -1)"
+  bdesc="$(printf '%s\n' "$fm" | sed -n 's/^description:[[:space:]]*//p' | head -1 | tr -d '\r')"
+  # YAML 의미로 빈 값인 것들을 빈 문자열로 낮춘다(R2 codex HIGH — raw non-empty 만 보면
+  # `description: ""` · `description: |` · `description: # 주석` 이 전부 통과한다).
+  case "$bdesc" in
+    '""'|"''"|'|'|'>'|'|-'|'>-'|'|+'|'>+'|'~'|'null'|'Null'|'NULL') bdesc="" ;;
+    '#'*) bdesc="" ;;
+  esac
+  # 따옴표만 벗겨 실제 내용이 있는지 본다.
+  bdesc_core="$(printf '%s' "$bdesc" | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/" | tr -d '[:space:]')"
+  [ -n "$bdesc_core" ] || bdesc=""
   [ -n "$bname" ] || { no "$dname: frontmatter 에 name 없음 (건너뜀)"; continue; }
   # description 은 **필수 필드**다(계획서 §B1·behavior-specs §2). warn 으로 두면
   # description 이 빈 BEHAVIOR 가 정책 감사까지 통과한다 — 거짓 통과 경로(R1 codex HIGH).
@@ -115,6 +130,9 @@ scan_defs(){
 defs=()
 [ -d .claude/agents ] && while IFS= read -r p; do defs+=("$p"); done < <(find .claude/agents -name '*.md' | sort)
 [ -d .claude/skills ] && while IFS= read -r p; do defs+=("$p"); done < <(find .claude/skills -name 'SKILL.md' | sort)
+# 듀얼 런타임 — Codex 스킬(.agents/skills/)도 정의다. 빼면 그쪽 끊긴 참조가 통째로
+# 검사에서 누락된다(R1 agy HIGH). `.agents/behaviors` 는 스펙 디렉토리라 대상이 아니다.
+[ -d .agents/skills ] && while IFS= read -r p; do defs+=("$p"); done < <(find .agents/skills -name 'SKILL.md' | sort)
 [ ${#defs[@]} -gt 0 ] && scan_defs "${defs[@]}"
 
 # --- 3) 고아 BEHAVIOR ---------------------------------------------------------

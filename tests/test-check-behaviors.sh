@@ -113,6 +113,41 @@ OUT="$(run)"
 hasi 'description 없음' && ok "description 누락 검출" || no "description 누락 미검출: $OUT"
 [ "$(rc_of)" != 0 ] && ok "description 누락 exit≠0(warn 이 아니라 fail)" || no "description 없는데 exit 0 — 거짓 통과"
 
+# R1 agy HIGH — 디렉토리 아닌 엔트리를 "미적용"으로 오판하던 조용한 축소
+new_case stray-file; mkdir -p "$CASE/.agents/behaviors"
+printf -- '---\nname: x\ndescription: t\n---\n## Intent\na\n## Failure modes\nb\n' > "$CASE/.agents/behaviors/gate.md"
+OUT="$(run)"
+hasi '디렉토리가 아니다' && ok "디렉토리 아닌 엔트리 검출" || no "stray 파일을 미적용으로 오판: $OUT"
+[ "$(rc_of)" != 0 ] && ok "stray 파일 exit≠0(조용한 통과 아님)" || no "stray 파일인데 exit 0 — 거짓 통과"
+
+# R2 codex HIGH — YAML 의미로 빈 description 이 raw non-empty 로 통과하던 것
+for d in '""' "''" '|' '>' '~' 'null' '# 주석'; do
+  new_case "desc-empty"; behavior . alpha '왜' '실패'; agent a1 alpha
+  python3 - "$CASE/.agents/behaviors/alpha/BEHAVIOR.md" "$d" <<'PY2'
+import io,sys
+p,v=sys.argv[1],sys.argv[2]
+t=io.open(p,encoding='utf-8').read()
+import re; t=re.sub(r'^description:.*$', 'description: '+v, t, count=1, flags=re.M)
+io.open(p,'w',encoding='utf-8').write(t)
+PY2
+  if [ "$(rc_of)" != 0 ]; then ok "빈 description [$d] 거부"; else no "빈 description [$d] 통과 — 거짓 통과"; fi
+done
+new_case desc-quoted; behavior . alpha '왜' '실패'; agent a1 alpha
+python3 -c "
+import io,re,sys
+p=sys.argv[1]; t=io.open(p,encoding='utf-8').read()
+io.open(p,'w',encoding='utf-8').write(re.sub(r'^description:.*\$','description: \"실제 설명\"',t,count=1,flags=re.M))" "$CASE/.agents/behaviors/alpha/BEHAVIOR.md"
+[ "$(rc_of)" = 0 ] && ok "따옴표 안 내용이 있으면 통과" || no "정상 quoted description 을 거부"
+
+# R1 agy HIGH — 듀얼런타임 Codex 스킬(.agents/skills/)이 검사 대상에서 누락되던 것
+new_case dual; behavior . alpha '왜' '실패'
+mkdir -p "$CASE/.agents/skills/s9"
+printf -- '---\nname: s9\ndescription: t\nbehaviors:\n  - nosuch\n---\n## 절차\n내용\n' > "$CASE/.agents/skills/s9/SKILL.md"
+agent a1 alpha
+OUT="$(run)"
+has 'REF .agents/skills/s9/SKILL.md -> nosuch' && ok "Codex 스킬도 스캔 대상" || no "Codex 스킬 누락: $OUT"
+has 'dead' && ok "Codex 스킬의 끊긴 참조 검출" || no "Codex 스킬 끊긴 참조 미검출"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"
