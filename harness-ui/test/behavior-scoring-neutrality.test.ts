@@ -101,6 +101,42 @@ describe("ADR D7 — 채점 중립성", () => {
     expect(a.grade).toBe("D");
   });
 
+  it("조건 ⓔ 는 **필수 섹션만** 본다 — 비필수 섹션 글자로 껍데기 과락을 피할 수 없다(R1 agy)", async () => {
+    await writeAgent(["# a1", "서두에 글자가 있다.",
+      "## 핵심 역할", "> BEHAVIOR: gate-rule", "## 작업 원칙", "> BEHAVIOR: gate-rule",
+      "## 입력/출력 프로토콜", "> BEHAVIOR: gate-rule", "## 에러 핸들링", "> BEHAVIOR: gate-rule",
+      "## 협업", "> BEHAVIOR: gate-rule",
+      "## 부록", "여기엔 실체가 있다. 그러나 필수 섹션이 아니다.", ""].join("\n"), ["gate-rule"]);
+    await writeBehavior("gate-rule", BEHAVIOR_BODY);
+    const a = await scoreOf();
+    expect(a.findings.some((f) => f.why.includes("껍데기")), "비필수 섹션 실체로 과락을 피했다").toBe(true);
+    expect(a.grade).toBe("D");
+  });
+
+  it.each([
+    ["물결표 펜스", "~~~"],
+    ["들여쓴 백틱 펜스", "  ```"],
+  ])("대용량 펜스 탐지가 파서와 같은 규칙을 쓴다 — %s 로 우회할 수 없다(R1 agy)", async (_n, tok) => {
+    await mkdir(join(root, ".claude", "skills", "fence"), { recursive: true });
+    const big = [tok, ...Array.from({ length: 80 }, (_, i) => `줄 ${i}`), tok].join("\n");
+    await writeFile(join(root, ".claude", "skills", "fence", "SKILL.md"),
+      `---\nname: fence\ndescription: 펜스를 쓸 때 사용, 다른 것과 달리\n---\n# fence\n## 트리거\n조건.\n## 절차\n한다.\n${big}\n`);
+    const r = await evaluateArtifacts(root);
+    const s = r.artifacts.find((x) => x.name === "fence")!;
+    expect(s.findings.some((f) => f.why.includes("대용량 인라인 블록")), "대용량 블록을 놓쳤다").toBe(true);
+  });
+
+  it("다른 종류의 펜스는 서로 닫지 않는다 — 짝맞춤(거짓 감점 방지)", async () => {
+    await mkdir(join(root, ".claude", "skills", "mixed"), { recursive: true });
+    // 백틱 3줄 블록 + 물결표 3줄 블록. 짝맞춤이 없으면 둘을 하나로 묶어 거짓 감점이 난다.
+    const body = ["```", "a", "```", ...Array.from({ length: 70 }, () => "본문"), "~~~", "b", "~~~"].join("\n");
+    await writeFile(join(root, ".claude", "skills", "mixed", "SKILL.md"),
+      `---\nname: mixed\ndescription: 섞어 쓸 때 사용, 다른 것과 달리\n---\n# mixed\n## 트리거\n조건.\n## 절차\n${body}\n`);
+    const r = await evaluateArtifacts(root);
+    const s = r.artifacts.find((x) => x.name === "mixed")!;
+    expect(s.findings.some((f) => f.why.includes("대용량 인라인 블록")), "짝 안 맞는 펜스를 묶어 거짓 감점").toBe(false);
+  });
+
   it("끊긴 참조는 구조 과락(조건 ⓑ)", async () => {
     await writeAgent(AGENT_MOVED, ["nosuch"]);
     const a = await scoreOf();

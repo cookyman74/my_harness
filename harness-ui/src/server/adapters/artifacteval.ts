@@ -201,7 +201,6 @@ function scoreTrigger(desc: string, findings: Finding[], anchor: string): number
 }
 
 // ② 구조 — 2계층. skill: 본문 ≤500·references 분리·대용량 인라인 블록. agent: 본문·섹션.
-const FENCE = /^```/;
 export type BehaviorCtx = {
   declared: readonly string[];          // frontmatter `behaviors:` 에 선언된 이름
   bodies: ReadonlyMap<string, string>;  // **사전 읽기**한 BEHAVIOR 본문(존재하는 것만)
@@ -246,7 +245,13 @@ function scoreStructure(body: string, hasRefs: boolean, kind: "agent" | "skill",
     // ⓓ FOR-EACH 섹션 채워짐 — **`completenessMissing` 이 이미 판정했다**(R31: 여기서 다시
     //    감점하면 같은 사실에 두 번 감점된다). missingReq 가 그 결과다.
     // ⓔ 정의에 실체가 남아 있다 — 필수 섹션 중 최소 하나에 포인터 아닌 실제 본문.
-    const anySubstantive = splitSections(body).some((x) => x.substantive > 0);
+    // ⓔ 는 **필수 섹션 중** 최소 하나에 실체가 있어야 한다(ADR D7). 전체 섹션을 보면
+    // 필수 섹션이 전부 포인터뿐이어도 **비필수 섹션이나 첫 heading 이전 서두**에 글자만 있으면
+    // 껍데기 과락을 피한다(R1 agy HIGH — 우회 통로).
+    const reqSecs: readonly string[] = kind === "agent" ? REQUIRED_SECTIONS.agent : REQUIRED_SECTIONS.skill;
+    const anySubstantive = splitSections(body)
+      .filter((x) => reqSecs.some((k) => x.heading.includes(k)))
+      .some((x) => x.substantive > 0);
     const why: string[] = [];
     if (missingReq > 0) why.push(`필수 섹션 ${missingReq}건 미충족`);
     if (dead.length) why.push(`끊긴 참조 ${dead.join(",")}`);
@@ -276,10 +281,20 @@ function scoreStructure(body: string, hasRefs: boolean, kind: "agent" | "skill",
     // `hasRefs` 와 줄 수가 **같은 구조 사실을 측정해야** 한다.
     if (!hasRefs && n > 300) { s -= 0.2; findings.push({ axis: "structure", target: { anchor }, action: "move-to-references", why: "본문 큰데 references/ 분리 없음(2계층 위반)", risk: "med" }); }
     if (nMerged > 800 && !hasRefs) gateFail = true; // min-gate: 구조 과락
-    // 대용량 인라인 코드펜스(>60줄) 탐지 — 합성 body 기준·range 생략(합성 좌표라 정의 파일에 없다)
-    const ls = lines(merged); let fenceStart = -1;
+    // 대용량 인라인 코드펜스(>60줄) 탐지 — 합성 body 기준·range 생략(합성 좌표라 정의 파일에 없다).
+    // **파서(`scanPointers`)와 같은 규칙을 쓴다**(R1 agy HIGH): 예전엔 `/^```/` 만 봐서
+    // ① 물결표 펜스(`~~~`) ② 들여쓴 펜스 를 놓쳤다 — 60줄 넘는 블록을 그대로 두고 감점을
+    // 피하는 우회 통로였다. 닫는 펜스가 들여쓰이면 종료를 놓쳐 엉뚱한 블록을 하나로 묶어
+    // **거짓 감점**도 났다. 여는 토큰과 같은 토큰으로만 닫는다(짝맞춤).
+    const ls = lines(merged); let fenceStart = -1, openTok = "";
     for (let i = 0; i < ls.length; i++) {
-      if (FENCE.test(ls[i]!)) { if (fenceStart < 0) fenceStart = i; else { if (i - fenceStart > 60) { s -= 0.1; findings.push({ axis: "structure", target: { anchor }, action: "move-to-references", why: `대용량 인라인 블록(${i - fenceStart}줄)${bd}·references/로`, risk: "low" }); } fenceStart = -1; } }
+      const l = ls[i]!;
+      if (!FENCE_ANY.test(l)) continue;
+      const tok = l.trim().slice(0, 3);
+      if (fenceStart < 0) { fenceStart = i; openTok = tok; continue; }
+      if (tok !== openTok) continue;                    // 다른 종류의 펜스는 닫지 않는다
+      if (i - fenceStart > 60) { s -= 0.1; findings.push({ axis: "structure", target: { anchor }, action: "move-to-references", why: `대용량 인라인 블록(${i - fenceStart}줄)${bd}·references/로`, risk: "low" }); }
+      fenceStart = -1; openTok = "";
     }
   } else {
     if (nMerged > 400) s -= Math.min(0.3, (nMerged - 400) / 1000);
