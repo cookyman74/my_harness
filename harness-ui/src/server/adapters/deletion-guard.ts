@@ -19,10 +19,17 @@ export type GuardInput = {
   /** 참조 BEHAVIOR 본문 맵(정의가 `behaviors:` 로 선언한 것). 비어 있으면 "미포괄". */
   behaviorBodies?: ReadonlyMap<string, string>;
   /**
+   * **의미 판정기(계층B/E3)의 결과.** 정적 토큰 겹침은 "대응 없음"과 "찾지 못했다"를
+   * **구분하지 못한다** — 계획서 §B4 는 그 구분 불가를 "매핑 불확실"로 보고 **거부**하라고 한다.
+   * 따라서 자동 적용에는 **대응 없음을 적극적으로 확인한 판정**이 필요하다.
+   * 없으면 불확실 → 자동 적용 불가.
+   */
+  semanticJudge?: { correspondsToPreserved: boolean };
+  /**
    * **게이트 2(동적 테스트)의 결과.** 이 가드는 3중 게이트의 **정적 1층**일 뿐이고
    * 게이트 2 를 대체하지 않는다(계획서 §B4). 없으면 "판정기 부재" → 자동 적용 불가.
-   * E3 가 붙기 전에는 항상 `undefined` 이므로 **자동 삭제는 어느 문장에서도 일어나지 않는다** —
-   * 그게 이 단계의 의도된 상태다(가드 먼저, 삭제 판정은 그 다음).
+   * E3 가 붙기 전에는 `semanticJudge`·`dynamicGate` 가 항상 `undefined` 이므로
+   * **자동 삭제는 어느 문장에서도 일어나지 않는다** — 그게 이 단계의 의도된 상태다.
    */
   dynamicGate?: { triggerEvalPassed: boolean; holdoutNoRegression: boolean };
 };
@@ -65,7 +72,13 @@ export const PRESERVED_DIMENSIONS = ["Evidence", "Decision", "Recovery", "Failur
 
 // 문장 정규화 — 비교는 결정적이어야 한다(LLM 없음).
 function norm(s: string): string {
-  return s.toLowerCase().replace(/[`*_>#~\[\]()]/g, " ").replace(/\s+/g, " ").trim();
+  // 마크다운 기호 **와 일반 구두점**을 모두 지운다 — `"판단한다."` 와 `"판단한다"` 가 다른
+  // 토큰이 되면 짧은 문장에서 구두점 하나로 임계 미달이 나 **보존 대상이 "대응 없음"으로
+  // 오판**된다(R3 agy HIGH).
+  return s.toLowerCase()
+    .replace(/[`*_>#~[\]()]/g, " ")
+    .replace(/[.,!?;:"'“”‘’·…—–\-/\\|]/g, " ")
+    .replace(/\s+/g, " ").trim();
 }
 // 대응 판정 — **길이 차에 강건한 overlap 계수**를 쓴다(R1 agy HIGH).
 // 자카드는 `"Do not skip"` vs `"You must not skip this phase"` 처럼 길이가 다르면 2/7=0.28 로
@@ -123,10 +136,15 @@ export function deletionGuard(inp: GuardInput): GuardVerdict {
     }
   }
   // 대응을 못 찾았다. **이것은 "대응 없음"이 아니라 "찾지 못했다"이다** —
-  // 토큰 유사도는 의미 판정이 아니다. 그래서 여기서 끝내지 않고 **게이트 2 를 AND** 로 요구한다.
+  // 토큰 겹침은 의미 판정이 아니므로 여기서 자동 적용을 허용하면 계획서 §B4 의
+  // "매핑 불확실은 거부"를 정면으로 어긴다(R3 agy HIGH — 머리말은 막는다고 적고 구현은
+  // 허용하고 있었다). **대응 없음을 적극 확인한 판정**이 있어야 다음 층으로 간다.
+  const j = inp.semanticJudge;
+  if (!j) return { autoApply: false, reason: "의미 판정기 결과 없음 — 대응 없음을 확인할 수 없다(매핑 불확실)", layer: "uncertain" };
+  if (j.correspondsToPreserved) return { autoApply: false, reason: "의미 판정기가 보존 차원 대응으로 판정 — 보존", layer: "behavior" };
   const g = inp.dynamicGate;
   if (!g) return { autoApply: false, reason: "동적 테스트(게이트 2) 결과 없음 — 판정기 부재로 자동 적용 불가", layer: "uncertain" };
   if (!g.triggerEvalPassed) return { autoApply: false, reason: "동적 테스트 실패 — 트리거 eval 미통과", layer: "uncertain" };
   if (!g.holdoutNoRegression) return { autoApply: false, reason: "outcome holdout 에서 저하 관측 — 자동 적용 불가", layer: "uncertain" };
-  return { autoApply: true, reason: "결정적 가드 통과 · 보존 차원 대응 없음 · 동적 테스트 통과", layer: "allow" };
+  return { autoApply: true, reason: "결정적 가드 통과 · 의미 판정기 '대응 없음' · 동적 테스트 통과", layer: "allow" };
 }

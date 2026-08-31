@@ -13,6 +13,7 @@ const BEHAVIOR = [
 const bodies = new Map([["gate-rule", BEHAVIOR]]);
 const base = { kind: "agent" as const, behaviorBodies: bodies };
 const pass = { triggerEvalPassed: true, holdoutNoRegression: true };
+const judged = { correspondsToPreserved: false };   // 의미 판정기가 "대응 없음"을 확인한 상태
 const g = (o: Partial<GuardInput>) => deletionGuard({ line: "", sectionHeading: "", ...base, ...o } as GuardInput);
 
 describe("B4 — 1층: 결정적 가드(불변)", () => {
@@ -125,8 +126,21 @@ describe("B4 — 불확실은 전부 거부", () => {
     expect(v.reason).toContain("미포괄");
   });
 
+  it("의미 판정기 결과가 없으면 자동 적용 불가 — '찾지 못했다'를 '대응 없음'으로 읽지 않는다", () => {
+    const v = g({ line: "임의의 설명 문장이다.", sectionHeading: "## 부록", dynamicGate: pass });
+    expect(v.autoApply).toBe(false);
+    expect(v.reason).toContain("매핑 불확실");
+  });
+
+  it("의미 판정기가 '대응함'이면 거부", () => {
+    const v = g({ line: "임의의 설명 문장이다.", sectionHeading: "## 부록",
+      semanticJudge: { correspondsToPreserved: true }, dynamicGate: pass });
+    expect(v.autoApply).toBe(false);
+    expect(v.layer).toBe("behavior");
+  });
+
   it("동적 테스트 결과가 없으면(판정기 부재) 자동 적용 불가", () => {
-    const v = g({ line: "임의의 설명 문장이다.", sectionHeading: "## 부록" });
+    const v = g({ line: "임의의 설명 문장이다.", sectionHeading: "## 부록", semanticJudge: judged });
     expect(v.autoApply).toBe(false);
     expect(v.reason).toContain("판정기 부재");
   });
@@ -135,7 +149,7 @@ describe("B4 — 불확실은 전부 거부", () => {
     [{ triggerEvalPassed: false, holdoutNoRegression: true }, "트리거 eval"],
     [{ triggerEvalPassed: true, holdoutNoRegression: false }, "holdout"],
   ])("동적 테스트가 하나라도 실패하면 거부", (dynamicGate, want) => {
-    const v = g({ line: "임의의 설명 문장이다.", sectionHeading: "## 부록", dynamicGate });
+    const v = g({ line: "임의의 설명 문장이다.", sectionHeading: "## 부록", semanticJudge: judged, dynamicGate });
     expect(v.autoApply).toBe(false);
     expect(v.reason).toContain(want);
   });
@@ -146,16 +160,24 @@ describe("B4 — 불확실은 전부 거부", () => {
 });
 
 describe("B4 — 허용 경로", () => {
-  it("세 층을 모두 통과해야 자동 적용이 허용된다", () => {
-    const v = g({ line: "임의의 설명 문장이다.", sectionHeading: "## 부록", dynamicGate: pass });
+  it("네 층을 모두 통과해야 자동 적용이 허용된다", () => {
+    const v = g({ line: "임의의 설명 문장이다.", sectionHeading: "## 부록", semanticJudge: judged, dynamicGate: pass });
     expect(v.autoApply).toBe(true);
     expect(v.layer).toBe("allow");
   });
 
-  it("E3 가 붙기 전(dynamicGate 없음)에는 **어느 문장도** 자동 삭제되지 않는다", () => {
+  it("E3 가 붙기 전(의미 판정기·동적 게이트 없음)에는 **어느 문장도** 자동 삭제되지 않는다", () => {
     const lines = ["임의의 설명", "예시를 든다", "표를 참고한다", "부연 설명이다"];
     for (const line of lines) {
       expect(g({ line, sectionHeading: "## 부록" }).autoApply, line).toBe(false);
+      expect(g({ line, sectionHeading: "## 부록", dynamicGate: pass }).autoApply, `${line} (동적만)`).toBe(false);
     }
+  });
+
+  it("구두점 차이로 대응을 놓치지 않는다 — `판단한다.` ↔ `판단한다`", () => {
+    const m = new Map([["b", "## Evidence\n종료코드와 출력으로 판단한다\n"]]);
+    const v = deletionGuard({ line: "종료코드와 출력으로 판단한다.", sectionHeading: "## 부록",
+      kind: "agent", behaviorBodies: m, semanticJudge: judged, dynamicGate: pass });
+    expect(v.layer, "구두점 하나로 대응을 놓쳤다").toBe("behavior");
   });
 });
