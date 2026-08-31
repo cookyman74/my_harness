@@ -293,6 +293,15 @@ function isSubstantive(l: string): boolean {
 // `splitSections` 가 `## 역할 <!--` 같은 줄에서 새 섹션을 열면 주석이 열린 채로 넘어가는데,
 // `scanPointers` 가 항상 `false` 로 시작하면 **주석 안 내용이 실체·포인터로 오판**돼
 // `completenessMissing`·조건 ⓔ 를 무력화하는 우회가 열린다.
+// BEHAVIOR **차원 heading** 판정 — CLI(`^##[[:space:]]+<dim>$`)와 **정확히 같은 규칙**이어야 한다.
+// `includes` 로 느슨하게 보면 `## Intentions`·`## Failure modes 참고` 같은 heading 이 통과해
+// CLI 는 fail 인데 TS 는 pass 하는 BEHAVIOR 가 남는다(R10 codex HIGH).
+// 필수 **섹션**(정의 파일의 `## 핵심 역할` 등)은 부분 일치가 정본 관례이므로 그대로 둔다 —
+// 여기서 엄격해지는 것은 **BEHAVIOR 6차원**뿐이다.
+export function isDimensionHeading(heading: string, dim: string): boolean {
+  return new RegExp(`^##[ \t]+${dim.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[ \t]*$`).test(heading.replace(/\r$/, ""));
+}
+
 export function scanPointers(body: string, startInComment = false): PointerScan {
   const ls = lines(body);
   let open: FenceTok = null, inComment = startInComment;
@@ -406,7 +415,7 @@ function scoreStructure(body: string, hasRefs: boolean, kind: "agent" | "skill",
     for (const [name, b] of bctx.bodies) {
       const secs = splitSections(b);
       for (const dim of ["Intent", "Failure modes"]) {
-        const hit = secs.find((x) => x.heading.includes(dim));
+        const hit = secs.find((x) => isDimensionHeading(x.heading, dim));
         if (!hit || hit.substantive === 0) missDim.push(`${name}/${dim}`);
       }
     }

@@ -148,6 +148,19 @@ describe("B5 — TS ↔ CLI 판정 일치", () => {
     expect(await tsNotices(), "TS 가 고아를 아예 알리지 않았다").toBe(true);
   });
 
+  it.each([
+    ["느슨한 heading `## Intentions`", "loose", "## Intentions\n의도.\n## Failure modes\n실패.\n"],
+    ["꼬리 붙은 heading `## Failure modes 참고`", "tail", "## Intent\n의도.\n## Failure modes 참고\n실패.\n"],
+  ])("차원 heading 을 %s 로 흐려도 **양쪽 다 안 속는다**(exact match)", async (_n, name, body) => {
+    await writeAgentRaw(goodFm(`behaviors:\n  - ${name}`));
+    await writeSpecRaw(name, `---\nname: ${name}\ndescription: 위장\n---\n${body}`);
+    expect(await cliFails(), "CLI 가 통과시켰다").toBe(true);
+    const { evaluateArtifacts } = await import("../src/server/adapters/artifacteval.js");
+    const r = await evaluateArtifacts(root);
+    const a = r.artifacts.find((x) => x.name === "a1")!;
+    expect(a.findings.some((f) => f.why.includes("참조 BEHAVIOR 부실")), "채점기가 놓쳤다").toBe(true);
+  });
+
   it("수평선으로 차원을 위장해도 **양쪽 다 안 속는다**", async () => {
     await writeAgentRaw(goodFm("behaviors:\n  - hr"));
     await writeSpecRaw("hr", "---\nname: hr\ndescription: 위장\n---\n## Intent\n---\n## Failure modes\n---\n");
