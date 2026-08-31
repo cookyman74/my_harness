@@ -191,27 +191,44 @@ export function parseBehaviorRefs(fm: string, keepInvalid = false): string[] {
 // 들여쓰기 3칸까지, 이름은 디렉토리명 규칙(`\S+` 는 `../x` 경로 탈출을 허용해 폐기·R18).
 // **코드펜스 안은 제외**한다(R17: 정규식만 쓰면 예제 문자열을 포인터로 오인한다).
 const POINTER = /^ {0,3}>\s*BEHAVIOR:\s*([a-z0-9]([a-z0-9-]*[a-z0-9])?)\s*$/;
+// CommonMark: fence 는 **3개 이상**의 같은 문자이고, **여는 것보다 짧은 fence 로는 닫히지 않는다**.
+// `slice(0,3)` 로 축약하면 ````` ```` ````` 안의 ` ``` ` 이 조기 종료로 읽혀 **fenced 코드가
+// live text 로 풀린다** → 포인터·heading·대용량 블록 판정이 전부 틀어진다(R2 codex HIGH).
+// 세 곳(`scanPointers`·`splitSections`·대용량 펜스 탐지)이 같은 취약점을 공유했으므로
+// **상태기를 하나로 통합**한다.
 const FENCE_ANY = /^\s{0,3}(?:```|~~~)/;   // 물결표 fence 도 fence 다
+type FenceTok = { ch: string; len: number } | null;
+/** fence 줄이면 {문자, 길이}, 아니면 null. */
+export function fenceToken(line: string): FenceTok {
+  const m = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+  return m ? { ch: m[1]![0]!, len: m[1]!.length } : null;
+}
+/** fence 상태 전이. 열려 있으면 `open`, 아니면 null 을 넘긴다. 반환값이 새 상태다. */
+export function fenceStep(open: FenceTok, line: string): { open: FenceTok; isFenceLine: boolean } {
+  const tok = fenceToken(line);
+  if (!tok) return { open, isFenceLine: false };
+  if (!open) return { open: tok, isFenceLine: true };                       // 연다
+  if (tok.ch === open.ch && tok.len >= open.len) return { open: null, isFenceLine: true }; // 닫는다
+  return { open, isFenceLine: false };   // 다른 문자이거나 더 짧다 → 닫지 않는다(본문이다)
+}
 export type PointerScan = { pointers: string[]; unclosedFence: boolean; nonPointerLines: number };
 export function scanPointers(body: string): PointerScan {
   const ls = lines(body);
-  let inFence = false, fenceTok = "";
+  let open: FenceTok = null;
   const pointers: string[] = [];
   let nonPointerLines = 0;
   for (const raw of ls) {
     const l = raw.replace(/\r$/, "");
-    const fm = FENCE_ANY.exec(l);
-    if (fm) {
-      const tok = l.trim().slice(0, 3);
-      if (!inFence) { inFence = true; fenceTok = tok; continue; }
-      if (tok === fenceTok) { inFence = false; fenceTok = ""; continue; }
-    }
-    if (inFence) { if (l.trim()) nonPointerLines++; continue; }  // 펜스 안 내용도 **실체로 센다**
+    const wasOpen = open;
+    const st = fenceStep(open, l);
+    open = st.open;
+    if (st.isFenceLine) continue;                                 // 여는/닫는 줄 자체는 안 센다
+    if (wasOpen) { if (l.trim()) nonPointerLines++; continue; }   // 펜스 안 내용도 **실체로 센다**
     const pm = POINTER.exec(l);
     if (pm) { pointers.push(pm[1]!); continue; }
     if (l.trim()) nonPointerLines++;
   }
-  return { pointers, unclosedFence: inFence, nonPointerLines };
+  return { pointers, unclosedFence: open !== null, nonPointerLines };
 }
 
 // 본문을 heading 단위로 쪼갠다(R11 양 엔진 — 현행엔 "특정 heading 에 속한 본문"을 보는 로직이
@@ -226,13 +243,14 @@ export function splitSections(body: string): Section[] {
     const sc = scanPointers(cur.join("\n"));
     out.push({ heading: head, pointers: sc.pointers, substantive: sc.nonPointerLines, lines: [...cur] });
   };
-  let inFence = false, tok = "";
+  let open: FenceTok = null;
   for (const raw of ls) {
     const l = raw.replace(/\r$/, "");
-    const fm = FENCE_ANY.exec(l);
-    if (fm) { const t2 = l.trim().slice(0, 3); if (!inFence) { inFence = true; tok = t2; } else if (t2 === tok) { inFence = false; tok = ""; } }
-    // 펜스 안의 `## …` 는 heading 이 아니다(예제 코드).
-    if (!inFence && /^#{1,6}\s/.test(l)) { flush(); head = l; cur = []; continue; }
+    const wasOpen = open;
+    open = fenceStep(open, l).open;
+    // 펜스 안의 `## …` 는 heading 이 아니다(예제 코드). 여는 줄 자체도 안이 아니므로
+    // `wasOpen || open` 로 "여는 줄 ~ 닫는 줄" 전 구간을 덮는다.
+    if (!wasOpen && !open && /^#{1,6}\s/.test(l)) { flush(); head = l; cur = []; continue; }
     cur.push(l);
   }
   flush();
@@ -341,15 +359,14 @@ function scoreStructure(body: string, hasRefs: boolean, kind: "agent" | "skill",
     // ① 물결표 펜스(`~~~`) ② 들여쓴 펜스 를 놓쳤다 — 60줄 넘는 블록을 그대로 두고 감점을
     // 피하는 우회 통로였다. 닫는 펜스가 들여쓰이면 종료를 놓쳐 엉뚱한 블록을 하나로 묶어
     // **거짓 감점**도 났다. 여는 토큰과 같은 토큰으로만 닫는다(짝맞춤).
-    const ls = lines(merged); let fenceStart = -1, openTok = "";
+    const ls = lines(merged); let fenceStart = -1; let open: FenceTok = null;
     for (let i = 0; i < ls.length; i++) {
-      const l = ls[i]!;
-      if (!FENCE_ANY.test(l)) continue;
-      const tok = l.trim().slice(0, 3);
-      if (fenceStart < 0) { fenceStart = i; openTok = tok; continue; }
-      if (tok !== openTok) continue;                    // 다른 종류의 펜스는 닫지 않는다
-      if (i - fenceStart > 60) { s -= 0.1; findings.push({ axis: "structure", target: { anchor }, action: "move-to-references", why: `대용량 인라인 블록(${i - fenceStart}줄)${bd}·references/로`, risk: "low" }); }
-      fenceStart = -1; openTok = "";
+      const st = fenceStep(open, ls[i]!);
+      if (!st.isFenceLine) { open = st.open; continue; }
+      if (open === null) { fenceStart = i; open = st.open; continue; }   // 열었다
+      open = st.open;                                                    // 닫았다
+      if (fenceStart >= 0 && i - fenceStart > 60) { s -= 0.1; findings.push({ axis: "structure", target: { anchor }, action: "move-to-references", why: `대용량 인라인 블록(${i - fenceStart}줄)${bd}·references/로`, risk: "low" }); }
+      fenceStart = -1;
     }
   } else {
     if (nMerged > 400) s -= Math.min(0.3, (nMerged - 400) / 1000);

@@ -137,10 +137,14 @@ for d in "$BDIR"/*; do
     fence_aware="$(awk '
       { sub(/\r$/, ""); sub(/[[:space:]]+$/, "") }
       {
-        if (match($0, /^[[:space:]]{0,3}(```|~~~)/)) {
-          tok = substr($0, RSTART, RLENGTH); sub(/^[[:space:]]*/, "", tok); tok = substr(tok, 1, 3)
-          if (!inf) { inf = 1; open = tok; print "@@FENCE@@"; next }
-          if (tok == open) { inf = 0; open = ""; print "@@FENCE@@"; next }
+        # CommonMark: fence 는 **3개 이상**이고 **여는 것보다 짧은 fence 로는 닫히지 않는다**.
+        # 3개로 축약하면 ````` ```` ````` 안의 ` ``` ` 이 조기 종료로 읽혀 코드가 본문으로 풀린다
+        # (TS 와 같은 취약점이었다·R2 codex HIGH). 문자와 길이를 그대로 비교한다.
+        if (match($0, /^[[:space:]]{0,3}(`{3,}|~{3,})/)) {
+          tok = substr($0, RSTART, RLENGTH); sub(/^[[:space:]]*/, "", tok)
+          ch = substr(tok, 1, 1); len = length(tok)
+          if (!inf) { inf = 1; opench = ch; openlen = len; print "@@FENCE@@"; next }
+          if (ch == opench && len >= openlen) { inf = 0; opench = ""; openlen = 0; print "@@FENCE@@"; next }
         }
         if (inf) { print "@@CODE@@" $0; next }
         print

@@ -227,6 +227,29 @@ describe("파서 — parseBehaviorRefs · scanPointers · splitSections", () => 
     expect(scanPointers(input as string).pointers).toEqual(want);
   });
 
+  // R2 codex HIGH — CommonMark: fence 는 3개 이상이고 **여는 것보다 짧은 fence 로는 닫히지 않는다**.
+  // `slice(0,3)` 축약이면 4개 펜스 안의 3개 펜스가 조기 종료로 읽혀 **fenced 코드가 live text 로 풀린다**.
+  it("4개 이상 fence 안의 3개 fence 는 닫지 않는다 — 포인터가 새어 나오지 않는다", () => {
+    const r = scanPointers("````\n```\n> BEHAVIOR: leaked\n```\n````\n");
+    expect(r.pointers, "짧은 fence 가 긴 fence 를 닫아 포인터가 풀렸다").toEqual([]);
+    expect(r.unclosedFence).toBe(false);
+  });
+
+  it("4개 이상 fence 안의 heading 은 heading 이 아니다", () => {
+    const secs = splitSections("## A\n본문\n````\n```\n## 가짜\n```\n````\n");
+    expect(secs.map((s) => s.heading.trim())).toEqual(["## A"]);
+  });
+
+  it("다른 문자 fence 는 서로 닫지 않는다", () => {
+    expect(scanPointers("```\n~~~\n> BEHAVIOR: leaked\n~~~\n```\n").pointers).toEqual([]);
+  });
+
+  it("여는 것보다 긴 fence 로는 닫힌다(CommonMark)", () => {
+    const r = scanPointers("```\ncode\n`````\n> BEHAVIOR: after\n");
+    expect(r.pointers).toEqual(["after"]);
+    expect(r.unclosedFence).toBe(false);
+  });
+
   it("섹션별 실체/포인터를 나눠 센다·펜스 안 heading 은 heading 이 아니다", () => {
     const secs = splitSections("## A\n본문\n## B\n> BEHAVIOR: x\n## C\n```\n## 가짜\n```\n");
     expect(secs.map((s) => s.heading.trim())).toEqual(["## A", "## B", "## C"]);

@@ -433,6 +433,17 @@ mkdir -p "$CASE/.agents/behaviors/ok2"
 agent a1 ok2
 [ "$(rc_of)" = 0 ] && ok "펜스 안 내용은 실체로 센다(정상 통과)" || no "펜스 본문을 thin 으로 오탐: $(run)"
 
+# R2 codex HIGH — 4개 이상 fence 안의 3개 fence 로 조기 종료돼 위장 heading 이 새어 나오던 것
+new_case fence4
+mkdir -p "$CASE/.agents/behaviors/f4"
+{ echo '---'; echo 'name: f4'; echo 'description: 위장'; echo '---'
+  echo '## Intent'; echo
+  echo '````'; echo '```'; echo '## Failure modes'; echo '가짜'; echo '```'; echo '````'; } \
+  > "$CASE/.agents/behaviors/f4/BEHAVIOR.md"
+agent a1 f4
+OUT="$(run)"
+hasi 'Failure modes.*누락' && ok "4개 fence 안 heading 이 안 샌다" || no "짧은 fence 로 조기 종료 — 위장 통과: $OUT"
+
 new_case name-mismatch; behavior . alpha '왜' '실패'
 mv "$CASE/.agents/behaviors/alpha" "$CASE/.agents/behaviors/other"
 OUT="$(run)"; hasi '디렉토리명' && ok "디렉토리명 불일치 검출" || no "디렉토리명 불일치 미검출: $OUT"
