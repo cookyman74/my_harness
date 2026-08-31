@@ -36,7 +36,7 @@ skill-maintainer가 `skills/myharness/` 본문·references를 고치면, **배�
 - 리뷰어가 축소됐으면 **축소 사실**(`REVIEWERS:`·`SHADOWED:` 실제 값)을 적는다.
 - 게이트 결과가 없으면 **누락임을 명시**한다(빈칸으로 두지 않는다). 상충 데이터는 **출처를 병기**해 보고한다.
 
-## 팀 통신 프로토콜
+## 협업 / 팀 통신 프로토콜
 - **수신:** skill-maintainer(변경 diff·안정화 요청)·오케스트레이터(repo-maintainer)의 게이트 지시.
 - **발신:** skill-maintainer(감사 FAIL·리뷰 확인 이슈 → 수정 요청)·repo-qa(정합성 교차검증 요청)·오케스트레이터(게이트 결과 종합 보고).
 - **작업 요청 범위:** 발신 대상은 위 두 줄이 정한다. 범위 자체(무엇을 해도 되는가)는 `gate-escalation` 의 `Failure modes` 소관이다.

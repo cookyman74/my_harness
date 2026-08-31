@@ -37,6 +37,14 @@ export function confidenceOf(rubric: ArtifactRubric, mode: EvaluationMode): numb
 // P0-d: 등급 임계를 명명 상수로 노출한다. 테스트가 0.9/0.75/0.6 리터럴을 박으면
 //   캘리브레이션으로 임계가 바뀔 때 "테스트가 현행값을 고정" 하는 교착이 생긴다(계획서 R14).
 //   경계 테스트는 이 상수를 참조해 **채택된 임계의 직전·직후**를 검증해야 한다.
+// 필수 섹션 목록의 **단일 출처**. `SKILL.md:113`(에이전트 5종)·ADR-001 D7 과 같은 값이어야 한다.
+// 문자열 포함 매칭이므로 `## 입력/출력 프로토콜`·`## 팀 통신 프로토콜` 은 둘 다 "프로토콜" 을,
+// `## 협업 / 팀 통신 프로토콜` 은 "협업" 을 만족한다.
+export const REQUIRED_SECTIONS = {
+  agent: ["역할", "원칙", "프로토콜", "에러", "협업"],
+  skill: ["절차", "트리거"],
+} as const;
+
 export const GRADE_THRESHOLDS = { A: 0.9, B: 0.75, C: 0.6 } as const;
 
 export interface Finding {
@@ -158,12 +166,19 @@ function scorePruning(body: string, findings: Finding[], anchor: string): number
   return clamp01(1 - ratio);
 }
 
-// 완전성 가드(design §1·§9): 필수 섹션(agent: 역할·프로토콜·에러 / skill: 절차·트리거) 존재. 누락 수 반환(구조 감점·가드).
+// 완전성 가드(design §1·§9): 필수 섹션 존재. 누락 수 반환(구조 감점·가드).
+//   agent 5종 = 역할·원칙·프로토콜·에러·협업 / skill 2종 = 절차·트리거.
+//   ⚠ 코드가 오래 **3종**(역할·프로토콜·에러)만 검사해 `SKILL.md:113` 의 5종 관례와 어긋나 있었다
+//   (ADR-001 R12). 그래서 `작업 원칙`·`협업` 이 통째로 빠진 정의도 가드를 통과했다 —
+//   ADR D7 이 "정의 소유라 본문 필수"라 한 `협업` 이 채점에서 아예 없던 셈이다.
+//   **문서 쪽(5종)으로 통일한다** — 실측: 이 레포의 에이전트 6개 중 5개는 이미 5종을 갖췄고
+//   `stabilizer.md` 하나만 `협업` 이 없었다(팀 모드는 `팀 통신 프로토콜` 을 **추가**하는 것이지
+//   `협업` 을 대체하지 않는다·SKILL.md:113). 규칙을 약화하는 대신 그 정의를 고쳤다.
 //   heading(## …) 라인 기준(codex LOW: 본문 언급 오탐 방지). 누락은 finding + scoreStructure 로 감점/과락.
 function completenessMissing(body: string, kind: "agent" | "skill", findings: Finding[], anchor: string): number {
   // heading(## …) 라인만 검사(codex LOW: 본문/코드펜스 언급 오탐 제거·body fallback 삭제).
   const heads = lines(body).filter((l) => /^#{1,6}\s/.test(l));
-  const req = kind === "agent" ? ["역할", "프로토콜", "에러"] : ["절차", "트리거"];
+  const req = kind === "agent" ? REQUIRED_SECTIONS.agent : REQUIRED_SECTIONS.skill;
   let missing = 0;
   for (const sec of req) if (!heads.some((h) => h.includes(sec))) { missing++; findings.push({ axis: "completeness", target: { anchor }, action: "add-required-section", why: `필수 섹션 heading '${sec}' 미검출`, risk: "low" }); }
   return missing;
