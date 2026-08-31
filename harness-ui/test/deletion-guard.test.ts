@@ -37,6 +37,17 @@ describe("B4 — 1층: 결정적 가드(불변)", () => {
     "The runner cannot proceed.",
     "반드시 결과서를 남긴다.",
     "always record the outcome",
+    // R2 codex HIGH — 정중형·어미 변화. `안 된다`만 잡으면 이것들이 새어 나간다.
+    "그렇게 하면 안 됩니다.",
+    "이 경로는 허용되지 않습니다.",
+    "우회는 권장하지 않습니다.",
+    "그 필드는 지원하지 않는다.",
+    "상충 데이터를 지우지 않는다.",
+    "두 계열을 섞지 않는다.",
+    "판정을 넘기지 않으며 직접 확인한다.",
+    "휘발 경로에 의존하지 않는다.",
+    "게이트를 먼저 통과해야 합니다.",
+    "이 값은 고정한다.",
   ])("핵심 제약 문장은 섹션과 무관하게 거부 — %s", (line) => {
     const v = g({ line, sectionHeading: "## 부록", dynamicGate: pass });
     expect(v.autoApply).toBe(false);
@@ -80,8 +91,9 @@ describe("B4 — 2층: behavior 보존 가드(AND 추가)", () => {
   });
 
   it("heading 뒤 공백·CRLF 가 있어도 섹션 본문 검사가 생략되지 않는다(indexOf 의존 제거)", () => {
-    const messy = new Map([["b", "## Decision  \r\n세 층이 모두 통과해야 정본 변경을 승인한다.\r\n"]]);
-    const v = deletionGuard({ line: "세 층이 모두 통과해야 정본 변경을 승인한다", sectionHeading: "## 부록",
+    // 제약 어휘가 없는 중립 문장을 쓴다 — 결정적 층이 먼저 잡으면 2층 검증이 안 된다.
+    const messy = new Map([["b", "## Decision  \r\n등급은 전파 반경으로 정한다.\r\n"]]);
+    const v = deletionGuard({ line: "등급은 전파 반경으로 정한다", sectionHeading: "## 부록",
       kind: "agent", behaviorBodies: messy, dynamicGate: pass });
     expect(v.layer).toBe("behavior");
   });
