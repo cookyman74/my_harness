@@ -192,7 +192,7 @@
 - [x] **stage risk 권위** — 계획서 단계 헤더의 `**등급:**`. 저자=계획서 작성자·경로·착수 전 생성·`risk_source` 에 경로+블록 sha256 · 등급 표기 없으면 **`critical` 로 읽는다(fail-closed)** · `manifest` 어휘 미사용(§3)
 - [x] **루프 identity 계약** — `loop_instance_id = {stage_id}@{opened_at}`(오케스트레이터가 개시 시 1회) · `run_id` 라운드별 갱신 · `stage_id` 는 **계획서**에서·`opened_at` 은 **루프 개시 시각**에서(순환 검증 회피) · 키 정렬 2-space JSON canonical(§4)
 - [x] **Step 7↔8 순서** — 바꾸지 않는다. **Step 7.5 attestation 발행**을 신설해 승인 결과를 포함해 봉인 → Step 8 커밋에서 hook 이 검증(§6)
-- [x] **비정상 terminal** — **발행한다**(`issues: []` 허용·`eval_status: eval-empty`)·차단하지 않는다·**집계 표본에서만 제외**. 발행을 막으면 제약 ⑧ 교착이 재발한다(§7)
+- [x] **비정상 terminal** — `failed`·`no-reviewers` 는 **발행한다**(`issues: []` 허용·`eval_status: eval-failed`)·기록 커밋을 차단하지 않는다·**집계 표본에서만 제외**(발행을 막으면 제약 ⑧ 교착 재발). **측정 파손(`eval-error`)은 발행하지 않는다** — 파손을 성공으로 적지 않는다. `degraded-blocked` 는 **정본이 커밋 단계에 진입하지 않으므로 이 설계 소관이 아니다**(R18 codex·§7)
 
 ### 설계 제약 — 제안서 §3-0 의 12건을 입력으로 받는다 (재발명 금지)
 - [x] 12건 **대응표** 작성(설계서 §8) — 각 행에 반박된 안과 회피 방식을 1:1로
@@ -202,7 +202,7 @@
 - [x] 호출자 **외부** — `pre-commit` hook
 - [x] 3경로 통과 — 리뷰 없음=통과 · 리뷰 실패=발행 후 통과 · 성공+attestation=통과. **리뷰 흔적+attestation 부재**만 차단
 - [x] 우회=리뷰 산출물 삭제(라운드 인용 근거가 함께 소멸) · 복구=`emit-attestation.sh` 1회 → **복구가 더 쉽다**
-- [x] 판정 대상 = **산출물 3종의 존재와 무결성**(scorecard `eval_status == "ok"` / 영속 추세 레코드 append 행 / attestation 해시 일치). **`issues` 길이는 판정에 쓰지 않는다** — 결함 0건 수렴은 정상이고, 그걸 막으면 거짓 결함을 지어내야 한다(R3 agy). `eval_status` 는 `ok`/`eval-empty`(원장 부재·파손)/`eval-failed`(리뷰 실패·생성 실패)/`eval-unavailable`(도구 부재) **넷이 서로 겹치지 않는다**(R8 codex). 현행이 `alignment=null·warnings=[]` 를 "발행"으로 보고하는 결함(B0 §5 실측)을 구현 범위에 포함
+- [x] 판정 대상 = **산출물 3종의 존재와 무결성**(scorecard `eval_status == "ok"` / 영속 추세 레코드 append 행 / attestation 해시 일치). **`issues` 길이는 판정에 쓰지 않는다** — 결함 0건 수렴은 정상이고, 그걸 막으면 거짓 결함을 지어내야 한다(R3 agy). `eval_status` **5개가 서로 겹치지 않는다**(R8 codex·R15 agy): `ok` / `eval-empty`(원장 부재·파손) / `eval-failed`(**리뷰 자체가 실패** — 정당한 결과이므로 발행·기록 커밋 통과) / `eval-error`(**측정 시스템 파손** — scorecard 생성 실패·jq 크래시·0바이트 → **발행하지 않는다**) / `eval-unavailable`(도구 부재). *리뷰 실패와 측정 파손을 같은 값에 두면 발행기가 둘을 구분 못 해 파손을 통과시키거나 정당한 실패를 차단한다*. 현행이 `alignment=null·warnings=[]` 를 "발행"으로 보고하는 결함(B0 §5 실측)을 구현 범위에 포함
 
 ### 게이트
 - [ ] 설계서 외부리뷰 2R+ · **HIGH 0 · MEDIUM 0 2연속** · 측정 꼬리 발행 · 결과서
