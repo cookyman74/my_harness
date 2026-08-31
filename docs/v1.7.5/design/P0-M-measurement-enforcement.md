@@ -34,6 +34,7 @@
 | # | 산출물 | 무결성 조건 |
 |---|---|---|
 | A | `scorecard.json` | `eval_status == "ok"` · `issues` 비지 않음 · `stage_id`/`run_id` 가 attestation 과 일치 |
+| | ⚠ **생산자·소비자 계약을 함께 고쳐야 한다** | 실측(R2 codex HIGH): **정상 경로의 scorecard 에는 `eval_status` 필드가 아예 없고**, `emit-loop-scorecard.sh:26` 은 `.eval_status // "ok"` 로 **없으면 성공으로 간주**한다. 지금 계약대로면 형식이 깨졌거나 빈 scorecard 가 그대로 통과하고 `eval-empty` 차단 의도도 무력해진다 |
 | B | `summary.jsonl` 의 append 행 | A 와 같은 `stage_id`·`rounds`·`termination_reason` |
 | C | **영속 attestation** | 아래 §2 |
 
@@ -46,7 +47,7 @@
 ```json
 {
   "schema_version": 1,
-  "loop_instance_id": "b1-behavior-format@2026-08-31T06:12:03Z",
+  "loop_instance_id": "b1-behavior-format@2026-08-31T06:12:03.417Z@9f3a1c07",
   "stage_id": "b1-behavior-format",
   "risk": "critical",
   "risk_source": "docs/v1.7.5/todo/eval-upgrade-plan.md#B1",
@@ -54,6 +55,7 @@
   "rounds": [{ "run_id": "r1", "status": "completed", "reviewers": ["codex","agy"], "degraded": null }],
   "terminal": { "reason": "converged", "at": "2026-08-31T09:41:00Z" },
   "artifacts": { "scorecard": "…/scorecard.json", "scorecard_sha256": "…", "summary_line_sha256": "…" },
+  "claim_ref": { "path": "docs/v1.7.5/working_history/B1-behavior-format.md", "sha256": "…" },
   "attested_at": "2026-08-31T09:41:07Z"
 }
 ```
@@ -89,7 +91,7 @@ risk 를 판단하면 중대 단계가 우회된다.
 
 | 개념 | 값 | 누가 만드나 | 언제 바뀌나 |
 |---|---|---|---|
-| `loop_instance_id` | `{stage_id}@{opened_at}` | **오케스트레이터가 루프 개시 시 1회** | 루프마다 |
+| `loop_instance_id` | `{stage_id}@{opened_at}@{nonce}` | **오케스트레이터가 루프 개시 시 1회** | 루프마다 |
 | `stage_id` | 계획서 단계 슬러그 | 계획서 | 단계마다 |
 | `run_id` | 라운드 실행 id | 런처(`run-review.sh`) | **라운드마다** |
 
@@ -98,6 +100,17 @@ risk 를 판단하면 중대 단계가 우회된다.
 - **독립 권위 원본:** `loop_instance_id` 의 `stage_id` 부분은 **계획서**에서, `opened_at` 은
   **커밋 타임스탬프가 아니라 루프 개시 시각**에서 온다. 상태파일에서 읽은 ID 로 그 상태파일을
   검증하지 않는다(제약 ⑫).
+- **유일성 계약**(R2 codex HIGH — 처음엔 `{stage_id}@{opened_at}` 뿐이라 **유일성 보장이 없었다**):
+  - `opened_at` 은 **UTC ISO-8601 밀리초**(`2026-08-31T06:12:03.417Z`)로 고정한다. 정밀도를 안 정하면
+    같은 초에 두 루프가 열릴 때 충돌한다.
+  - 그것으로도 부족하다 — 같은 밀리초·재개·동시 재진입이 있다. **`nonce`(128bit 랜덤 hex 8자)** 를
+    붙여 `{stage_id}@{opened_at}@{nonce}` 로 만든다. 파일명이 곧 유일 키다.
+  - **덮어쓰기 금지:** attestation 파일이 이미 있으면 **새로 쓰지 않고 실패**한다(`O_EXCL`).
+    같은 이름이 나왔다면 그건 충돌이지 재개가 아니다.
+- **오래된 attestation 재사용 차단**(같은 지적): hook 은 attestation 존재만 보면 **직전 루프의 것을
+  재사용**해 통과할 수 있다. → attestation 에 **`claim_ref`** 를 넣는다 —
+  그 루프가 근거로 삼은 **결과서 경로 + 그 파일의 sha256**. hook 은 커밋의 결과서 해시와
+  `claim_ref` 가 **일치할 때만** 인정한다. 결과서가 바뀌면 새 attestation 이 필요하다.
 - **canonical serialization:** attestation 은 **키 정렬 + 2-space JSON + 후행 개행**으로만 쓴다.
   해시 비교가 포맷 차이로 깨지면 강제가 잡음이 된다.
 
@@ -162,6 +175,13 @@ Step 4 판정 → Step 5 수정 → Step 6 재리뷰 → [루프 종료 판정]
 | `degraded-blocked` | 발행 | 통과 | 제외 |
 | `failed`·`no-reviewers` | **발행한다**(`issues: []` 허용·`eval_status: "eval-empty"`) | **조건부**(아래) | 제외 |
 
+**생산자·소비자 계약(구현 범위):**
+- `build-scorecard.sh` 는 **항상 `eval_status` 를 쓴다** — `ok` · `eval-empty`(issues 0) ·
+  `eval-failed`(생성 실패) · `eval-unavailable`(jq 부재).
+- 소비자는 **`eval_status` 가 없거나 모르는 값이면 실패로 처리**한다. `// "ok"` 기본값은 제거한다 —
+  "필드가 없다"를 "성공"으로 읽는 것이 §1 이 지적한 바로 그 거짓 신호다.
+- `issues` 비어 있음이 **실제로 성공 판정에 반영**돼야 한다(현행은 반영되지 않는다).
+
 **핵심:** 실패도 **기록**한다. 발행 자체를 막으면 제약 ⑧의 교착이 재발한다.
 대신 **집계에서 제외**해 실패·축소 리뷰가 정상 표본에 섞이지 않게 한다(제약 ③).
 
@@ -199,7 +219,7 @@ Step 4 판정 → Step 5 수정 → Step 6 재리뷰 → [루프 종료 판정]
 | 8 | 완결성을 발행 AND 조건에 | `failed` 도 **발행**하고 **기록 커밋은 통과**시킨다(§7). 차단은 "완료를 주장하는 커밋"에만 걸려 영구 미발행·교착이 성립하지 않는다 |
 | 9 | frontmatter 자기신고 | 판정 대상이 **산출물의 존재와 해시**다. 자기신고 필드를 게이트 입력으로 쓰지 않는다 |
 | 10 | `.harness-manifest.json` 을 risk 권위로 | **쓰지 않는다.** 권위는 계획서 단계 헤더이고 이름도 분리했다(§3) |
-| 11 | identity 를 `stage_id` 단독 / `run_id` 고정 | `loop_instance_id = stage_id@opened_at` 승계 + `run_id` 라운드별 갱신으로 분리(§4) |
+| 11 | identity 를 `stage_id` 단독 / `run_id` 고정 | `loop_instance_id = stage_id@opened_at@nonce` 승계 + `run_id` 라운드별 갱신(§4). **유일성**은 ms 정밀도 + nonce + `O_EXCL` 로, **stale 재사용**은 `claim_ref` 해시 일치로 막는다(R2 codex HIGH) |
 | 12 | 상태파일 ID 로 그 상태파일 검증 | `stage_id` 는 **계획서**에서, `opened_at` 은 **루프 개시 시각**에서 — 독립 권위 원본(§4) |
 
 ## 9. 수용 기준 대조
