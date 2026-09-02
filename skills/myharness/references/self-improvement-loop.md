@@ -86,4 +86,21 @@
 | Phase 6 | 측정(with/without·assertion) | `artifact_benchmark.json` |
 | Phase 6 | 루프 효율 측정 | `loop_scorecard.json` (별도) |
 | Phase 7 | 감지·제안·holdout 검증·승인·채택·re-baseline | baseline 레지스트리·rollback manifest |
-> 러너(`run-benchmark.sh`) 미구현 — §4 계약을 충족하는 MVP부터 `scripts/`에 구현.
+> 러너 **구현됨**: `scripts/run-benchmark.sh`(격리 실행·궤적 수집·manifest/timing) + `scripts/grade-trajectory.sh`(기계 검증 assertion → `grading.json`). 계약 테스트 `tests/test-run-benchmark.sh`.
+> **아직 없는 것:** 반복 R회 집계·baseline 캐싱(§10)·CI 비중첩 채택식(§4 비교식) → **채택 결정은 수동**이다. 러너가 돈다고 채택이 자동화된 것이 아니다.
+> ⚠ **`seed` 는 `null` 이다** — CLI 에 seed 가 없다. §4 가 요구한 "결정적 seed"는 **충족되지 않는다**(`seed_supported: false` 로 기록). 반복 R회로 분산을 다뤄야 한다.
+> ⚠ 러너는 **도구를 허용한 모델 실행**을 일으킨다. 어떤 게이트에도 자동 배선하지 말 것 — 호출자가 명시할 때만 돈다.
+> ⚠⚠ **봉쇄(containment)는 없다.** `--allowedTools` 는 *어떤 도구를 쓰나*를 정할 뿐 *무엇을 건드리나*를 막지 못한다.
+>   `Bash` 를 허용하면 작업디렉토리 밖 쓰기·네트워크가 열린다. 그래서 **기본 도구는 `Read` 뿐**이고
+>   `Bash`/`Write`/`Edit` 는 **`BENCH_ALLOW_EXEC=1` 옵트인**이 있어야 허용된다. 격리는 작업디렉토리 수준일 뿐이다 —
+>   **신뢰할 수 없는 case/정의로 돌리지 말 것.**
+> **§10 비용 통제 이행 상태:** baseline 캐싱 **구현**(`--cache-dir` · key=case·arm·model·tools·runner).
+>   tiered `smoke→full` **게이팅은 호출자 책임**이다 — 러너는 케이스 하나만 돌리므로 티어를 강제할 위치가 아니다
+>   (`--tier` 는 manifest 에 남기는 **라벨**일 뿐 아무것도 막지 않는다). cheap-judge 는 `--model`/`BENCH_MODEL` 로 가능.
+> ⚠ **assertion 작성 함정(실측 3종):** 기계 채점은 텍스트 출현을 셀 뿐 **실행과 언급을 구분하지 못한다.**
+>   설명 필드(`description`)·다른 도구의 경로 참조·`find`/`grep` 같은 **검색**이 모두 "실행"으로 잡힌 실측이 있다.
+>   `"tool":"Bash"` 로 도구를 한정하고, **패턴을 실행 형태에 고정**하라
+>   (`run-policy-audit` ❌ → `(?:bash|sh|\./)[^"]*run-policy-audit\.sh` ✅).
+> **`grading.json` 의 `summary.status`:** `ok`(전건 채점·공허 없음) / `partial`(일부 미채점) / `vacuous`(대조할 주장이 없어
+>   검증 못 함) / `eval-empty`(채점 0건) / `unmeasurable`(러너 실패). **`ok` 외에는 종료코드도 0이 아니다** —
+>   호출자가 산출물을 안 열어봐도 부분 결과를 성공으로 읽지 않게.

@@ -45,7 +45,7 @@ atomic_cp() {
 }
 
 # 관리 대상 화이트리스트(상대경로) — 생성 하네스에 번들되는 것만.
-MANAGED_RELS="references/dev-rules.md references/tdd-doctrine.md references/behavior-specs.md scripts/check-review-tools.sh scripts/run-review.sh scripts/build-scorecard.sh scripts/emit-loop-scorecard.sh scripts/check-artifacts.sh scripts/check-behaviors.sh"
+MANAGED_RELS="references/dev-rules.md references/tdd-doctrine.md references/behavior-specs.md scripts/check-review-tools.sh scripts/run-review.sh scripts/build-scorecard.sh scripts/emit-loop-scorecard.sh scripts/check-artifacts.sh scripts/check-behaviors.sh scripts/run-benchmark.sh scripts/grade-trajectory.sh"
 
 # 관리 파일 상대경로 열거(skill_dir에 존재하는 것). .local.* 제외.
 list_managed() {
@@ -57,11 +57,21 @@ list_managed() {
   done
 }
 # 정본에만 있고 타겟에 없는 관리 파일(NEW 후보) 상대경로.
+# 신규(NEW) 자동 배포에서 제외할 관리 파일.
+# 이유: 벤치 러너는 **도구를 허용한 모델 실행**을 일으킨다(봉쇄 없음). 자기개선 루프를 쓰지 않는
+# 하네스에까지 진입점을 심을 이유가 없다. **이미 쓰는 하네스는 계속 갱신**된다 —
+# 화이트리스트에서 빼면 영영 미갱신이 되는 2026-08-07 결함(emit-loop-scorecard)이 되살아나므로
+# MANAGED_RELS 에는 남기고 여기서 NEW 만 막는다. 도입은 사용자가 명시 복사(옵트인)로 한다.
+NEW_EXCLUDE_RELS="scripts/run-benchmark.sh scripts/grade-trajectory.sh"
 list_factory_new() {
-  local rel
+  local rel ex skip
   for rel in $MANAGED_RELS; do
     [ -f "$FACTORY/$rel" ] || continue
-    [ -f "$SKILL_DIR/$rel" ] || printf '%s\n' "$rel"
+    [ -f "$SKILL_DIR/$rel" ] && continue
+    skip=0
+    for ex in $NEW_EXCLUDE_RELS; do [ "$rel" = "$ex" ] && skip=1; done
+    [ "$skip" = 1 ] && continue
+    printf '%s\n' "$rel"
   done
 }
 # manifest에서 rel의 기록 sha 조회(jq 필요). 없으면 빈 문자열.
