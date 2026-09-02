@@ -348,11 +348,34 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 **등급:** 표준~중대 · **근거:** 제안서 §3 B3
 
 ### P0 선검증 (착수 前 필수 · 미통과 시 착수 금지)
-- [x] **궤적 수집 인프라 실재 확인** — **미실재. 여기서 멈춘다.** repo-wide 실측:
+- [x] **궤적 수집 인프라 실재 확인** — **결론: 착수 불가 유지. 단 근거를 정정한다**(2026-09-02 3차 실측).
   - `holdout` 은 `self-improvement-loop.md`(**설계 문서**)에만 등장한다. 실행 코드 0건.
   - `trace`/`궤적` 검색 결과는 `working-history-skeleton.md` 의 "stack trace" 한 건뿐 — 궤적 수집과 무관.
-  - `_workspace/runs/` 11개는 **harness-ui 의 audit/remediate 실행 스캐폴드**다(`manifest.json` 의 `mode: audit|remediate`). **`events.jsonl` 이 전부 0줄** — 에이전트 궤적 데이터가 아니다.
-  → **B3 은 "트레이스 × BEHAVIOR → verdict" 판정을 전제하는데 그 트레이스를 만들 수단이 없다.** 계획서 규정대로 **가정 위에 구현하지 않는다.**
+  - `_workspace/runs/` 11개는 harness-ui 의 audit/remediate 실행 스캐폴드다(`mode: audit|remediate`).
+
+  > ⚠ **2026-08-31 원 기록의 근거가 부정확했다.** 당시 *"`events.jsonl` 이 전부 0줄 = 에이전트 궤적
+  > 데이터가 아니다"* 라고 적었는데, **같은 디렉토리의 `raw.jsonl` 에는 3KB~73KB 의 실제 내용이 있다.**
+  > 한 파일만 보고 단정했다(공통 규칙 R-1: `file:line` 을 열어 확인 — 이 경우 **인접 산출물까지** 봤어야 했다).
+
+  **3차 실측(스크래치패드 · `remediate.ts` 무수정):**
+
+  | 차수 | 확인 | 결과 |
+  |---|---|---|
+  | 1차(비용 0) | 기존 `raw.jsonl` 10개 전수 분석 | 타입 분포가 **모든 run 에서 동일**(system·assistant 2·result 1) · **도구 호출 0건**. 원인은 `remediate.ts:215` 의 **`--tools "" --disallowedTools "*"`(deny-all)** — M15 에서 실측으로 확정한 보안 설정이라 **도구를 못 쓰게 막은 단발 생성**이 정상 동작이다 |
+  | 2차(모델 1회) | 도구 허용 run 으로 stream-json 캡처 | **`tool_use`(이름+`input` 인자)·`tool_result`·최종 결과가 온전히 담긴다.** 파일을 읽어야만 알 수 있는 값을 맞춰 실제 도구 사용을 확인 |
+  | 2차-b | supervisor 승격 검사 | stream-json 13줄 중 `RawLine`(`event` 필수) 충족 **0건** → `events.jsonl` 0줄의 진짜 원인은 **스키마 불일치**다(수집 실패가 아니다) |
+  | 3차(모델 1회) | 실패 게이트 시나리오로 BEHAVIOR 판정 시도 | **판정 가능.** `gate-escalation` 의 `Recovery` 2항·`Failure modes` 1항을 궤적에서 verdict+evidence 로 추출 |
+
+  → **수집 계층은 이미 있다.** 막힌 것은 ① **도구를 허용한 실행 경로**(유일한 실사용 경로인 `remediate` 가
+  deny-all) ② **stream-json → 궤적 스키마 변환**(승격 0건) ③ 고정 요청 세트 배선 ④ 비용 통제다.
+  **B3 착수는 여전히 불가**하지만 `B3-pre` 의 범위가 줄었다(아래 §B3-pre).
+
+  ⚠ **`remediate.ts` 의 deny-all 은 고치지 않는다** — M15 에서 빌드 초안 exec 샌드박스를 6회 심화 검토해
+  확정한 보안 결정이고, B3 가 필요로 하는 경로와 **용도가 다르다.** B3-pre 는 별도 경로를 세우는 일이다.
+
+  ⚠ **판정기 주의(3차 실측):** 에이전트가 재시도 2회를 **한 Bash 호출 안**에서 돌렸다
+  (`### ATTEMPT 1 ### … ### ATTEMPT 2 ###`). **도구 호출 횟수로 재시도를 세면 1회로 오판한다** —
+  판정기는 **호출 내용까지** 봐야 한다.
 - [x] `run-benchmark.sh` 미구현 상태 확인 — **미실재 확정**(`find` 0건 · `factory-map.md:28` 이 "현재 실행 불가"로 이미 기록)
 - [x] **워크스페이스 격리 수단 실측** — **git worktree 통과**(`git worktree add /tmp/b3-probe HEAD` → 파일 확인 → `remove --force` 정상). 격리 수단은 **있다** — 막힌 것은 궤적 수집뿐이다
 
@@ -382,20 +405,38 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 계획서가 "없으면 여기서 멈추고 인프라 과제를 먼저 뺀다(가정 위 구현 금지)"고 규정했으므로
 B3 구현을 중단하고 이 과제로 분리한다.
 
-**실측 근거(2026-08-31):**
+**실측 근거(2026-08-31 + **2026-09-02 3차 정정**):**
+
 | 확인 | 결과 |
 |---|---|
 | `holdout` 검색 | `self-improvement-loop.md`(설계 문서)에만 존재 · 실행 코드 0건 |
 | `run-benchmark.sh` | 파일 없음(`factory-map.md:28` 이 이미 "현재 실행 불가"로 기록) |
-| `trace`/`궤적` 검색 | `working-history-skeleton.md` 의 "stack trace" 1건 — 무관 |
-| `_workspace/runs/` 11개 | harness-ui audit/remediate 스캐폴드(`mode: audit\|remediate`) · **`events.jsonl` 전부 0줄** |
-| git worktree 격리 | **가능**(add → 확인 → remove 실측 통과) — 격리는 병목이 아니다 |
+| git worktree 격리 | **가능**(add → 확인 → remove 실측 통과) — 병목 아님 |
+| **궤적 수집(`raw.jsonl`)** | ✅ **이미 된다** — `tool_use`(이름+인자)·`tool_result`·최종 결과가 온전히 담긴다(2차 실측) |
+| **궤적 승격(`events.jsonl`)** | ❌ **0건** — stream-json 이 supervisor 의 `RawLine`(`event` 필수)과 **스키마 불일치**(2차-b) |
+| **실사용 경로의 도구** | ❌ `remediate.ts:215` 가 **deny-all**(`--tools "" --disallowedTools "*"`) — M15 보안 결정이라 **고치지 않는다** |
+| **BEHAVIOR 판정 가능성** | ✅ **가능** — 실패 게이트 시나리오에서 `Recovery` 2항·`Failure modes` 1항을 verdict+evidence 로 추출(3차) |
 
-**필요한 것(범위만 — 설계는 별도)** · 전 항목 `[~]`(미착수 선행 과제 — 별도 설계·착수 필요):
-- [~] 동일 요청 세트를 실행해 **에이전트 궤적을 남기는 러너**(`self-improvement-loop.md` §4 러너 계약이 입력)
-- [~] 궤적 스키마 — B3 판정 규약(`{behavior, verdict, evidence}`)이 소비할 수 있는 형태
-- [~] before/after **각각 실행**(같은 트레이스 재판정이 아니다) · worktree 격리 배선(수단은 실측 확인됨)
-- [~] 비용 통제 — 궤적 수집은 실제 모델 실행이라 라운드마다 과금된다
+> **원 기록(2026-08-31)은 `events.jsonl` 0줄만 보고 "궤적 데이터 아님"으로 단정했다.** 인접한
+> `raw.jsonl` 에 실제 내용이 있었다 — **한 파일만 보고 단정한 오류**다(§B3 선검증 ① 참조).
+> 결론(착수 불가)은 바뀌지 않지만 **만들 것이 줄었다**.
+
+**필요한 것(범위만 — 설계는 별도)** · 전 항목 `[~]`(미착수 선행 과제 — 별도 설계·착수 필요).
+**수집·저장 계층은 신설 대상이 아니다**(3차 실측) — 아래 넷만 남는다:
+
+- [~] **도구를 허용한 실행 경로** — 유일한 실사용 경로(`remediate`)가 deny-all 이라 궤적이 안 생긴다.
+      `remediate.ts` 는 **그대로 두고**(M15 보안 결정·용도가 다르다) 별도 경로를 세운다.
+      `self-improvement-loop.md` §4 러너 계약(`{case_id, skill_path, mode}` → `grading.json`·`timing.json`·
+      `run_manifest.json` · 케이스별 독립 작업디렉토리 · 결정적 seed)이 입력이다 —
+      **여기에 궤적 출력을 더한다**(그 계약은 `expectations[].passed` 라는 채점만 내고 "무엇을 했나"가 없다)
+- [~] **stream-json → 궤적 스키마 변환** — `RawLine` 승격을 확장할지, `trajectory.jsonl` 을 따로 둘지 결정.
+      B3 판정 규약(`{behavior, verdict, evidence}`)이 소비할 형태여야 한다
+- [~] **고정 요청 세트** — Phase 6-4 의 should/should-NOT 쿼리(각 8~10개·near-miss 경계)가 재사용 후보 ·
+      before/after **각각 실행**(같은 트레이스 재판정이 아니다) · worktree 격리 배선(수단은 실측 확인됨)
+- [~] **비용 통제** — 궤적 수집은 실제 모델 실행이다. 스킬 1개 × 쿼리 16 × before/after × 반복 3 = **96회**
+
+> ⚠ **판정기 설계 주의(3차 실측):** 에이전트가 재시도 2회를 **한 Bash 호출 안**에서 돌렸다.
+> **도구 호출 횟수로 행동을 세면 오판한다** — 판정기는 호출 **내용**까지 봐야 한다.
 
 **등급:** 중대(새 실행 경로) · **선행:** 없음 · **후행:** B3
 
