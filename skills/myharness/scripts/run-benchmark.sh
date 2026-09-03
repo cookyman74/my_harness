@@ -82,7 +82,8 @@ import json,os,sys
 case=json.load(open(sys.argv[1],encoding='utf-8')); work=os.path.realpath(sys.argv[2])
 for f in case.get("fixtures",[]):
     p=os.path.realpath(os.path.join(work,f["path"]))
-    if p!=work and not p.startswith(work+os.sep): sys.exit("픽스처 경로 탈출: "+f["path"])
+    # `p == work` 를 허용하면 빈 경로·"." 에서 `open(<디렉토리>,'w')` 로 크래시한다(R7 지적).
+    if not p.startswith(work+os.sep): sys.exit("픽스처 경로 오류(work 하위 파일이어야 한다): "+repr(f.get("path")))
     os.makedirs(os.path.dirname(p),exist_ok=True)
     open(p,'w',encoding='utf-8').write(f.get("content",""))
     if f.get("mode"): os.chmod(p,int(f["mode"],8))
@@ -117,7 +118,10 @@ CACHE_KEY=""; CACHED=false
 if [ -n "$CACHE_DIR" ]; then
   # 필드를 개행으로만 잇면 값 안의 개행이 자리를 밀어 **다른 조합이 같은 키**가 된다(R5 지적).
   # 각 필드에 길이를 붙여 모호성을 없애고, 결과에 영향을 주는 인자를 모두 넣는다.
-  CACHE_KEY="$(for v in "$CASE_HASH" "$ARM_HASH" "${MODEL:-default}" "$TOOLS" "$RUNNER_VERSION" "$TIMEOUT" "$MAX_FIELD"; do
+  # 같은 case/arm/model 이라도 **CLI 래퍼나 버전이 다르면 다른 출력**이 나온다 — 정체를 키에 묶는다.
+  _cli="${CLAUDE_BIN:-claude}"; _clip="$(command -v "$_cli" 2>/dev/null || printf '%s' "$_cli")"
+  _clid="$( { [ -f "$_clip" ] && sha "$_clip"; } 2>/dev/null || printf 'unknown')"
+  CACHE_KEY="$(for v in "$CASE_HASH" "$ARM_HASH" "${MODEL:-default}" "$TOOLS" "$RUNNER_VERSION" "$TIMEOUT" "$MAX_FIELD" "$_clip" "$_clid"; do
                  printf '%s:%s\n' "${#v}" "$v"; done | { sha /dev/stdin; })"
   [ -n "$CACHE_KEY" ] || CACHE_KEY=""
 fi
@@ -268,12 +272,17 @@ if [ -n "$CACHE_KEY" ] && [ "$CACHED" = false ] && [ "$STATUS" = ok ]; then
     && echo "run-benchmark: cache 저장 (key=${CACHE_KEY:0:12})"
 fi
 
-if [ "$STATUS" = partial ]; then
-  echo "run-benchmark: ⚠ partial — 궤적 일부가 유실됐다. 채택 근거로 쓰지 말 것." >&2
-fi
-if [ "$STATUS" = unmeasurable ]; then
-  echo "run-benchmark: 측정 불가(unmeasurable) — rc=$RC · 궤적 $( [ -s "$OUT/trajectory.jsonl" ] && echo 있음 || echo 없음 ). 채택 근거로 쓰지 말 것." >&2
-  echo "  stderr: $(tail -2 "$OUT/runner.err" 2>/dev/null | tr '\n' ' ')" >&2
-  exit 0   # §4 "루프 불중단"
-fi
-echo "run-benchmark: ok · case=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1],encoding="utf-8")).get("case_id",""))' "$OUT/run_manifest.json") · 이벤트 $(wc -l < "$OUT/trajectory.jsonl" | tr -d ' ')"
+# 종료코드 규약: 0=ok · 3=unmeasurable · 4=partial (2=사용법/입력 오류는 die).
+# §4 "루프 불중단"은 **호출자의 결정**이다 — 러너가 실패를 0으로 보고해 `$?` 를 속이면 안 된다(R7 지적).
+# 루프를 이어가려면 호출자가 `|| true` 로 명시하라. manifest 의 `status` 가 단일 출처인 건 그대로다.
+_CID="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1],encoding="utf-8")).get("case_id",""))' "$OUT/run_manifest.json" 2>/dev/null)"
+_EVT="$(wc -l < "$OUT/trajectory.jsonl" 2>/dev/null | tr -d ' ')"
+echo "run-benchmark: $STATUS · case=$_CID · 이벤트 ${_EVT:-0}"
+case "$STATUS" in
+  partial)
+    echo "run-benchmark: ⚠ partial — 궤적 일부가 유실됐다. 채택 근거로 쓰지 말 것." >&2; exit 4 ;;
+  unmeasurable)
+    echo "run-benchmark: 측정 불가(unmeasurable) — rc=$RC · 궤적 $( [ -s "$OUT/trajectory.jsonl" ] && echo 있음 || echo 없음 ). 채택 근거로 쓰지 말 것." >&2
+    echo "  stderr: $(tail -2 "$OUT/runner.err" 2>/dev/null | tr '\n' ' ')" >&2
+    exit 3 ;;
+esac

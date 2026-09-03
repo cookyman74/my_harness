@@ -275,8 +275,21 @@ print('OK')" >/dev/null 2>&1 && ok "긴 내용 잘라내고 truncated 표시" ||
 
 echo "== Q. baseline 캐싱(§10·agy HIGH) =="
 D="$TMP/q"; mkcase "$D"; C="$D/cache"
-CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --cache-dir "$C" >/dev/null 2>&1
-OUT="$(CLAUDE_BIN="$TMP/failclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o2" --cache-dir "$C" 2>&1)"
+# 캐시 적중의 증거 = **모델을 다시 부르지 않았다**. 호출마다 카운터를 남기는 스텁으로 센다.
+# (다른 바이너리로 바꿔 증명하면 안 된다 — 바이너리 정체가 캐시 키에 들어간다: 테스트 AU)
+cat > "$TMP/countclaude" <<X
+#!/usr/bin/env bash
+echo x >> "$D/calls.txt"
+$(printf '%s' 'cat') <<'J'
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"bash scripts/run-policy-audit.sh; bash scripts/run-policy-audit.sh"}}]}}
+{"type":"result","result":"done"}
+J
+X
+chmod +x "$TMP/countclaude"
+: > "$D/calls.txt"
+CLAUDE_BIN="$TMP/countclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --cache-dir "$C" >/dev/null 2>&1
+OUT="$(CLAUDE_BIN="$TMP/countclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o2" --cache-dir "$C" 2>&1)"
+[ "$(wc -l < "$D/calls.txt" | tr -d ' ')" = 1 ] && ok "두 번째 실행이 모델을 부르지 않음" || no "캐시가 있는데 모델을 또 호출"
 python3 -c "
 import json;m=json.load(open('$D/o2/run_manifest.json'))
 assert m.get('cached') is True, 'cached 표시 없음'
@@ -623,6 +636,70 @@ bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
 python3 -c "
 import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
 assert e['passed'] is None, '도구명 미상 결과를 조용히 제외하고 단정: '+str(e['passed'])" >/dev/null 2>&1 && ok "도구명 미상 결과가 있으면 평가불가로 알림" || no "조용히 빠져 거짓 실패"
+
+echo "== AQ. 러너가 status 를 종료코드로도 알린다(codex R7 HIGH) =="
+D="$TMP/aq"; mkcase "$D"
+CLAUDE_BIN="$TMP/failclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" >/dev/null 2>&1; u=$?
+[ "$u" = 3 ] && ok "unmeasurable → rc=3" || no "unmeasurable 인데 rc=$u"
+CLAUDE_BIN="$TMP/dropclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o2" >/dev/null 2>&1; q=$?
+[ "$q" = 4 ] && ok "partial → rc=4" || no "partial 인데 rc=$q"
+OUT="$(CLAUDE_BIN="$TMP/dropclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o3" 2>&1)"
+printf '%s\n' "$OUT" | grep -q 'run-benchmark: ok' && no "partial 인데 마지막 줄이 ok" || ok "마지막 줄이 실제 status 를 말함"
+CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o4" >/dev/null 2>&1
+[ "$?" = 0 ] && ok "정상은 rc=0 유지" || no "정상인데 비0"
+
+echo "== AR. 채점기가 러너의 partial 을 무시하지 않는다(codex R7 HIGH) =="
+D="$TMP/ar"; mkdir -p "$D"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-part2","task":"t","fixtures":[],
+ "expectations":[{"id":"ok1","kind":"tool_present","tool":"Bash","pattern":"x","why":"남은 이벤트로는 통과"}]}
+J
+CLAUDE_BIN="$TMP/dropclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/out" >/dev/null 2>&1
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1; grc2=$?
+python3 -c "
+import json;g=json.load(open('$D/out/grading.json'))
+assert g['summary']['status']!='ok', '불완전 궤적인데 ok'
+assert g['summary'].get('runner_status')=='partial', g['summary'].get('runner_status')" >/dev/null 2>&1 && ok "불완전 궤적 채점을 ok 로 굳히지 않음" || no "partial 을 무시하고 ok"
+[ "$grc2" != 0 ] && ok "종료코드로도 알림" || no "rc=0"
+
+echo "== AS. 서로 다른 주장 숫자는 모호로 처리한다(agy R7 HIGH) =="
+D="$TMP/as"; mkdir -p "$D"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-multi","task":"t","fixtures":[],
+ "expectations":[{"id":"m","kind":"report_matches_calls","tool":"Bash","pattern":"audit","claim_pattern":"([0-9]+)회","count":1,"why":"복수 주장"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'type':'assistant','message':{'content':[{'type':'tool_use','name':'Bash','input':{'command':'bash audit'}}]}}))
+print(json.dumps({'type':'result','result':'시도 2회 후 성공 5회'}))" > "$TMP/multiout"
+printf '#!/usr/bin/env bash
+cat %s
+' "$TMP/multiout" > "$TMP/multiclaude"; chmod +x "$TMP/multiclaude"
+CLAUDE_BIN="$TMP/multiclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/out" >/dev/null 2>&1
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is None, 'max() 로 임의 채택: '+str(e['passed'])" >/dev/null 2>&1 && ok "서로 다른 주장 숫자 → 평가불가" || no "임의로 최대값 채택"
+
+echo "== AT. 픽스처 경로가 작업디렉토리 자신이면 거부한다(agy R7 MED) =="
+D="$TMP/at"; mkdir -p "$D"
+for badp in "." ""; do
+  python3 -c "
+import json
+json.dump({'case_id':'c-p','task':'t','fixtures':[{'path':'$badp','content':''}],'expectations':[]},open('$D/case.json','w'))"
+  OUT="$(CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o_$RANDOM" 2>&1)"
+  printf '%s\n' "$OUT" | grep -qi 'IsADirectory\|Traceback' && { no "픽스처 경로 '$badp' 에서 크래시"; break; }
+done
+printf '%s\n' "$OUT" | grep -qi 'IsADirectory\|Traceback' || ok "빈/점 경로를 크래시 없이 거부"
+
+echo "== AU. 캐시 키가 실행 바이너리 정체를 묶는다(codex R7 MED) =="
+D="$TMP/au"; mkcase "$D"; C="$D/cache"
+CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --cache-dir "$C" >/dev/null 2>&1
+cp "$TMP/fakeclaude" "$TMP/otherclaude"; echo '# 다른 래퍼' >> "$TMP/otherclaude"
+CLAUDE_BIN="$TMP/otherclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o2" --cache-dir "$C" >/dev/null 2>&1
+python3 -c "
+import json;m=json.load(open('$D/o2/run_manifest.json'))
+assert m.get('cached') is not True, '다른 바이너리인데 캐시 적중'" >/dev/null 2>&1 && ok "바이너리가 다르면 캐시 미적중" || no "다른 바이너리에 캐시 재사용"
 
 echo
 echo "통과 $pass · 실패 $failed"

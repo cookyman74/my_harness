@@ -52,7 +52,11 @@ def findall(rx,txt):
 
 ev=[json.loads(l) for l in open(os.path.join(run,'trajectory.jsonl'),encoding='utf-8') if l.strip()]
 # 설명·사유 필드는 **실행이 아니다**. 세면 1회 실행이 2회로 잡힌다(dogfood 실측에서 실제로 발생).
-DESCRIPTIVE_KEYS={"description","explanation","reason","why","thought","rationale"}
+# ⚠ **블랙리스트라 완전하지 않다**(R7 지적) — 모델이 command 를 다른 자유 필드에 옮기면 여전히 샌다.
+#   tool 스키마 기반 allowlist 가 근본이나 스키마가 런타임마다 달라 미구현. 케이스 작성 시
+#   패턴을 실행 형태에 고정하는 것이 실질적 방어다(파일 상단 주석 참조).
+DESCRIPTIVE_KEYS={"description","explanation","reason","why","thought","rationale",
+                  "analysis","notes","comment","summary","intent"}
 def flat(x,drop=()):
     if x is None: return ""
     if isinstance(x,str): return x
@@ -76,6 +80,8 @@ res_tx = results_text()
 rep_tx = "\n".join(flat(e.get("text")) for e in ev if e.get("kind") in ("text","final"))
 
 st=json.load(open(os.path.join(run,'run_manifest.json'),encoding='utf-8')).get("status")
+# 러너가 궤적 일부를 잃었으면(`partial`) 남은 이벤트만으로 기대치를 만족해도 **ok 라고 말할 수 없다**.
+# 없어진 이벤트에 반증이 있었을 수 있다(R7 지적).
 
 def excerpt(txt,pat,n=2):
     out=[]
@@ -161,6 +167,10 @@ for x in case.get("expectations",[]):
             if nums is None:
                 rec.update(passed=None,evidence="주장 캡처에 숫자가 여러 개 — 모호(ambiguous)")
                 res.append(rec); continue
+            if nums and len(set(nums))>1:
+                # 보고 여러 곳에서 **서로 다른 숫자**가 잡혔다("시도 2회… 성공 5회"). 어느 게 주장인지 모른다.
+                rec.update(passed=None,evidence=f"서로 다른 주장 숫자 {sorted(set(nums))} — 모호(ambiguous)")
+                res.append(rec); continue
             if nums:
                 claimed=max(nums)
                 rec.update(passed=(claimed==actual),
@@ -184,7 +194,7 @@ unevaluable=[r for r in ungraded if not r.get("vacuous")]
 summary={"total":len(res),"graded":len(graded),
          "passed":sum(1 for r in graded if r["passed"]), "vacuous":vac,
          "pass_rate":(sum(1 for r in graded if r["passed"])/len(graded)) if graded else None,
-         "ungraded":len(ungraded), "failed":nfail,
+         "ungraded":len(ungraded), "failed":nfail, "runner_status":st,
          # ⚠ 여기에 `failed` 가 없어서 **assertion 이 실패해도 status=ok** 였다(R5 실증).
          #   측정 유효성(unmeasurable/partial/vacuous/eval-empty)과 판정 결과(failed/ok)를 한 축에 얹되,
          #   측정이 못 미더운 쪽을 우선한다.
@@ -192,9 +202,10 @@ summary={"total":len(res),"graded":len(graded),
          #   (아예 못 잰 것은 실패라고 말할 수 없다). 그 외에는 failed 가 우선한다.
          "status":("unmeasurable" if st=="unmeasurable"
                    else ("failed" if nfail
+                         else ("partial" if st=="partial"
                          else ("eval-empty" if not res
                                else ("partial" if unevaluable
-                                     else ("vacuous" if vac else "ok")))))}
+                                     else ("vacuous" if vac else "ok"))))))}
 json.dump({"case_id":case.get("case_id"),"expectations":res,"summary":summary},
           open(os.path.join(run,'grading.json'),'w',encoding='utf-8'),ensure_ascii=False,indent=2)
 print(f"grade-trajectory: {summary['status']} · {summary['passed']}/{summary['graded']} 통과"

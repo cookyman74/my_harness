@@ -1,0 +1,135 @@
+# B3-pre — 산출물 벤치 러너 + 궤적 채점기 · 작업 결과서
+
+작업일: 2026-09-02~03 · 브랜치: `feat/eval-upgrade-v175`
+**리스크 등급: 중대** — `skills/myharness/scripts/` = 팩토리 정본이라 `harness-update.sh` 로 **모든 생성 하네스에 전파**되고, 러너는 **도구를 허용한 모델 실행**을 일으킨다.
+
+## 1. 무엇을 만들었나
+
+| 산출물 | 내용 |
+|---|---|
+| `skills/myharness/scripts/run-benchmark.sh` | §4 러너 계약 구현 — 케이스별 격리 실행 · **궤적 수집** · `run_manifest.json`·`timing.json` |
+| `skills/myharness/scripts/grade-trajectory.sh` | 궤적에 대한 **기계 검증 가능한** assertion → `grading.json` |
+| `tests/test-run-benchmark.sh` | 계약 테스트 20건 (A~J) |
+
+`factory-map.md:28` 이 3개월 넘게 "📐 설계만 · `run-benchmark.sh` **미구현** → 현재 실행 불가"로 기록해 온 항목이다. 이제 🟡 부분 가동이다.
+
+### 설계 결정과 근거
+
+| 결정 | 선택 | 근거 |
+|---|---|---|
+| 위치 | `skills/myharness/scripts/` | `self-improvement-loop.md:89` 이 "`scripts/`에 구현"으로 지시 |
+| 궤적 출력 | **별도 `trajectory.jsonl`** | `RawLine` 승격 확장은 supervisor(하네스 상태 로그)와 **의미가 다르고** blast-radius 가 더 크다 |
+| 채점 경계 | 러너·채점기는 **기계 검증만**, 의미 판정은 기존 외부리뷰 배선 | B3-lite 실측 — 호출 내용 대조는 결정적으로 되고, §10 `cheap-judge` 원칙에 맞다 |
+| 안전 | 도구 **화이트리스트 명시 필수** · 어떤 게이트에도 **자동 배선 금지** | M15 deny-all 결정과 충돌하지 않게. 전 하네스에 퍼지는 스크립트다 |
+
+`remediate.ts` 의 deny-all 은 **건드리지 않았다**(M15 보안 결정, 심화 6라운드로 확정). 용도가 다른 **별도 경로**를 세웠다.
+
+## 2. dogfood 에서 잡은 거짓 통과 3종 — 이 작업의 실질
+
+스텁 테스트 20건이 전부 GREEN 이었는데, **실제 `claude` CLI 로 한 번 돌리자 4/4 통과가 전부 허위**였다.
+"검사가 도는 것처럼 보이는데 실제로는 0건을 검사하고 통과한다"는 이 레포의 지배적 실패 계열이
+**내가 방금 만든 채점기에서 그대로 재현**됐다.
+
+| # | 거짓 통과 | 원인 | 수정 |
+|---|---|---|---|
+| 1 | 1회 실행이 **2회**로 집계 | `input` 을 flat 직렬화하면서 `description` 이 `command` 와 같은 문자열을 담았다 | `DESCRIPTIVE_KEYS` 제외 |
+| 2 | 대조할 주장이 없는데 `passed:true` | `report_matches_calls` 가 "주장 0건"을 통과로 셌다 | `vacuous:true` 표시 + summary 집계 + 표준출력 경고 |
+| 3 | **실행 1회 + 참조 1회**를 "2회 실행"으로 집계 | 텍스트 출현 수는 `Bash` 실행과 `Read` 참조를 구분 못 한다 | `tool` 한정(`"tool":"Bash"`) |
+
+수정 후 같은 실행을 재채점하니 **3/4 통과 · 1건 공허**로 바뀌었다.
+`retried` 는 실제로 **감사를 1회만 실행**했으므로 `false` 가 정답이다.
+
+> **교훈:** 스텁만으로 통과한 검사는 신뢰할 수 없다. 세 결함 모두 **실제 CLI 출력의 실제 필드 구조**를
+> 봐야만 드러났다. 계약 테스트는 필요조건이지 충분조건이 아니다.
+
+## 3. 계약 대비 — 지킨 것과 못 지킨 것
+
+**§4 러너 계약**
+
+| 항목 | 상태 |
+|---|---|
+| 입력 `{case_id, skill_path, mode}` | ✅ (`--case`/`--arm-def`/`--arm`, `mode` 별칭 유지) |
+| `grading.json`·`timing.json`·`run_manifest.json` | ✅ |
+| 케이스별 독립 작업디렉토리 | ✅ (테스트 D) |
+| **결정적 seed** | ❌ **불가** — CLI 에 seed 가 없다. `seed:null`+`seed_supported:false` 로 **명시 기록**. 숨기지 않았다 |
+| 실패 처리 = "측정 불가" | ✅ `status:unmeasurable` · exit 0(루프 불중단) · 채점도 `passed:null` |
+| 반복 R회 immutable append | ❌ 미구현 |
+| 비교식(δ·CI 비중첩) | ❌ 미구현 → **채택 결정은 수동** |
+
+**§10 비용 통제**
+
+| 항목 | 상태 |
+|---|---|
+| tiered `smoke→full` | ❌ `--tier` 를 **기록만** 하고 게이팅 안 함 |
+| baseline 캐싱 | ❌ 미구현 |
+| cheap-judge | 🟡 `--model`/`BENCH_MODEL` 로 가능(dogfood 는 haiku). 강제 아님 |
+
+**러너가 돈다고 채택이 자동화된 것이 아니다.** `self-improvement-loop.md` 와 `factory-map.md` 에 이 구분을 명시했다.
+
+## 4. 배포 배선
+
+`harness-update.sh` `MANAGED_RELS` 에 두 스크립트를 추가했다. **번들만 하고 화이트리스트를 빠뜨리면 생성 하네스에서 영영 갱신되지 않는다** — 2026-08-07 에 `emit-loop-scorecard.sh` 로 실제 발생한 결함이라 드라이런으로 확인했다(`[NEW] scripts/run-benchmark.sh`·`scripts/grade-trajectory.sh` → 자동 적용 가능).
+
+## 5. 검증
+
+- 계약 테스트 `tests/test-run-benchmark.sh` **20/20**
+- 실제 `claude` CLI end-to-end 스모크 통과(궤적 8 이벤트 · 채점 3/4 + 공허 1)
+- 정책 감사 **PASS**(fail 0, warn 0)
+- 배포 드라이런 통과 · `bash -n` 통과
+
+## 6. 외부 리뷰 — R1~R7
+
+리뷰어 codex + agy(러너 claude 제외). 사용자 지시대로 **10라운드 미만은 MED 이상 대응**.
+
+| R | 엔진 | HIGH | MED | LOW | 비고 |
+|---|---|---|---|---|---|
+| R1 | codex+agy | 6 | 2 | 2 | 주입·봉쇄·ReDoS·타임아웃·캐싱 |
+| R2 | agy(codex 판정 미산출 → **저하**) | 1 | 1 | 1 | R1 수정이 낸 구멍(`claim_pattern`) |
+| R3 | agy(codex 저하) | 1 | 1 | 1 | R2 수정이 낸 회귀(키 소실) |
+| R4 | agy(codex 저하) | 1 | 0 | 1 | R3 수정이 낸 회귀(이스케이프) |
+| R5 | codex+agy | 7 | 2 | 3 | **assertion 실패가 status 에 없음**(근본) |
+| R6 | codex 단독(agy 쿼터 소진 → **저하**) | 3 | 3 | 0 | R5 수정이 낸 구멍(글롭·실패 가려짐) |
+| R7 | codex+agy | — | — | — | (진행) |
+
+**codex 가 R2~R4 에서 판정을 못 냈다** — 매번 레포 전체를 탐색하다 끝났다. R5 부터 **소스를 프롬프트에
+인라인**하니 정상 작동했다. 그 세 라운드는 실질적으로 단일 엔진이라 **저하로 기록**하고 연속 카운트에서 뺐다.
+R6 은 agy 쿼터 소진(81시간)으로 codex 단독이었다 — 같은 이유로 저하다.
+
+### 잡은 거짓 통과 — 총 11종
+
+이 레포의 지배적 실패 계열("검사가 도는 것처럼 보이는데 0건을 검사하고 통과")이 **내가 만든 채점기에서
+그대로, 반복해서** 재현됐다. 특히 **R2 수정이 R3 결함을, R3 수정이 R4 결함을, R5 수정이 R6 결함을 만들었다.**
+
+| # | 거짓 통과 | 출처 |
+|---|---|---|
+| 1 | `input.description` 이 `command` 와 같은 문자열 → 1회 실행이 2회 | dogfood |
+| 2 | 대조할 주장이 없는데 `passed:true` | dogfood |
+| 3 | `Bash` 실행 1회 + `Read` 경로 참조 1회 = "2회" | dogfood |
+| 4 | `tool:"Bash"` 로 좁혀도 `find -name "x.sh"` 검색이 실행으로 집계 | dogfood |
+| 5 | 잘라내기가 딕셔너리를 뭉개 설명필드 제외 무력화(#1 부활) | agy R2 |
+| 6 | `flat` 이 키를 날려 `"command"` 패턴 전건 거짓실패 | agy R3 |
+| 7 | `json.dumps` 이스케이프로 멀티라인·따옴표 패턴 파손 | agy R4 |
+| 8 | **assertion 이 실패해도 `status:ok`** | agy R5 |
+| 9 | 공허가 `passed:true` 라 pass_rate 를 부풀림(#2 의 잔재) | codex+agy R5 |
+| 10 | 파싱 못한 줄이 **무기록 소실** · `\|\| STATUS=` 가 `$?` 를 먹어 감지 무력 | codex R5 + 자체 |
+| 11 | `--tools` **글롭 우회**(`case` 가 `$t` 를 패턴으로) · 실패가 `vacuous` 뒤에 가려짐 | codex R6 |
+
+### 기각한 지적 3건 (방향은 맞고 처방이 틀렸거나, 재현 안 됨)
+
+| 지적 | 기각 사유 |
+|---|---|
+| `--ignore-user-config` 추가(agy R1) | **그런 플래그가 존재하지 않는다**(`claude --help` 확인). 넣었으면 러너가 전부 깨졌다 |
+| `env` 에 `os.environ` 전체(agy R1) | **산출물에 시크릿을 쏟는다.** 큐레이트한 항목만 기록 |
+| `cut()` 재귀 깊이 가드(agy R3) | **재현 안 됨.** depth 2000+ 는 `json.dumps` 자체가 실패해 CLI 가 그런 줄을 못 만들고, 손으로 만든 depth 3000 은 `json.loads` 가 먼저 RecursionError 를 내 러너가 그 줄만 버린다(실측) |
+
+`MANAGED_RELS` 제외 제안(agy R2/R3)은 **부분 기각**했다 — 빼면 2026-08-07 결함(화이트리스트 누락 →
+영영 미갱신)이 되살아난다. `NEW_EXCLUDE_RELS` 를 신설해 **신규 자동배포만 막고 갱신은 유지**했다.
+
+> **확인 과정에서 진짜 결함을 찾은 사례:** agy R3 의 재귀 지적을 재현하려다, 파싱 실패 줄이
+> **아무 기록 없이 사라지는** 것을 발견했다. 지적 자체는 기각했지만 그 옆의 실재 결함을 얻었다.
+
+## 다음 단계 참조
+
+- **B3 는 여전히 착수 불가다.** B3-pre 4항목 중 **①실행 경로·②스키마 변환은 완료**, **③고정 요청 세트·④비용 통제는 미완**이다.
+- 남은 것: 고정 요청 세트(기준별 커버리지 — B3-lite 에서 `na` 가 많았다) · tiered 게이팅 · baseline 캐싱 · 반복 R회 집계 · CI 비중첩 채택식.
+- **비용 합의가 선행돼야 한다** — 계획서 추산 96회는 B3-lite 실측 6회의 16배다.

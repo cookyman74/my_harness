@@ -40,7 +40,11 @@ D=_workspace/reviews
 #  실측: 10파일 스코프에서 단독 실행인데도 `Error: timeout waiting for response`.
 #  기본값을 바꾸지 않는다(미설정 시 기존과 동일 동작). 필요한 라운드에서만 올린다.
 #  ⚠️ AGY_MODEL은 반드시 Gemini 계열만 — agy를 Claude/GPT로 돌리면 러너와 엔진 충돌(자기검증).
-AGY_MODEL="${AGY_MODEL:-Gemini 3.1 Pro (High)}"   # 경량: "Gemini 3.5 Flash (High)" / 중대: "Gemini 3.1 Pro (High)"
+#  미설정이면 `--model` 을 **아예 넘기지 않는다** — agy 에 현재 설정된 모델을 그대로 쓴다.
+#  (codex 의 `${CODEX_MODEL:+-m ...}` 와 동일 규약. 모델명이 CLI 버전에 따라 갈리는데 정본이
+#   특정 이름을 박아두면 그 이름이 사라진 환경에서 리뷰어가 통째로 죽는다.)
+#  ⚠ 미설정 시 엔진 다양성은 **agy 쪽 설정에 달린다** — 러너와 같은 계열로 설정돼 있으면 자기검증이 된다.
+AGY_MODEL="${AGY_MODEL:-}"   # 지정 시 Gemini 계열만. 경량 "Gemini 3.5 Flash (High)" / 중대 "Gemini 3.1 Pro (High)"
 CODEX_MODEL="${CODEX_MODEL:-}"                     # 비우면 codex 기본. 중대 시 고추론 모델명 지정.
 # 추론 강도(codex 전용). 작은 모델을 쓸 때 high 로 올려 판정 품질을 보전한다.
 #   예: CODEX_MODEL="gpt-5.4-mini" CODEX_REASONING=high  ← 사용량 절약 + 고추론
@@ -142,6 +146,13 @@ run_reviewer_argv() {   # $1=파일라벨  $2..=커맨드(프롬프트가 인자
 case "$AGY_MODEL" in
   *[Cc]laude*|*GPT*|*[Gg]pt*) die_launcher "AGY_MODEL must be Gemini (engine diversity) — got: $AGY_MODEL" ;;
 esac
+# ⚠ 미지정이면 위 가드가 **빈 문자열을 그대로 통과**시킨다 — agy 쪽 설정 모델이 러너와 같은 계열이면
+#   자기검증인데 여기서는 알 수 없다(외부리뷰 R7 지적). 막지는 않는다(사용자가 설정 모델을 쓰기로 한 선택).
+#   대신 **검증되지 않았다는 사실을 상태에 남긴다** — 결과서에 "엔진 다양성 확인"이라 적으려면
+#   오케스트레이터가 agy 의 실제 모델을 확인하고 명시해야 한다.
+case " $REVIEWERS " in
+  *" agy "*) [ -n "$AGY_MODEL" ] || DEG="${DEG:+$DEG; }agy 모델 미지정 — 엔진 다양성 미검증(agy 설정 모델 사용)" ;;
+esac
 GEN="$D/${S}_prompt_general.md"; PERF="$D/${S}_prompt_perf.md"
 for f in "$GEN" "$PERF"; do
   [ -f "$f" ] || die_launcher "프롬프트 파일 없음: $f (Step 1 을 먼저 수행할 것)"
@@ -162,7 +173,7 @@ case " $REVIEWERS " in
   # agy: --add-dir(리뷰대상 repo를 워크스페이스에)+--dangerously-skip-permissions(TTY 없는 -p서 권한 자동승인)
   # 필수 — 없으면 sandbox 파일 read가 권한 프롬프트→응답 불가→hang.
   *" agy "*)    run_reviewer_argv agy agy -p "$(cat "$PERF")" \
-      --model "$AGY_MODEL" --add-dir "$REPO_ROOT" --dangerously-skip-permissions \
+      ${AGY_MODEL:+--model "$AGY_MODEL"} --add-dir "$REPO_ROOT" --dangerously-skip-permissions \
       --sandbox --print-timeout "${AGY_PRINT_TIMEOUT:-300s}" & ;;
   # gemini(legacy)는 --add-dir/--dangerously-skip-permissions 미지원(-s만) → plain 호출.
   *" gemini "*) run_reviewer_argv gemini gemini -p "$(cat "$PERF")" & ;;
