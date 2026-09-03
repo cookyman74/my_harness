@@ -137,6 +137,10 @@ PY
 
 # ── §10 baseline 캐싱: 같은 입력(case·arm·model·tools·runner)이면 모델을 다시 부르지 않는다 ──
 CACHE_KEY=""; CACHED=false
+if [ -n "$CACHE_DIR" ] && [ "$ARM_HASH" = unavailable -o "$CASE_HASH" = unavailable -o "$WORK_HASH" = unavailable ]; then
+  echo "run-benchmark: ⚠ 해시할 수 없는 입력이 있어 캐시를 사용하지 않는다(서로 다른 입력이 같은 키를 공유하는 것을 막는다)" >&2
+  CACHE_DIR=""
+fi
 if [ -n "$CACHE_DIR" ]; then
   # 필드를 개행으로만 잇면 값 안의 개행이 자리를 밀어 **다른 조합이 같은 키**가 된다(R5 지적).
   # 각 필드에 길이를 붙여 모호성을 없애고, 결과에 영향을 주는 인자를 모두 넣는다.
@@ -265,7 +269,7 @@ case "$CONV_RC" in
 esac
 [ "$RC" = 0 ] || STATUS=unmeasurable
 
-python3 - "$OUT/timing.json" "$((T1-T0))" <<'PY'
+python3 - "$OUT/timing.json" "$((T1-T0))" <<'PY' || die "timing.json 기록 실패(디스크·권한 확인)"
 import json,sys
 p=sys.argv[1]
 try: d=json.load(open(p,encoding='utf-8'))
@@ -276,7 +280,7 @@ PY
 
 # ── manifest — 모든 값은 **argv 로 전달**한다(인라인 소스 보간 금지: python 주입 경로였다) ──
 python3 - "$OUT/run_manifest.json" "$CASE" "$ARM" "$RUNNER_VERSION" "${MODEL:-default}" "$TOOLS" \
-         "$TIER" "$STARTED" "$ENDED" "$ARM_HASH" "$CASE_HASH" "$RC" "$STATUS" "$CACHED" "${CACHE_KEY:-}" "$WORK_HASH" <<'PY'
+         "$TIER" "$STARTED" "$ENDED" "$ARM_HASH" "$CASE_HASH" "$RC" "$STATUS" "$CACHED" "${CACHE_KEY:-}" "$WORK_HASH" <<'PY' || die "run_manifest.json 기록 실패(디스크·권한 확인)"
 import json,os,platform,sys
 (dst,casef,arm,rv,model,tools,tier,started,ended,armh,caseh,rc,status,cached,ckey,workh)=sys.argv[1:17]
 try: case=json.load(open(casef,encoding='utf-8'))

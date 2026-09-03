@@ -135,11 +135,20 @@ for x in case.get("expectations",[]):
     ctx = "\n".join(call_items)
     rtx = results_text(only)   # ⚠ 한정을 calls 에만 걸면 다른 도구의 결과로 거짓 통과한다
     rec={"id":x.get("id"),"kind":kind,"why":x.get("why"),"scope":scope,"tool":only}
-    # 미지 도구는 실행 필드를 알 수 없어 블랙리스트로 폴백한다 — 자유필드가 샌다(R9 지적).
-    # 그 도구를 콕 집어 채점하려는 경우엔 단정하지 않는다. (한정이 없으면 과잉차단이 되므로 경고만.)
-    if only and only not in EXEC_FIELDS and any(c.get("name")==only for c in calls):
+    # 미지 도구는 실행 필드를 알 수 없어 블랙리스트로 폴백한다 — 자유필드가 샌다(R9).
+    # 그렇다고 **전부 보류하면 금지 도구 사용을 놓친다**(R12 지적 — 내 R9 수정이 만든 구멍).
+    # 방향이 다르다:
+    #   `tool_absent`(금지) — 자유필드까지 세면 **과탐 쪽**이다. 놓치는 것보다 낫다 → 그대로 채점한다.
+    #   `tool_present`/`tool_count_min`(존재·횟수 주장) — 자유필드가 실행으로 둔갑해 **거짓 통과**가 난다 → 보류.
+    if only and only not in EXEC_FIELDS and any(c.get("name")==only for c in calls) and kind!="tool_absent":
         rec.update(passed=None,
-                   evidence=f"'{only}' 는 실행 필드 화이트리스트가 없는 도구 — 자유필드와 실행을 구분할 수 없어 단정하지 않는다")
+                   evidence=f"'{only}' 는 실행 필드 화이트리스트가 없는 도구 — 자유필드와 실행을 구분할 수 없어 존재/횟수를 단정하지 않는다(금지 검사는 그대로 수행된다)")
+        res.append(rec); continue
+    # 보고 텍스트에는 도구가 없다 — `scope:"report"` 에 `tool` 을 주면 한정이 **조용히 무시**되고
+    # 전역 보고가 검사된다(R12 지적). 명시한 제약이 사라지는 건 케이스 작성 오류로 드러낸다.
+    if only and scope=="report":
+        rec.update(passed=None,
+                   evidence="scope='report' 에는 `tool` 한정을 적용할 수 없다 — 보고 텍스트에는 도구 구분이 없다. 케이스에서 `tool` 을 빼거나 scope 를 바꿔라")
         res.append(rec); continue
     res_items = results_items(only)
     scopes={"calls":call_items,"results":res_items,"report":rep_items,

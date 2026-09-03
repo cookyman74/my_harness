@@ -935,6 +935,53 @@ rc=$?
 if [ "$rc" != 0 ]; then ok "해시 불가 시 중단(조용한 미적중 아님)"
 else printf '%s\n' "$OUT" | grep -qi '캐시 키' && ok "해시 불가를 보고" || no "조용히 진행: $OUT"; fi
 
+echo "== BK. 미지 도구여도 금지(tool_absent) 는 놓치지 않는다(codex R12 HIGH) =="
+D="$TMP/bk"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-forbid","task":"t","fixtures":[],
+ "expectations":[{"id":"nosearch","kind":"tool_absent","tool":"WebSearch","pattern":"query","why":"금지 도구"},
+                 {"id":"present","kind":"tool_present","tool":"WebSearch","pattern":"query","why":"실행 필드 필요"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_use','name':'WebSearch','input':{'query':'비밀'}}))" > "$D/out/trajectory.jsonl"
+echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e={x['id']:x for x in json.load(open('$D/out/grading.json'))['expectations']}
+assert e['nosearch']['passed'] is False, '금지 도구 사용을 평가불가로 흘려보냄: '+str(e['nosearch']['passed'])
+assert e['present']['passed'] is None, '실행 필드 없이 존재를 단정'" >/dev/null 2>&1 && ok "금지는 실패로, 존재 주장은 평가불가로 갈라짐" || no "미지 도구에서 금지 검사를 놓침"
+
+echo "== BL. report scope 에 tool 을 주면 조용히 무시하지 않는다(agy R12 HIGH) =="
+D="$TMP/bl"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-rt","task":"t","fixtures":[],
+ "expectations":[{"id":"rt","kind":"tool_present","tool":"Bash","scope":"report","pattern":"완료","why":"보고에 도구 한정은 불가"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'final','text':'완료했습니다'}))" > "$D/out/trajectory.jsonl"
+echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is None, 'tool 한정을 조용히 무시하고 전역 보고를 검사'" >/dev/null 2>&1 && ok "적용 불가한 한정을 명시 거부" || no "한정을 조용히 무시"
+
+echo "== BM. 해시 불가 성분이 있으면 캐시를 쓰지 않는다(codex R12 MED) =="
+D="$TMP/bm"; mkcase "$D"; C="$D/cache"
+OUT="$(CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /nonexistent-def --out "$D/o1" --cache-dir "$C" 2>&1)"
+python3 -c "
+import json;m=json.load(open('$D/o1/run_manifest.json'))
+assert not m.get('cache_key'), '해시 불가인데 캐시 키를 만듦: '+str(m.get('cache_key'))" >/dev/null 2>&1 && ok "해시 불가 성분 → 캐시 비활성" || no "unavailable 을 키에 넣고 캐시 사용"
+
+echo "== BN. 산출물 기록 실패를 성공으로 넘기지 않는다(codex R12 MED) =="
+D="$TMP/bn"; mkcase "$D"
+CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/out" >/dev/null 2>&1
+chmod 444 "$D/out/timing.json" 2>/dev/null; chmod 555 "$D/out" 2>/dev/null
+OUT="$(CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/out" --force 2>&1)"; brc=$?
+chmod 755 "$D/out" 2>/dev/null
+[ "$brc" != 0 ] && ok "기록 실패 시 비0 종료" || no "기록 실패인데 성공 보고(rc=$brc)"
+
 echo
 echo "통과 $pass · 실패 $failed"
 [ "$failed" -eq 0 ]
