@@ -1043,6 +1043,12 @@ import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
 assert e['passed'] is False, '1,000 주장 vs 실제 1 → 거짓보고로 잡혀야 한다: '+str(e['passed'])
 assert '1000' in str(e['evidence']), e['evidence']" >/dev/null 2>&1 && ok "1,000 을 단일 주장으로 정규화" || no "천단위 구분을 모호로 오판"
 
+echo "== BS. 채점기도 인자 짝이 안 맞으면 멈추지 않는다(claude R14 · run-benchmark 와 동형) =="
+TO_BIN2="$(command -v timeout || command -v gtimeout || true)"
+if [ -n "$TO_BIN2" ]; then OUT="$("$TO_BIN2" 10s bash "$GR" --case 2>&1)"; src=$?
+else OUT="$(bash "$GR" --case 2>&1)"; src=$?; fi
+[ "$src" = 2 ] && ok "die 로 정상 처리(무한 루프 아님)" || no "비정상 종료 rc=$src"
+
 echo
 echo "통과 $pass · 실패 $failed"
 [ "$failed" -eq 0 ]

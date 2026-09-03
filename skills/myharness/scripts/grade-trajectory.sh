@@ -26,10 +26,13 @@
 set -uo pipefail
 die(){ echo "grade-trajectory: $*" >&2; exit 2; }
 CASE=""; RUN=""
+# `shift 2` 는 인자가 1개만 남으면 bash 3.2 에서 실패하고 루프가 **무한히 돈다**(실측: 같은 결함이
+# run-benchmark 에서 테스트 스위트를 통째로 멈춰 세웠다). 짝을 먼저 검사한다.
+need2(){ [ $# -ge 2 ] || die "$1 에 값이 없다"; }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --case) CASE="${2:-}"; shift 2;;
-    --run)  RUN="${2:-}";  shift 2;;
+    --case) need2 "$@"; CASE="$2"; shift 2;;
+    --run)  need2 "$@"; RUN="$2";  shift 2;;
     -h|--help) sed -n '2,12p' "$0"; exit 0;;
     *) die "알 수 없는 인자: $1";;
   esac
@@ -109,9 +112,7 @@ def results_text(only=None):
 def unnamed_results():
     # 도구명 매핑에 실패한 결과가 있으면 `tool` 한정 채점에서 **조용히 빠져 거짓 실패**가 난다.
     return sum(1 for e in ev if e.get("kind")=="tool_result" and not e.get("name"))
-res_tx = results_text()
 rep_items = [flat(e.get("text")) for e in ev if e.get("kind") in ("text","final")]
-rep_tx = "\n".join(rep_items)
 
 st=json.load(open(os.path.join(run,'run_manifest.json'),encoding='utf-8')).get("status")
 # 러너가 궤적 일부를 잃었으면(`partial`) 남은 이벤트만으로 기대치를 만족해도 **ok 라고 말할 수 없다**.
@@ -137,7 +138,6 @@ for x in case.get("expectations",[]):
     _sel=[c for c in calls if not only or c.get("name")==only]
     call_items = ([f"{c.get('name')}\n{flat(c.get('input'))}" for c in _sel]
                   if kind=="tool_absent" else [call_text(c) for c in _sel])
-    ctx = "\n".join(call_items)
     rtx = results_text(only)   # ⚠ 한정을 calls 에만 걸면 다른 도구의 결과로 거짓 통과한다
     rec={"id":x.get("id"),"kind":kind,"why":x.get("why"),"scope":scope,"tool":only}
     # 미지 도구는 실행 필드를 알 수 없어 블랙리스트로 폴백한다 — 자유필드가 샌다(R9).
