@@ -38,6 +38,7 @@ while [ $# -gt 0 ]; do
     *) die "알 수 없는 인자: $1";;
   esac
 done
+case "${TIMEOUT:-0}" in ''|*[!0-9]*) die "--timeout 은 0 이상의 정수(초)여야 한다: $TIMEOUT";; esac
 [ -n "$CASE" ] && [ -f "$CASE" ] || die "--case <case.json> 필요"
 [ -n "$OUT" ] || die "--out <dir> 필요"
 [ -n "$ARM_DEF" ] || die "--arm-def <정의파일> 필요"
@@ -94,7 +95,22 @@ sha(){ if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" 2>/dev/null
 ARM_HASH="$(sha "$ARM_DEF")"; [ -n "$ARM_HASH" ] || ARM_HASH="unavailable"
 CASE_HASH="$(sha "$CASE")";   [ -n "$CASE_HASH" ] || CASE_HASH="unavailable"
 # 실제 작업디렉토리 다이제스트 — 필드명이 내용과 맞아야 downstream 이 provenance 로 쓸 수 있다.
-WORK_HASH="$( (cd "$WORK" && find . -type f | LC_ALL=C sort | while read -r f; do printf '%s %s\n' "$(sha "$f")" "$f"; done) | { sha /dev/stdin; } )"
+# find/read 의 개행 구분은 경로에 개행·탭이 있으면 쪼개져 **다른 workdir 가 같은 해시**가 된다(R9 지적).
+WORK_HASH="$(python3 - "$WORK" <<'WHASH'
+import hashlib,os,sys
+root=sys.argv[1]; h=hashlib.sha256()
+for d,_,fs in os.walk(root):
+    for f in sorted(fs):
+        p=os.path.join(d,f); rel=os.path.relpath(p,root)
+        h.update(rel.encode()+b"\0")
+        try:
+            with open(p,'rb') as fh:
+                for chunk in iter(lambda: fh.read(65536), b""): h.update(chunk)
+        except Exception: h.update(b"<unreadable>")
+        h.update(b"\0")
+print(h.hexdigest())
+WHASH
+)"
 [ -n "$WORK_HASH" ] || WORK_HASH="unavailable"
 
 # 프롬프트 조립 — task 는 case.json 에서 python 이 직접 뽑는다(셸 보간 없음).
@@ -159,12 +175,18 @@ def cut(v):
     #   `description` 이 평가 텍스트에 섞여 거짓 통과가 부활한다(R2 실증). 구조는 보존하고 **잎만** 자른다.
     if isinstance(v,str):
         return (v[:cap]+f"\n…[{len(v)-cap}자 잘림]",True) if len(v)>cap else (v,False)
-    if isinstance(v,dict):
-        out={}; tr=False
-        for k,x in v.items():
-            out[k],t=cut(x); tr=tr or t
-        return out,tr
-    if isinstance(v,list):
+    # ⚠ 잎만 자르면 **짧은 원소가 수만 개인 컨테이너**가 상한을 우회해 궤적을 부풀린다(R9 지적).
+    #   컨테이너는 직렬화 총량으로도 한 번 더 막는다.
+    if isinstance(v,(dict,list)):
+        try: total=len(json.dumps(v,ensure_ascii=False))
+        except Exception: total=cap+1
+        if total>cap*4:
+            return f"<컨테이너 축약: 원소 {len(v)}개 · 약 {total}자>",True
+        if isinstance(v,dict):
+            out={}; tr=False
+            for k,x in v.items():
+                out[k],t=cut(x); tr=tr or t
+            return out,tr
         out=[]; tr=False
         for x in v:
             y,t=cut(x); out.append(y); tr=tr or t
@@ -277,7 +299,7 @@ fi
 # 루프를 이어가려면 호출자가 `|| true` 로 명시하라. manifest 의 `status` 가 단일 출처인 건 그대로다.
 _CID="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1],encoding="utf-8")).get("case_id",""))' "$OUT/run_manifest.json" 2>/dev/null)"
 _EVT="$(wc -l < "$OUT/trajectory.jsonl" 2>/dev/null | tr -d ' ')"
-echo "run-benchmark: $STATUS · case=$_CID · 이벤트 ${_EVT:-0}"
+echo "run-benchmark: $STATUS · case=${_CID:-unknown} · 이벤트 ${_EVT:-0}"
 case "$STATUS" in
   partial)
     echo "run-benchmark: ⚠ partial — 궤적 일부가 유실됐다. 채택 근거로 쓰지 말 것." >&2; exit 4 ;;

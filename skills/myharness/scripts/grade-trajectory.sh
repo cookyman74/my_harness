@@ -81,7 +81,8 @@ def call_text(c):
     inp=c.get("input"); name=c.get("name")
     wl=EXEC_FIELDS.get(name)
     if wl is not None and isinstance(inp,dict):
-        return f"{name}\n"+flat({k:v for k,v in inp.items() if k in wl})
+        # 키 순서는 모델 출력 순서를 따라 흔들린다 — 정렬해 **같은 입력이면 같은 텍스트**가 되게 한다.
+        return f"{name}\n"+flat({k:inp[k] for k in sorted(wl) if k in inp})
     return f"{name}\n"+flat(inp,DESCRIPTIVE_KEYS)
 def unknown_tools(only=None):
     return sorted({c.get("name") for c in calls
@@ -97,7 +98,6 @@ def flat(x,drop=()):
     return str(x)
 # 호출 input 내용 / 결과 / 최종 보고 를 각각 분리해 둔다 — 대조가 목적이다.
 calls  = [e for e in ev if e.get("kind")=="tool_use"]
-call_tx= "\n".join(f"{c.get('name')}\n{flat(c.get('input'),DESCRIPTIVE_KEYS)}" for c in calls)
 # tool_result 에도 도구명이 실려 있어야 `tool` 한정이 결과 범위에서 의미를 갖는다(R5 지적).
 def results_text(only=None):
     return "\n".join(flat(e.get("content")) for e in ev
@@ -128,6 +128,12 @@ for x in case.get("expectations",[]):
     ctx = "\n".join(call_text(c) for c in calls if not only or c.get("name")==only)
     rtx = results_text(only)   # ⚠ 한정을 calls 에만 걸면 다른 도구의 결과로 거짓 통과한다
     rec={"id":x.get("id"),"kind":kind,"why":x.get("why"),"scope":scope,"tool":only}
+    # 미지 도구는 실행 필드를 알 수 없어 블랙리스트로 폴백한다 — 자유필드가 샌다(R9 지적).
+    # 그 도구를 콕 집어 채점하려는 경우엔 단정하지 않는다. (한정이 없으면 과잉차단이 되므로 경고만.)
+    if only and only not in EXEC_FIELDS and any(c.get("name")==only for c in calls):
+        rec.update(passed=None,
+                   evidence=f"'{only}' 는 실행 필드 화이트리스트가 없는 도구 — 자유필드와 실행을 구분할 수 없어 단정하지 않는다")
+        res.append(rec); continue
     scopes={"calls":ctx,"results":rtx,"report":rep_tx,"all":ctx+"\n"+rtx+"\n"+rep_tx}
     if scope not in scopes:
         # 오타난 scope 를 조용히 calls 로 떨구면 **엉뚱한 텍스트를 검사하고 우연히 통과**한다.
@@ -196,6 +202,7 @@ for x in case.get("expectations",[]):
             if cx.groups==1:
                 for m in cm:
                     s=m if isinstance(m,str) else (m[0] if m else "")
+                    if s is None: s=""      # optional 그룹은 None 이 온다 — str() 하면 'None' 이 된다
                     d=re.findall(r"\d+",str(s))
                     if len(d)==1: nums.append(int(d[0]))
                     elif len(d)>1: nums=None; break
@@ -246,10 +253,13 @@ summary={"total":len(res),"graded":len(graded),
                          else ("partial" if st=="partial"
                          else ("eval-empty" if not res
                                else ("partial" if unevaluable
-                                     else ("vacuous" if vac else "ok"))))))}
+                                     # 공허가 섞였지만 **검증된 통과가 있으면** 뭉개지 않는다(R9 지적).
+                                     else ("partial" if (vac and graded)
+                                           else ("vacuous" if vac else "ok")))))))}
 json.dump({"case_id":case.get("case_id"),"expectations":res,"summary":summary},
           open(os.path.join(run,'grading.json'),'w',encoding='utf-8'),ensure_ascii=False,indent=2)
 print(f"grade-trajectory: {summary['status']} · {summary['passed']}/{summary['graded']} 통과"
+      + (f" · ⚠ 화이트리스트 없는 도구 {unknown_tools()}" if unknown_tools() else "")
       + (f" · ✗ 실패 {nfail}건" if nfail else "")
       + (f" · ⚠ 공허 {vac}건(대조할 주장이 없어 검증 못 함 — 통과로 세지 않음)" if vac else "")
       + ("" if graded else " · ⚠ 채점된 항목이 0이다 — 통과로 읽지 말 것")

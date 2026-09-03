@@ -785,6 +785,77 @@ python3 -c "
 import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
 assert e['passed'] is None, '숫자 유무가 섞였는데 단정: '+str(e['passed'])" >/dev/null 2>&1 && ok "숫자 유무 혼재 → 평가불가" || no "약한 검사로 폴백해 통과"
 
+echo "== BA. 미지 도구는 화이트리스트가 없으니 단정하지 않는다(codex R9 MED) =="
+D="$TMP/ba"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-unk","task":"t","fixtures":[],
+ "expectations":[{"id":"u","kind":"tool_present","tool":"MysteryTool","pattern":"run-policy-audit","why":"미지 도구"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_use','name':'MysteryTool','input':{'memo':'run-policy-audit 를 돌릴 예정'}}))" > "$D/out/trajectory.jsonl"
+echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is None, '미지 도구의 자유필드를 실행으로 단정: '+str(e['passed'])" >/dev/null 2>&1 && ok "미지 도구 한정 → 평가불가" || no "미지 도구를 블랙리스트로 채점"
+
+echo "== BB. 일부가 공허해도 검증된 통과를 뭉개지 않는다(agy R9 MED) =="
+D="$TMP/bb"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-mixv","task":"t","fixtures":[],
+ "expectations":[{"id":"good","kind":"tool_present","tool":"Bash","pattern":"audit","why":"정상 통과"},
+                 {"id":"vac","kind":"report_matches_calls","tool":"Bash","pattern":"zzz","claim_pattern":"9 ?회","count":1,"why":"공허"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'bash audit'}}))
+print(json.dumps({'seq':2,'kind':'final','text':'끝'}))" > "$D/out/trajectory.jsonl"
+echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;g=json.load(open('$D/out/grading.json'))
+assert g['summary']['status']=='partial', '검증된 통과가 vacuous 로 뭉개짐: '+g['summary']['status']
+assert g['summary']['passed']==1" >/dev/null 2>&1 && ok "일부 공허 + 일부 통과 → partial" || no "vacuous 로 뭉갬"
+
+echo "== BC. 화이트리스트 필드 순서가 결정적이다(agy R9 HIGH) =="
+D="$TMP/bc"; mkdir -p "$D/out1" "$D/out2"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-ord","task":"t","fixtures":[],
+ "expectations":[{"id":"o","kind":"tool_present","tool":"Read","pattern":"\"file_path\": /x/y[\\s\\S]*\"limit\": 5","why":"필드 순서 고정"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_use','name':'Read','input':{'limit':5,'file_path':'/x/y'}}))" > "$D/out1/trajectory.jsonl"
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_use','name':'Read','input':{'file_path':'/x/y','limit':5}}))" > "$D/out2/trajectory.jsonl"
+for d in out1 out2; do echo '{"status":"ok"}' > "$D/$d/run_manifest.json"; bash "$GR" --case "$D/case.json" --run "$D/$d" >/dev/null 2>&1; done
+python3 -c "
+import json
+a=json.load(open('$D/out1/grading.json'))['expectations'][0]['passed']
+b=json.load(open('$D/out2/grading.json'))['expectations'][0]['passed']
+assert a==b, f'입력 키 순서에 따라 판정이 갈림: {a} vs {b}'" >/dev/null 2>&1 && ok "키 순서와 무관하게 동일 판정" || no "입력 순서에 따라 결과가 갈림"
+
+echo "== BD. 컨테이너 총량도 상한을 받는다(codex R9 MED) =="
+D="$TMP/bd"; mkcase "$D"
+python3 -c "
+import json
+big=['e%d'%i for i in range(60000)]
+print(json.dumps({'type':'user','message':{'content':[{'type':'tool_result','content':big}]}}))
+print(json.dumps({'type':'result','result':'done'}))" > "$TMP/arrout"
+printf '#!/usr/bin/env bash
+cat %s
+' "$TMP/arrout" > "$TMP/arrclaude"; chmod +x "$TMP/arrclaude"
+CLAUDE_BIN="$TMP/arrclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/out" >/dev/null 2>&1
+sz=$(wc -c < "$D/out/trajectory.jsonl" | tr -d ' ')
+[ "$sz" -lt 200000 ] && ok "짧은 원소 다수도 상한 적용($sz b)" || no "컨테이너가 상한을 우회($sz b)"
+
+echo "== BE. --timeout 이 정수가 아니면 거부한다(agy R9 LOW) =="
+D="$TMP/be"; mkcase "$D"
+OUT="$(CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --timeout "abc" 2>&1)"
+[ "$?" != 0 ] && ok "비정수 타임아웃 거부" || no "비정수 타임아웃 통과"
+
 echo
 echo "통과 $pass · 실패 $failed"
 [ "$failed" -eq 0 ]
