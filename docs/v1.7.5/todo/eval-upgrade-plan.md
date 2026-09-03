@@ -412,7 +412,7 @@ rg -n "P0-M-RESTORE" skills/myharness/references/loop-self-eval.md \
 
 ---
 
-## B3-pre — 궤적 수집 인프라 `⬜ 미착수(B3 선행)`
+## B3-pre — 궤적 수집 인프라 `🟡 부분 완료(실행 계층 구현 · 요청세트·비용통제 미완)`
 
 **왜 분리했나:** B3 선검증 ①에서 **궤적 수집 수단이 실재하지 않음**이 실측으로 확인됐다.
 계획서가 "없으면 여기서 멈추고 인프라 과제를 먼저 뺀다(가정 위 구현 금지)"고 규정했으므로
@@ -437,19 +437,35 @@ B3 구현을 중단하고 이 과제로 분리한다.
 **필요한 것(범위만 — 설계는 별도)** · 전 항목 `[~]`(미착수 선행 과제 — 별도 설계·착수 필요).
 **수집·저장 계층은 신설 대상이 아니다**(3차 실측) — 아래 넷만 남는다:
 
-- [~] **도구를 허용한 실행 경로** — 유일한 실사용 경로(`remediate`)가 deny-all 이라 궤적이 안 생긴다.
+- [x] **도구를 허용한 실행 경로** — `skills/myharness/scripts/run-benchmark.sh` 구현.
+      결과서 `working_history/B3-pre-benchmark-runner.md`. `remediate.ts` 의 deny-all 은 **건드리지 않고**
+      별도 경로를 세웠다. ⚠ **봉쇄는 없다** — 기본 도구 `Read` 뿐, `Bash`/`Write`/`Edit` 는
+      `BENCH_ALLOW_EXEC=1` 옵트인 필수. 격리는 작업디렉토리 수준일 뿐이다
+- [~] ~~**도구를 허용한 실행 경로**~~ — 유일한 실사용 경로(`remediate`)가 deny-all 이라 궤적이 안 생긴다.
       `remediate.ts` 는 **그대로 두고**(M15 보안 결정·용도가 다르다) 별도 경로를 세운다.
       `self-improvement-loop.md` §4 러너 계약(`{case_id, skill_path, mode}` → `grading.json`·`timing.json`·
       `run_manifest.json` · 케이스별 독립 작업디렉토리 · 결정적 seed)이 입력이다 —
       **여기에 궤적 출력을 더한다**(그 계약은 `expectations[].passed` 라는 채점만 내고 "무엇을 했나"가 없다)
-- [~] **stream-json → 궤적 스키마 변환** — `RawLine` 승격을 확장할지, `trajectory.jsonl` 을 따로 둘지 결정.
-      B3 판정 규약(`{behavior, verdict, evidence}`)이 소비할 형태여야 한다
-- [~] **고정 요청 세트** — Phase 6-4 의 should/should-NOT 쿼리(각 8~10개·near-miss 경계)가 재사용 후보 ·
+- [x] **stream-json → 궤적 스키마 변환** — **`trajectory.jsonl` 을 따로 뒀다**(`RawLine` 승격 확장은
+      supervisor 의 하네스 상태 로그와 **의미가 다르고** blast-radius 가 더 크다).
+      `{seq,kind,name,input|content|text,truncated}` · 채점기 `grade-trajectory.sh` 가 소비한다
+- [~] ~~**stream-json → 궤적 스키마 변환**~~ (완료 — 위 항목)
+- [~] **고정 요청 세트 — 미완(B3 착수의 남은 선행)** · Phase 6-4 의 should/should-NOT 쿼리가 재사용 후보 ·
       before/after **각각 실행**(같은 트레이스 재판정이 아니다) · worktree 격리 배선(수단은 실측 확인됨)
 - [~] **비용 통제** — 궤적 수집은 실제 모델 실행이다. 스킬 1개 × 쿼리 16 × before/after × 반복 3 = **96회**.
       **비용 실측(B3-lite):** 시나리오 3 × arm 2 × R=1 = 6회가 실제로 돌아갔다 — 위 96회는 **그 16배**다.
       착수 전 비용 합의가 필요하다.
 
+> **구현이 남긴 실측 교훈**(`working_history/B3-pre-benchmark-runner.md`):
+> - **거짓 통과 26종**을 외부리뷰 R1~R16 과 dogfood 로 잡았다. **그중 11종이 내 직전 수정이 만든 회귀**다
+>   — 이 영역은 고치면서 새로 깨뜨리기 쉽다. 매 수정마다 실패하는 테스트를 먼저 쓰는 것이 유일한 방어였다.
+> - **금지 검사와 존재 주장은 방향이 반대다.** 존재 주장은 서술 필드를 세면 거짓 통과, 금지는 서술 필드를
+>   빼면 거짓 "없음". 같은 필터를 양쪽에 쓰면 한쪽은 반드시 틀린다.
+> - **assertion 패턴은 실행 필드 이름에 고정하라**(`"command": [^\n]*x\.sh`). 문자열만 쓰면 언급·검색까지
+>   집계되고, 명령 형태(`bash|sh|./`)로 고정하면 접두사 없는 실행을 놓친다. **실제 궤적으로 확정하라.**
+> - **외부리뷰 인프라 자체에 결함이 있었다** — `REVIEWERS_OVERRIDE` 가 무시돼 네 프로세스가 같은 파일에
+>   동시에 썼고, 한 라운드가 통째로 무효가 됐다. 정본에 락·override·타임아웃 노브를 넣었다.
+>
 > **B3-lite 가 남긴 러너 요구사항**(`working_history/B3-lite-probe.md` §5):
 > - **격리 디렉토리 이름에 arm 을 넣지 말 것** — 첫 blinded 패킷에 작업 경로(`.../runs/before_S1`)가
 >   arm 을 그대로 노출해 blinding 이 깨졌다. **불투명 id** 로 관리한다.
