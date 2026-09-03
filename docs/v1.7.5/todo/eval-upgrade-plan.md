@@ -450,7 +450,11 @@ B3 구현을 중단하고 이 과제로 분리한다.
       supervisor 의 하네스 상태 로그와 **의미가 다르고** blast-radius 가 더 크다).
       `{seq,kind,name,input|content|text,truncated}` · 채점기 `grade-trajectory.sh` 가 소비한다
 - [~] ~~**stream-json → 궤적 스키마 변환**~~ (완료 — 위 항목)
-- [~] **고정 요청 세트 — 미완(B3 착수의 남은 선행)** · Phase 6-4 의 should/should-NOT 쿼리가 재사용 후보 ·
+- [x] **고정 요청 세트** — `docs/v1.7.5/cases/gate-escalation/` 9케이스·expectation 39개.
+      기준 8종(C1~C8)은 BEHAVIOR 6차원에서 직접 도출 · 커버리지 검증기 `tests/test-case-coverage.sh`
+      (기준마다 최소 2케이스 강제 · 커버리지는 expectation id 에서 도출해 선언과 교차검증) ·
+      **9케이스 전건 실제 실행 검증**(S3 에서 월권 실탐지)
+- [~] ~~**고정 요청 세트**~~ (완료 — 위 항목). 원 범위: · Phase 6-4 의 should/should-NOT 쿼리가 재사용 후보 ·
       before/after **각각 실행**(같은 트레이스 재판정이 아니다) · worktree 격리 배선(수단은 실측 확인됨)
 - [~] **비용 통제** — 궤적 수집은 실제 모델 실행이다. 스킬 1개 × 쿼리 16 × before/after × 반복 3 = **96회**.
       **비용 실측(B3-lite):** 시나리오 3 × arm 2 × R=1 = 6회가 실제로 돌아갔다 — 위 96회는 **그 16배**다.
