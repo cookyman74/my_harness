@@ -439,8 +439,9 @@ B3 구현을 중단하고 이 과제로 분리한다.
 
 - [x] **도구를 허용한 실행 경로** — `skills/myharness/scripts/run-benchmark.sh` 구현.
       결과서 `working_history/B3-pre-benchmark-runner.md`. `remediate.ts` 의 deny-all 은 **건드리지 않고**
-      별도 경로를 세웠다. ⚠ **봉쇄는 없다** — 기본 도구 `Read` 뿐, `Bash`/`Write`/`Edit` 는
-      `BENCH_ALLOW_EXEC=1` 옵트인 필수. 격리는 작업디렉토리 수준일 뿐이다
+      별도 경로를 세웠다. **도구 봉쇄는 `--disallowedTools` 로 강제**(실측: `--allowedTools` 는 아무것도
+      빼지 않는다 · MCP 가 우회 경로라 `mcp__*` 상시 차단 · 여집합 방식이라 목록 밖 도구는 못 막는다).
+      `Bash` 허용 시 작업디렉토리 밖이 열린다 — 격리는 작업디렉토리 수준일 뿐 샌드박스가 아니다
 - [~] ~~**도구를 허용한 실행 경로**~~ — 유일한 실사용 경로(`remediate`)가 deny-all 이라 궤적이 안 생긴다.
       `remediate.ts` 는 **그대로 두고**(M15 보안 결정·용도가 다르다) 별도 경로를 세운다.
       `self-improvement-loop.md` §4 러너 계약(`{case_id, skill_path, mode}` → `grading.json`·`timing.json`·

@@ -90,12 +90,20 @@
 > **아직 없는 것:** 반복 R회 집계·baseline 캐싱(§10)·CI 비중첩 채택식(§4 비교식) → **채택 결정은 수동**이다. 러너가 돈다고 채택이 자동화된 것이 아니다.
 > ⚠ **`seed` 는 `null` 이다** — CLI 에 seed 가 없다. §4 가 요구한 "결정적 seed"는 **충족되지 않는다**(`seed_supported: false` 로 기록). 반복 R회로 분산을 다뤄야 한다.
 > ⚠ 러너는 **도구를 허용한 모델 실행**을 일으킨다. 어떤 게이트에도 자동 배선하지 말 것 — 호출자가 명시할 때만 돈다.
-> ⚠⚠⚠ **봉쇄는 없고, `--allowedTools` 도 강제되지 않는다(실측 2026-09-03).**
->   `--allowedTools "Read"` 만 주고 돌렸는데 모델이 `Write`·`Bash` 로 **파일을 실제로 만들었다.**
->   9케이스 실행에서도 목록 밖 `Write`·`Edit`·`Skill`·`ToolSearch`·MCP 도구가 전부 사용됐다.
->   `--permission-mode bypassPermissions` 가 필터를 무력화하는 것으로 보인다(원인 미확정).
->   ⇒ `BENCH_ALLOW_EXEC` 옵트인은 **의도 기록일 뿐 강제가 아니다.** "기본이 Read 뿐이라 안전"은 **틀린 읽기**다.
->   **격리된 작업 사본에서만 돌리고**, 진짜 봉쇄가 필요하면 컨테이너 등 **프로세스 밖 수단**을 써라.
+> ⚠⚠ **도구 제한은 `--disallowedTools` 로만 강제된다 — `--allowedTools` 는 아무것도 빼지 않는다(실측 2026-09-03).**
+>
+> | 조합 | 세션 노출 도구 | `Write`/`Bash`/`Edit` | MCP | 파일 생성 |
+> |---|---|---|---|---|
+> | `--allowedTools Read` | 70 | 전부 남음 | 37 | **됨** |
+> | `--disallowedTools Write,Edit,Bash,…,mcp__*` | 30 | 제거 | **0** | 차단 |
+>
+>   `--allowedTools` 는 "권한 프롬프트 없이 허용"의 뜻이라 `bypassPermissions` 하에선 무의미하다 —
+>   `remediate.ts`(M15)가 `--disallowedTools "*"` 를 쓴 이유다. 러너는 **허용 목록의 여집합을
+>   `--disallowedTools` 로 넘기고 `mcp__*` 는 항상 막는다**(MCP 도구가 셸 실행을 제공해 우회 경로였다 — 실측).
+>   한계: 여집합 방식은 **목록 밖 도구를 못 막는다**(`TaskCreate` 가 통과한 실측). CLI 에 새 도구가 생기면
+>   `KNOWN_TOOLS` 를 늘려야 한다. 그리고 도구 봉쇄일 뿐이다 — `Bash` 를 허용하면 작업디렉토리 밖 쓰기·
+>   네트워크가 열린다. 격리는 작업디렉토리 수준이지 샌드박스가 아니다. **신뢰할 수 없는 case/정의로 돌리지 말 것.**
+>   실효성은 `BENCH_LIVE=1 tests/test-run-benchmark.sh`(BU) 가 **실제 CLI 로** 검증한다.
 > **§10 비용 통제 이행 상태:** baseline 캐싱 **구현**(`--cache-dir` · key=case·arm·model·tools·runner).
 >   tiered `smoke→full` **게이팅은 호출자 책임**이다 — 러너는 케이스 하나만 돌리므로 티어를 강제할 위치가 아니다
 >   (`--tier` 는 manifest 에 남기는 **라벨**일 뿐 아무것도 막지 않는다). cheap-judge 는 `--model`/`BENCH_MODEL` 로 가능.

@@ -4,17 +4,17 @@
 # 한 케이스를 한 arm(정의 버전) 으로 격리 실행하고 **궤적**을 남긴다.
 # 의미 판정은 하지 않는다 — 기계 검증은 grade-trajectory.sh, 의미 판정은 external-review-loop.
 #
-# ⚠⚠⚠ **봉쇄(containment)는 없다 — `--allowedTools` 는 실제로 강제되지 않는다.**
-#   **실측(2026-09-03):** `--allowedTools "Read"` 만 주고 돌렸는데 모델이 `Write`·`Bash` 를 사용해
-#   작업디렉토리에 파일을 **실제로 만들었다**. 9케이스 실행에서도 `Write`·`Edit`·`Skill`·`ToolSearch`·
-#   MCP 도구가 목록에 없는데 전부 사용됐다. `--permission-mode bypassPermissions` 가 도구 필터를
-#   무력화하는 것으로 보인다(원인 미확정 — `--disallowedTools` 로의 전환은 미검증).
+# ⚠⚠ **도구 제한은 `--disallowedTools` 로만 강제된다 — `--allowedTools` 는 아무것도 빼지 않는다.**
+#   **실측(2026-09-03, 3조합 비교):**
+#     `--allowedTools Read`                          → 세션 노출 도구 70개(Write/Bash/Edit 전부 남음), 파일 생성됨
+#     `--disallowedTools Write,Edit,Bash,…,mcp__*`   → 노출 30개, Write/Bash/Edit 제거, MCP 37→0, 파일 차단
+#   `--allowedTools` 는 "권한 프롬프트 없이 허용"의 뜻이고, bypassPermissions 하에선 무의미하다.
+#   `remediate.ts`(M15)가 `--disallowedTools "*"` 를 쓰는 것과 같은 이유다.
 #
-#   ⇒ 따라서 아래 `BENCH_ALLOW_EXEC` 옵트인은 **호출자 의도를 기록하는 장치일 뿐 강제가 아니다.**
-#     "기본이 Read 뿐이니 안전하다"고 읽으면 **틀린다.** 이 러너는 사실상 **전 도구 허용**으로 돈다.
-#     - 반드시 **격리된 작업 사본**에서만 돌려라(신뢰할 수 없는 case/정의는 금지).
-#     - 진짜 봉쇄가 필요하면 컨테이너·별도 사용자 등 **프로세스 밖 수단**을 써라.
-#   격리는 작업디렉토리 수준일 뿐 샌드박스가 아니다.
+#   ⇒ 이 러너는 **허용 목록의 여집합을 `--disallowedTools` 로 명시**해 넘긴다. `mcp__*` 는 항상 막는다
+#     (MCP 도구가 셸 실행을 제공해 우회 경로가 된다 — 실측). 그래도 **봉쇄는 도구 수준일 뿐**이다:
+#     `Bash` 를 허용하면 작업디렉토리 밖 쓰기·네트워크가 열린다. 격리는 작업디렉토리 수준이지 샌드박스가 아니다.
+#     신뢰할 수 없는 case/정의로 돌리지 말 것.
 #
 # ⚠ 어떤 게이트에도 자동 배선하지 말 것 — 호출자가 명시적으로 부를 때만 돈다(비용·부작용 실재).
 set -uo pipefail
@@ -80,6 +80,20 @@ fi
 # `--tools ","` 처럼 구분자만 있으면 유효 도구가 0개인데 검사 루프는 통과하고
 # CLI 에는 `--allowedTools ,` 가 그대로 전달돼 제한이 무력화된다(R13 지적).
 [ "$_nvalid" -gt 0 ] || die "--tools 에 유효한 도구가 없다: '$TOOLS'"
+# 허용 목록의 **여집합**을 거부 목록으로 만든다(알려진 코어 도구 + MCP 글롭).
+# `--allowedTools` 만으론 아무것도 제거되지 않는다(실측) — `--disallowedTools` 가 유일한 실효 수단이다.
+# 실행 조건이므로 캐시 키에도 들어간다.
+# ⚠ 여집합 방식의 한계: **여기 없는 도구는 못 막는다**(실측: TaskCreate·TaskUpdate 가 통과 — 부작용은
+#   없지만 목록 밖이라는 사실 자체가 한계다. 2차 실측에서도 DesignSync·ListMcpResourceTool 이 또 통과).
+#   CLI 에 새 도구가 생기면 이 목록도 늘려야 한다 — **이 목록은 영원히 뒤처진다.** 진짜 봉쇄가 필요하면
+#   `--disallowedTools "*"` 뒤에 허용분만 다시 여는 방식이 있는지 CLI 가 지원할 때 전환하라.
+#   `mcp__*` 글롭은 MCP 전체를 덮으므로 예외다.
+KNOWN_TOOLS="Read Bash Write Edit Glob Grep Skill ToolSearch Agent WebFetch WebSearch NotebookEdit TaskCreate TaskUpdate TaskList TaskGet TaskOutput TaskStop SendMessage Monitor CronCreate CronDelete CronList Workflow Artifact EnterWorktree ExitWorktree EnterPlanMode ExitPlanMode DesignSync ListMcpResourcesTool ReadMcpResourceTool ReadMcpResourceDirTool PushNotification RemoteTrigger SendUserFile EndConversation ScheduleWakeup SendFeedback ReportFindings AskUserQuestion"
+DENY="mcp__*"
+for _k in $KNOWN_TOOLS; do
+  _in=0; for _a in "${_tl[@]}"; do [ "${_a// /}" = "$_k" ] && _in=1; done
+  [ "$_in" = 1 ] || DENY="$DENY,$_k"
+done
 mkdir -p "$OUT" || die "출력 디렉토리 생성 실패: $OUT"
 # --force 재실행 시 이전 파생 산출물을 남기면 새 궤적과 옛 채점이 섞여 오인된다.
 # manifest 를 **맨 먼저** 지운다 — 재실행이 중간에 죽으면 옛 성공 manifest 가 남아 실패를 성공으로 오인시킨다.
@@ -157,7 +171,7 @@ if [ -n "$CACHE_DIR" ]; then
   # 같은 case/arm/model 이라도 **CLI 래퍼나 버전이 다르면 다른 출력**이 나온다 — 정체를 키에 묶는다.
   _cli="${CLAUDE_BIN:-claude}"; _clip="$(command -v "$_cli" 2>/dev/null || printf '%s' "$_cli")"
   _clid="$( { [ -f "$_clip" ] && sha "$_clip"; } 2>/dev/null || printf 'unknown')"
-  CACHE_KEY="$(for v in "$CASE_HASH" "$ARM_HASH" "${MODEL:-default}" "$TOOLS" "$RUNNER_VERSION" "$TIMEOUT" "$MAX_FIELD" "$_clip" "$_clid" "${BENCH_ALLOW_EXEC:-0}" "$WORK_HASH"; do
+  CACHE_KEY="$(for v in "$CASE_HASH" "$ARM_HASH" "${MODEL:-default}" "$TOOLS" "$RUNNER_VERSION" "$TIMEOUT" "$MAX_FIELD" "$_clip" "$_clid" "${BENCH_ALLOW_EXEC:-0}" "$WORK_HASH" "$DENY"; do
                  printf '%s:%s\n' "${#v}" "$v"; done | sha)"
   [ -n "$CACHE_KEY" ] || die "캐시 키를 계산하지 못했다(shasum/sha256sum 부재?) — 조용한 미적중을 막기 위해 중단한다"
 fi
@@ -182,7 +196,8 @@ else
   fi
   CLI="${CLAUDE_BIN:-claude}"
   command -v "$CLI" >/dev/null 2>&1 || [ -x "$CLI" ] || die "러너 CLI 없음: $CLI"
-  set -- -p --output-format stream-json --verbose --permission-mode bypassPermissions --allowedTools "$TOOLS"
+  set -- -p --output-format stream-json --verbose --permission-mode bypassPermissions \
+         --allowedTools "$TOOLS" --disallowedTools "$DENY"
   [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"
   ( cd "$WORK" && run_to "$CLI" "$@" < "$PROMPT" ) > "$OUT/raw.jsonl" 2> "$OUT/runner.err"
   RC=$?
@@ -289,9 +304,9 @@ PY
 
 # ── manifest — 모든 값은 **argv 로 전달**한다(인라인 소스 보간 금지: python 주입 경로였다) ──
 python3 - "$OUT/run_manifest.json" "$CASE" "$ARM" "$RUNNER_VERSION" "${MODEL:-default}" "$TOOLS" \
-         "$TIER" "$STARTED" "$ENDED" "$ARM_HASH" "$CASE_HASH" "$RC" "$STATUS" "$CACHED" "${CACHE_KEY:-}" "$WORK_HASH" <<'PY' || die "run_manifest.json 기록 실패(디스크·권한 확인)"
+         "$TIER" "$STARTED" "$ENDED" "$ARM_HASH" "$CASE_HASH" "$RC" "$STATUS" "$CACHED" "${CACHE_KEY:-}" "$WORK_HASH" "${DENY:-}" <<'PY' || die "run_manifest.json 기록 실패(디스크·권한 확인)"
 import json,os,platform,sys
-(dst,casef,arm,rv,model,tools,tier,started,ended,armh,caseh,rc,status,cached,ckey,workh)=sys.argv[1:17]
+(dst,casef,arm,rv,model,tools,tier,started,ended,armh,caseh,rc,status,cached,ckey,workh,deny)=sys.argv[1:18]
 try: case=json.load(open(casef,encoding='utf-8'))
 except Exception: case={}
 cid=case.get("case_id","")
@@ -301,7 +316,7 @@ env={"platform":platform.platform(),"machine":platform.machine(),
 json.dump({
  "case_id":cid, "case_ids":[cid] if cid else [],
  "arm":arm, "mode":arm,
- "runner_version":rv, "model":model, "tools":tools, "tier":tier,
+ "runner_version":rv, "model":model, "tools":tools, "disallowed_tools":deny, "tier":tier,
  "started_at":started, "ended_at":ended,
  "skill_hash":armh, "case_hash":caseh, "workdir_sha256":workh,
  "assertion_version":str(case.get("assertion_version","0")),
