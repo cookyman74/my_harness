@@ -22,7 +22,6 @@ RUNNER="${2:-claude}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"   # check-review-tools.sh 는 형제 파일
 
 mkdir -p _workspace/reviews
-trap 'pkill -P $$ 2>/dev/null' EXIT   # 직속 자식 정리. 손자(리뷰어 내부 spawn)는 못 잡으니 리뷰어 self-timeout에 의존.
 
 # timeout은 GNU coreutils — macOS엔 없을 수 있다(gtimeout). 탐지 후 **함수 래퍼**로 감싼다.
 # 비인용 확장(`${TOFLAG} "$@"`)은 zsh 에서 단어분리되지 않아 못 쓴다(위 주석). 배열도 셸 간
@@ -59,6 +58,18 @@ RT="$(bash "$SCRIPT_DIR/check-review-tools.sh" "$RUNNER")"
 printf '%s\n' "$RT" >&2   # 도구별 연동/가려짐 줄을 로그로 되살린다(캡처하면 사람이 못 본다)
 REVIEWERS="$(printf '%s\n' "$RT" | sed -n 's/^REVIEWERS: //p')"
 SHADOWED="$(printf '%s\n' "$RT" | sed -n 's/^SHADOWED: //p')"
+
+# ── 같은 stage 동시 실행 차단 ─────────────────────────────────────────────────
+# 두 인스턴스가 같은 `${S}_{tool}.md` 에 동시에 쓰면 산출물이 문장 중간에서 뒤섞인다
+# (실측: 한 파일에 "결함 없음"과 "[HIGH] 2건"이 공존 — 어느 판정도 못 믿는다).
+# 조용히 섞이느니 **두 번째 인스턴스를 거부**한다. mkdir 은 원자적이다.
+LOCK="$D/${S}.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+  echo "ERROR: 같은 stage($S) 리뷰가 이미 실행 중이다 — 동시 실행은 산출물을 뒤섞는다." >&2
+  echo "  (죽은 락이면 지워라: rm -rf '$LOCK')" >&2
+  exit 1
+fi
+trap 'rmdir "$LOCK" 2>/dev/null; pkill -P $$ 2>/dev/null' EXIT
 
 ST="$D/${S}_review_status.json"
 NOW="$(date +%s)"
@@ -106,6 +117,19 @@ fi
 # '2종 교차검증'이 아니라 '단일 관점'이다. 축소는 중단 사유가 아니라 **기록 의무** 사유다 —
 # degraded 를 상태파일에 실어 Step 3 판정·결과서까지 전파한다.
 DEG=""
+# ── 리뷰어 강제 지정(REVIEWERS_OVERRIDE) ──────────────────────────────────────
+# 왜 필요한가: 한 엔진만 재실행하거나, 쿼터·장애로 한 축이 빠졌을 때 나머지만 돌리고 싶다.
+# ⚠ 이게 없던 동안 호출자가 `REVIEWERS_OVERRIDE=codex` 를 넘겨도 **무시**돼, 엔진별로 스크립트를
+#   두 번 띄우면 **네 프로세스가 같은 출력 파일에 동시에 썼다**(실측: 리뷰 산출물이 문장 중간에서
+#   뒤섞여 "결함 없음"과 "[HIGH] 2건"이 한 파일에 공존). 무시되는 노브는 조용한 오작동을 부른다.
+if [ -n "${REVIEWERS_OVERRIDE:-}" ]; then
+  DEG="${DEG:+$DEG; }리뷰어 강제 지정: ${REVIEWERS_OVERRIDE}(자동 탐지=${REVIEWERS:-none})"
+  REVIEWERS=" ${REVIEWERS_OVERRIDE} "
+fi
+# 러너와 같은 엔진을 리뷰어로 쓰면 **자기검증**이다 — 막지는 않되(운영 사정) 원장에 반드시 남긴다.
+case " $REVIEWERS " in
+  *" $RUNNER "*) DEG="${DEG:+$DEG; }자기검증: 리뷰어에 러너와 같은 엔진($RUNNER) 포함 — 교차검증 아님" ;;
+esac
 n_rev=0; for _t in $REVIEWERS; do n_rev=$((n_rev+1)); done
 case " $REVIEWERS " in
   *" codex "*|*" claude "*) ;;

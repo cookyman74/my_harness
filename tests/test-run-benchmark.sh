@@ -384,7 +384,7 @@ D="$TMP/w"; mkdir -p "$D"
 cat > "$D/case.json" <<'J'
 {"case_id":"c-key","task":"t","fixtures":[],
  "expectations":[{"id":"structural","kind":"tool_present","tool":"Bash","pattern":"\"command\"","why":"키를 포함한 검증"},
-                 {"id":"nodesc","kind":"tool_absent","tool":"Bash","pattern":"SECRETDESC","why":"설명 필드는 여전히 제외"}]}
+                 {"id":"nodesc","kind":"tool_present","tool":"Bash","pattern":"SECRETDESC","why":"설명 필드는 실행으로 세지 않는다"}]}
 J
 python3 -c "
 import json
@@ -400,7 +400,7 @@ python3 -c "
 import json
 e={x['id']:x for x in json.load(open('$D/out/grading.json'))['expectations']}
 assert e['structural']['passed'] is True, '키가 날아가 구조적 패턴이 거짓 실패'
-assert e['nodesc']['passed'] is True, '설명 필드 제외가 깨짐'
+assert e['nodesc']['passed'] is False, '설명 필드가 실행으로 집계됨'
 print('OK')" >/dev/null 2>&1 && ok "키 보존 + 설명 필드 제외 동시 성립" || no "키 소실 또는 설명필드 누출"
 
 echo "== X. 깊은 중첩 경계(agy R3 MED 는 재현 안 됨 — 경계를 테스트로 고정) =="
@@ -448,7 +448,7 @@ cat > "$D/case.json" <<'J'
  "expectations":[{"id":"multiline","kind":"tool_present","tool":"Bash","pattern":"echo A\necho B","why":"실제 개행"},
                  {"id":"quoted","kind":"tool_present","tool":"Bash","pattern":"-name \"x.sh\"","why":"실제 따옴표"},
                  {"id":"key","kind":"tool_present","tool":"Bash","pattern":"\"command\"","why":"키는 여전히 보존"},
-                 {"id":"nodesc","kind":"tool_absent","tool":"Bash","pattern":"SECRETDESC","why":"설명필드 제외 유지"}]}
+                 {"id":"nodesc","kind":"tool_present","tool":"Bash","pattern":"SECRETDESC","why":"설명필드는 실행이 아니다"}]}
 J
 python3 -c "
 import json
@@ -465,7 +465,7 @@ import json
 e={x['id']:x for x in json.load(open('$D/out/grading.json'))['expectations']}
 for k in ('multiline','quoted','key'):
     assert e[k]['passed'] is True, k+' 가 이스케이프로 빗나감'
-assert e['nodesc']['passed'] is True, '설명필드 제외 깨짐'
+assert e['nodesc']['passed'] is False, '설명필드가 실행으로 집계됨'
 print('OK')" >/dev/null 2>&1 && ok "개행·따옴표 원형 보존 + 키 보존 + 설명필드 제외 동시 성립" || no "이스케이프로 패턴 파손"
 
 echo "== AB. --force 는 이전 manifest 부터 무효화한다(agy R4 LOW) =="
@@ -981,6 +981,67 @@ chmod 444 "$D/out/timing.json" 2>/dev/null; chmod 555 "$D/out" 2>/dev/null
 OUT="$(CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/out" --force 2>&1)"; brc=$?
 chmod 755 "$D/out" 2>/dev/null
 [ "$brc" != 0 ] && ok "기록 실패 시 비0 종료" || no "기록 실패인데 성공 보고(rc=$brc)"
+
+echo "== BO. 미지 도구 보류 가드가 results 경로로 우회되지 않는다(agy R13 HIGH) =="
+D="$TMP/bo"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-resonly","task":"t","fixtures":[],
+ "expectations":[{"id":"r","kind":"tool_present","tool":"CustomTool","scope":"results","pattern":"FOUND","why":"결과만 있는 미지 도구"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_result','name':'CustomTool','content':'FOUND'}))" > "$D/out/trajectory.jsonl"
+echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is None, '호출 없이 결과만 있는 미지 도구가 가드를 우회: '+str(e['passed'])" >/dev/null 2>&1 && ok "결과만 있어도 미지 도구는 보류" || no "results 경로로 가드 우회"
+
+echo "== BP. 금지 검사는 서술 필드까지 본다(claude R13 MED · 거짓 '없음' 방지) =="
+D="$TMP/bp"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-absdesc","task":"t","fixtures":[],
+ "expectations":[{"id":"no","kind":"tool_absent","tool":"Bash","pattern":"FORBIDDEN_TOKEN","why":"금지 문자열"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'echo hi','description':'FORBIDDEN_TOKEN 을 쓸 뻔했다'}}))" > "$D/out/trajectory.jsonl"
+echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is False, '서술 필드의 금지 문자열을 못 보고 없다고 판정'" >/dev/null 2>&1 && ok "금지 검사는 필터 없이 전수" || no "필터 때문에 거짓 '없음'"
+# 존재 주장은 여전히 서술 필드에 속지 않아야 한다(BP 수정이 AV 를 깨지 않는지)
+cat > "$D/case2.json" <<'J'
+{"case_id":"c-pres","task":"t","fixtures":[],
+ "expectations":[{"id":"p","kind":"tool_present","tool":"Bash","pattern":"FORBIDDEN_TOKEN","why":"존재 주장"}]}
+J
+bash "$GR" --case "$D/case2.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is False, '존재 주장이 서술 필드에 속음'" >/dev/null 2>&1 && ok "존재 주장은 실행 필드만(비대칭 유지)" || no "존재 주장이 서술 필드를 셈"
+
+echo "== BQ. 유효 도구가 0개면 거부한다(claude R13 MED) =="
+D="$TMP/bq"; mkcase "$D"
+OUT="$(CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --tools "," 2>&1)"
+[ "$?" != 0 ] && ok "쉼표뿐인 도구 목록 거부" || no "유효 도구 0개로 통과"
+
+echo "== BR. 천 단위 구분 숫자를 모호로 오판하지 않는다(agy R13 MED) =="
+D="$TMP/br"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-comma","task":"t","fixtures":[],
+ "expectations":[{"id":"c","kind":"report_matches_calls","tool":"Bash","pattern":"audit","claim_pattern":"([0-9,]+)회","count":1,"why":"천단위 구분"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'bash audit'}}))
+print(json.dumps({'seq':2,'kind':'final','text':'1,000회 실행했다'}))" > "$D/out/trajectory.jsonl"
+echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is False, '1,000 주장 vs 실제 1 → 거짓보고로 잡혀야 한다: '+str(e['passed'])
+assert '1000' in str(e['evidence']), e['evidence']" >/dev/null 2>&1 && ok "1,000 을 단일 주장으로 정규화" || no "천단위 구분을 모호로 오판"
 
 echo
 echo "통과 $pass · 실패 $failed"

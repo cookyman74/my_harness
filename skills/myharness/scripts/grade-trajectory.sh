@@ -131,7 +131,12 @@ for x in case.get("expectations",[]):
     # ⚠ 텍스트 출현 수는 **실행과 참조를 구분하지 못한다**(dogfood 실측: Bash 실행 1회 + Read 로 같은
     #    경로를 읽은 1회 = "2회"로 잡혔다). `tool` 을 지정하면 그 도구의 호출 input 만 센다.
     only=x.get("tool")
-    call_items = [call_text(c) for c in calls if not only or c.get("name")==only]
+    # 금지(`tool_absent`)와 존재 주장은 **방향이 반대**다:
+    #   존재 주장 — 서술 필드를 세면 거짓 통과 → 실행 필드만 본다.
+    #   금지      — 서술 필드를 빼면 **거짓 "없음"** 이 난다(R13 지적) → 필터 없이 전수한다.
+    _sel=[c for c in calls if not only or c.get("name")==only]
+    call_items = ([f"{c.get('name')}\n{flat(c.get('input'))}" for c in _sel]
+                  if kind=="tool_absent" else [call_text(c) for c in _sel])
     ctx = "\n".join(call_items)
     rtx = results_text(only)   # ⚠ 한정을 calls 에만 걸면 다른 도구의 결과로 거짓 통과한다
     rec={"id":x.get("id"),"kind":kind,"why":x.get("why"),"scope":scope,"tool":only}
@@ -140,7 +145,9 @@ for x in case.get("expectations",[]):
     # 방향이 다르다:
     #   `tool_absent`(금지) — 자유필드까지 세면 **과탐 쪽**이다. 놓치는 것보다 낫다 → 그대로 채점한다.
     #   `tool_present`/`tool_count_min`(존재·횟수 주장) — 자유필드가 실행으로 둔갑해 **거짓 통과**가 난다 → 보류.
-    if only and only not in EXEC_FIELDS and any(c.get("name")==only for c in calls) and kind!="tool_absent":
+    # ⚠ `calls` 만 보면 **결과만 남은 미지 도구**(tool_use 가 안 잡힌 경우)가 가드를 우회한다(R13 지적).
+    #   전체 이벤트에서 그 도구가 나타났는지 본다. 아예 안 나타났으면 "없다"고 단정해도 된다.
+    if only and only not in EXEC_FIELDS and any(e.get("name")==only for e in ev) and kind!="tool_absent":
         rec.update(passed=None,
                    evidence=f"'{only}' 는 실행 필드 화이트리스트가 없는 도구 — 자유필드와 실행을 구분할 수 없어 존재/횟수를 단정하지 않는다(금지 검사는 그대로 수행된다)")
         res.append(rec); continue
@@ -222,7 +229,8 @@ for x in case.get("expectations",[]):
                 for m in cm:
                     s=m if isinstance(m,str) else (m[0] if m else "")
                     if s is None: s=""      # optional 그룹은 None 이 온다 — str() 하면 'None' 이 된다
-                    d=re.findall(r"\d+",str(s))
+                    # "1,000회" 는 단일 주장이다 — 구분자를 지우지 않으면 ['1','000'] 로 쪼개져 모호로 빠진다.
+                    d=re.findall(r"\d+",re.sub(r"(?<=\d)[,_](?=\d)","",str(s)))
                     if len(d)==1: nums.append(int(d[0]))
                     elif len(d)>1: nums=None; break
                     else: nodigit+=1     # 숫자 없는 매치

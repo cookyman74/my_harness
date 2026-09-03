@@ -50,8 +50,10 @@ command -v python3 >/dev/null 2>&1 || die "python3 없음 — 검사를 건너�
 # 옵트인 게이트가 우회된다(R5 실증). 개행·탭을 구분자로 정규화한 뒤 전량 검사한다.
 case "$TOOLS" in *[$'\n\t']*) die "--tools 에 개행/탭이 있다 — 쉼표로만 구분하라";; esac
 IFS=',' read -r -a _tl <<< "$TOOLS"
+_nvalid=0
 for t in "${_tl[@]}"; do
   t="${t// /}"; [ -n "$t" ] || continue
+  _nvalid=$((_nvalid+1))
   # ⚠ `case " $LIST " in *" $t "*` 는 **$t 를 패턴으로** 쓴다 — `--tools 'Read*'`·`'*'` 가 통과한다(R6 실증).
   #   글롭 문자를 먼저 거부하고, 비교는 루프로 **정확히 일치**시킨다.
   case "$t" in *[\*\?\[\]]*) die "도구명에 글롭 문자를 쓸 수 없다: $t";; esac
@@ -70,6 +72,9 @@ if [ "$FORCE" != 1 ]; then
     [ -e "$OUT/$_f" ] && die "이전 실행 산출물이 있다: $OUT/$_f (반복 실행은 매번 다른 --out 을 쓸 것. 덮어쓰려면 --force)"
   done
 fi
+# `--tools ","` 처럼 구분자만 있으면 유효 도구가 0개인데 검사 루프는 통과하고
+# CLI 에는 `--allowedTools ,` 가 그대로 전달돼 제한이 무력화된다(R13 지적).
+[ "$_nvalid" -gt 0 ] || die "--tools 에 유효한 도구가 없다: '$TOOLS'"
 mkdir -p "$OUT" || die "출력 디렉토리 생성 실패: $OUT"
 # --force 재실행 시 이전 파생 산출물을 남기면 새 궤적과 옛 채점이 섞여 오인된다.
 # manifest 를 **맨 먼저** 지운다 — 재실행이 중간에 죽으면 옛 성공 manifest 가 남아 실패를 성공으로 오인시킨다.
@@ -150,7 +155,6 @@ if [ -n "$CACHE_DIR" ]; then
   CACHE_KEY="$(for v in "$CASE_HASH" "$ARM_HASH" "${MODEL:-default}" "$TOOLS" "$RUNNER_VERSION" "$TIMEOUT" "$MAX_FIELD" "$_clip" "$_clid" "${BENCH_ALLOW_EXEC:-0}" "$WORK_HASH"; do
                  printf '%s:%s\n' "${#v}" "$v"; done | sha)"
   [ -n "$CACHE_KEY" ] || die "캐시 키를 계산하지 못했다(shasum/sha256sum 부재?) — 조용한 미적중을 막기 위해 중단한다"
-  [ -n "$CACHE_KEY" ] || CACHE_KEY=""
 fi
 STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; T0=$(date +%s); RC=0
 # --force 는 "다시 돌려라"는 뜻이다. 캐시로 조용히 통과시키면 force 가 force 가 아니다(R10 지적).
