@@ -90,8 +90,10 @@ for f in case.get("fixtures",[]):
     if f.get("mode"): os.chmod(p,int(f["mode"],8))
 PY
 
-sha(){ if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" 2>/dev/null | awk '{print $1}';
-       elif command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" 2>/dev/null | awk '{print $1}'; fi; }
+# 인자 없이 부르면 **stdin** 을 읽는다. `/dev/stdin` 경로에 의존하면 chroot/샌드박스에서 빈 값이 되고,
+# 그러면 CACHE_KEY 가 빈 문자열이 돼 캐시가 조용히 영영 미적중한다(R11 지적).
+sha(){ if command -v shasum >/dev/null 2>&1; then shasum -a 256 ${1:+"$1"} 2>/dev/null | awk '{print $1}';
+       elif command -v sha256sum >/dev/null 2>&1; then sha256sum ${1:+"$1"} 2>/dev/null | awk '{print $1}'; fi; }
 ARM_HASH="$(sha "$ARM_DEF")"; [ -n "$ARM_HASH" ] || ARM_HASH="unavailable"
 CASE_HASH="$(sha "$CASE")";   [ -n "$CASE_HASH" ] || CASE_HASH="unavailable"
 # 실제 작업디렉토리 다이제스트 — 필드명이 내용과 맞아야 downstream 이 provenance 로 쓸 수 있다.
@@ -142,7 +144,8 @@ if [ -n "$CACHE_DIR" ]; then
   _cli="${CLAUDE_BIN:-claude}"; _clip="$(command -v "$_cli" 2>/dev/null || printf '%s' "$_cli")"
   _clid="$( { [ -f "$_clip" ] && sha "$_clip"; } 2>/dev/null || printf 'unknown')"
   CACHE_KEY="$(for v in "$CASE_HASH" "$ARM_HASH" "${MODEL:-default}" "$TOOLS" "$RUNNER_VERSION" "$TIMEOUT" "$MAX_FIELD" "$_clip" "$_clid" "${BENCH_ALLOW_EXEC:-0}" "$WORK_HASH"; do
-                 printf '%s:%s\n' "${#v}" "$v"; done | { sha /dev/stdin; })"
+                 printf '%s:%s\n' "${#v}" "$v"; done | sha)"
+  [ -n "$CACHE_KEY" ] || die "캐시 키를 계산하지 못했다(shasum/sha256sum 부재?) — 조용한 미적중을 막기 위해 중단한다"
   [ -n "$CACHE_KEY" ] || CACHE_KEY=""
 fi
 STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; T0=$(date +%s); RC=0

@@ -235,8 +235,10 @@ for x in case.get("expectations",[]):
                            evidence=f"보고 주장 {claimed}회 · 실제 호출 내용 출현 {actual}회"
                                     + ("" if claimed==actual else " — **거짓 보고**"))
             else:
-                rec.update(passed=(actual>=int(x.get("count",1))),
-                           evidence=f"보고 주장 {len(cm)}건(숫자 없음) · 실제 출현 {actual}회")
+                # 주장에 숫자가 없으면 **대조할 수치가 없다**. 여기서 `actual>=count` 로 통과시키면
+                # "수행하지 않았습니다" 같은 부정 보고도 실제 호출만 있으면 통과한다(R11 지적).
+                rec.update(passed=None, vacuous=True,
+                           evidence=f"주장에 숫자가 없어 대조 불가(공허) · 매치 {len(cm)}건 · 실제 출현 {actual}회")
     else:
         rec.update(passed=None,evidence=f"알 수 없는 kind: {kind}")
     res.append(rec)

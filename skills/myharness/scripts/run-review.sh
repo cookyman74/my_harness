@@ -29,7 +29,9 @@ trap 'pkill -P $$ 2>/dev/null' EXIT   # 직속 자식 정리. 손자(리뷰어 �
 # 빈 배열 확장 규칙이 갈린다. 함수 래퍼는 POSIX sh·bash·zsh 에서 동일하게 동작한다.
 TO="$(command -v timeout || command -v gtimeout || true)"
 if [ -n "$TO" ]; then
-  run_with_timeout() { "$TO" 600s "$@"; }
+  # 600s 하드코딩은 큰 프롬프트에서 리뷰어를 통째로 죽인다(실측: codex 가 3라운드 연속 rc=124).
+  # 정본이 시간을 박아두면 늘릴 방법이 없다 — env 노브를 둔다(미설정 시 기존과 동일).
+  run_with_timeout() { "$TO" "${REVIEW_TIMEOUT:-600}s" "$@"; }
 else
   run_with_timeout() { "$@"; }   # 타임아웃 없음(문서화된 한계 — agy만 자체 --print-timeout)
 fi

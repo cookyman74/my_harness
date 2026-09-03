@@ -912,6 +912,29 @@ python3 -c "
 import json;m=json.load(open('$D/o2/run_manifest.json'))
 assert m.get('cached') is not True, '모드만 다른데 캐시 적중'" >/dev/null 2>&1 && ok "실행 비트가 다르면 캐시 미적중" || no "권한 차이를 무시하고 캐시 재사용"
 
+echo "== BI. 숫자 없는 주장은 실제 호출 수로 통과시키지 않는다(agy R11 HIGH) =="
+D="$TMP/bi"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-neg","task":"t","fixtures":[],
+ "expectations":[{"id":"neg","kind":"report_matches_calls","tool":"Bash","pattern":"audit","claim_pattern":"수행하지 않","count":1,"why":"부정 보고"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'bash audit'}}))
+print(json.dumps({'seq':2,'kind':'final','text':'감사를 수행하지 않았습니다'}))" > "$D/out/trajectory.jsonl"
+echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is None and e.get('vacuous'), '부정 보고를 실제 호출 수로 통과: '+str(e['passed'])" >/dev/null 2>&1 && ok "숫자 없는 주장 → 공허(통과 아님)" || no "부정 보고가 통과"
+
+echo "== BJ. 해시 도구가 없으면 캐시를 조용히 넘기지 않는다(agy R11 HIGH) =="
+D="$TMP/bj"; mkcase "$D"
+OUT="$(PATH=/nonexistent CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/out" --cache-dir "$D/c" 2>&1)"
+rc=$?
+if [ "$rc" != 0 ]; then ok "해시 불가 시 중단(조용한 미적중 아님)"
+else printf '%s\n' "$OUT" | grep -qi '캐시 키' && ok "해시 불가를 보고" || no "조용히 진행: $OUT"; fi
+
 echo
 echo "통과 $pass · 실패 $failed"
 [ "$failed" -eq 0 ]
