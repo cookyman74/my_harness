@@ -856,6 +856,62 @@ D="$TMP/be"; mkcase "$D"
 OUT="$(CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --timeout "abc" 2>&1)"
 [ "$?" != 0 ] && ok "비정수 타임아웃 거부" || no "비정수 타임아웃 통과"
 
+echo "== BF. 이벤트 경계를 가로지르는 매치를 통과시키지 않는다(codex R10 HIGH) =="
+D="$TMP/bf"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-bound","task":"t","fixtures":[],
+ "expectations":[{"id":"cross","kind":"tool_present","tool":"Bash","pattern":"FIRSTEND[\\s\\S]*SECONDSTART","why":"두 이벤트에 걸친 패턴"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'echo FIRSTEND'}}))
+print(json.dumps({'seq':2,'kind':'tool_use','name':'Bash','input':{'command':'echo SECONDSTART'}}))" > "$D/out/trajectory.jsonl"
+echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is False, '두 이벤트 경계를 이은 매치가 통과: '+str(e['passed'])" >/dev/null 2>&1 && ok "경계 넘김 매치 차단" || no "경계를 가로질러 거짓 통과"
+# 같은 이벤트 안이면 당연히 잡혀야 한다(과잉 차단 방지)
+cat > "$D/case2.json" <<'J'
+{"case_id":"c-in","task":"t","fixtures":[],
+ "expectations":[{"id":"inside","kind":"tool_present","tool":"Bash","pattern":"echo[\\s\\S]*FIRSTEND","why":"한 이벤트 안"}]}
+J
+bash "$GR" --case "$D/case2.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is True, '한 이벤트 안 매치를 놓침'" >/dev/null 2>&1 && ok "이벤트 내부 매치는 유지" || no "정상 매치를 놓침"
+
+echo "== BG. --force 는 캐시도 무효화한다(codex R10 HIGH) =="
+D="$TMP/bg"; mkcase "$D"; C="$D/cache"
+: > "$D/calls.txt"
+cat > "$TMP/cc2" <<X
+#!/usr/bin/env bash
+echo x >> "$D/calls.txt"
+cat <<'J'
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"bash scripts/run-policy-audit.sh"}}]}}
+{"type":"result","result":"done"}
+J
+X
+chmod +x "$TMP/cc2"
+CLAUDE_BIN="$TMP/cc2" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --cache-dir "$C" >/dev/null 2>&1
+CLAUDE_BIN="$TMP/cc2" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --cache-dir "$C" --force >/dev/null 2>&1
+[ "$(wc -l < "$D/calls.txt" | tr -d ' ')" = 2 ] && ok "--force 가 실제로 다시 실행" || no "--force 인데 캐시로 조용히 통과"
+
+echo "== BH. 파일 모드가 다르면 캐시가 갈린다(codex R10 HIGH) =="
+D="$TMP/bh"; mkdir -p "$D"; C="$D/cache"
+mkc(){ python3 -c "
+import json
+json.dump({'case_id':'c-mode','task':'t',
+ 'fixtures':[{'path':'s.sh','mode':'$1','content':'#!/usr/bin/env bash\necho hi\n'}],
+ 'expectations':[]}, open('$D/case_$1.json','w'))"; }
+mkc 0644; mkc 0755
+: > "$D/calls.txt"
+CLAUDE_BIN="$TMP/cc2" bash "$RB" --case "$D/case_0644.json" --arm-def /dev/null --out "$D/o1" --cache-dir "$C" >/dev/null 2>&1
+CLAUDE_BIN="$TMP/cc2" bash "$RB" --case "$D/case_0755.json" --arm-def /dev/null --out "$D/o2" --cache-dir "$C" >/dev/null 2>&1
+python3 -c "
+import json;m=json.load(open('$D/o2/run_manifest.json'))
+assert m.get('cached') is not True, '모드만 다른데 캐시 적중'" >/dev/null 2>&1 && ok "실행 비트가 다르면 캐시 미적중" || no "권한 차이를 무시하고 캐시 재사용"
+
 echo
 echo "통과 $pass · 실패 $failed"
 [ "$failed" -eq 0 ]

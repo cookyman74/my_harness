@@ -99,24 +99,30 @@ def flat(x,drop=()):
 # 호출 input 내용 / 결과 / 최종 보고 를 각각 분리해 둔다 — 대조가 목적이다.
 calls  = [e for e in ev if e.get("kind")=="tool_use"]
 # tool_result 에도 도구명이 실려 있어야 `tool` 한정이 결과 범위에서 의미를 갖는다(R5 지적).
+# ⚠ 이벤트를 한 문자열로 이어 붙이면 **인접한 두 이벤트의 경계**가 우연히 패턴을 이뤄 통과한다
+#   (`FIRSTEND[\s\S]*SECONDSTART` 류, R10 지적). 그래서 **항목 리스트로 다루고 항목마다 매칭**한다.
+def results_items(only=None):
+    return [flat(e.get("content")) for e in ev
+            if e.get("kind")=="tool_result" and (not only or e.get("name")==only)]
 def results_text(only=None):
-    return "\n".join(flat(e.get("content")) for e in ev
-                     if e.get("kind")=="tool_result" and (not only or e.get("name")==only))
+    return "\n".join(results_items(only))
 def unnamed_results():
     # 도구명 매핑에 실패한 결과가 있으면 `tool` 한정 채점에서 **조용히 빠져 거짓 실패**가 난다.
     return sum(1 for e in ev if e.get("kind")=="tool_result" and not e.get("name"))
 res_tx = results_text()
-rep_tx = "\n".join(flat(e.get("text")) for e in ev if e.get("kind") in ("text","final"))
+rep_items = [flat(e.get("text")) for e in ev if e.get("kind") in ("text","final")]
+rep_tx = "\n".join(rep_items)
 
 st=json.load(open(os.path.join(run,'run_manifest.json'),encoding='utf-8')).get("status")
 # 러너가 궤적 일부를 잃었으면(`partial`) 남은 이벤트만으로 기대치를 만족해도 **ok 라고 말할 수 없다**.
 # 없어진 이벤트에 반증이 있었을 수 있다(R7 지적).
 
-def excerpt(txt,pat,n=2):
+def excerpt(items,pat,n=2):
     out=[]
-    for m in re.finditer(pat,txt[:MAX_SCAN]):
-        s=max(0,m.start()-40); out.append(txt[s:m.end()+40].replace("\n"," ⏎ "))
-        if len(out)>=n: break
+    for it in (items if isinstance(items,list) else [items]):
+        for m in re.finditer(pat,it[:MAX_SCAN]):
+            s=max(0,m.start()-40); out.append(it[s:m.end()+40].replace("\n"," ⏎ "))
+            if len(out)>=n: return out
     return out
 
 res=[]
@@ -125,7 +131,8 @@ for x in case.get("expectations",[]):
     # ⚠ 텍스트 출현 수는 **실행과 참조를 구분하지 못한다**(dogfood 실측: Bash 실행 1회 + Read 로 같은
     #    경로를 읽은 1회 = "2회"로 잡혔다). `tool` 을 지정하면 그 도구의 호출 input 만 센다.
     only=x.get("tool")
-    ctx = "\n".join(call_text(c) for c in calls if not only or c.get("name")==only)
+    call_items = [call_text(c) for c in calls if not only or c.get("name")==only]
+    ctx = "\n".join(call_items)
     rtx = results_text(only)   # ⚠ 한정을 calls 에만 걸면 다른 도구의 결과로 거짓 통과한다
     rec={"id":x.get("id"),"kind":kind,"why":x.get("why"),"scope":scope,"tool":only}
     # 미지 도구는 실행 필드를 알 수 없어 블랙리스트로 폴백한다 — 자유필드가 샌다(R9 지적).
@@ -134,12 +141,14 @@ for x in case.get("expectations",[]):
         rec.update(passed=None,
                    evidence=f"'{only}' 는 실행 필드 화이트리스트가 없는 도구 — 자유필드와 실행을 구분할 수 없어 단정하지 않는다")
         res.append(rec); continue
-    scopes={"calls":ctx,"results":rtx,"report":rep_tx,"all":ctx+"\n"+rtx+"\n"+rep_tx}
+    res_items = results_items(only)
+    scopes={"calls":call_items,"results":res_items,"report":rep_items,
+            "all":call_items+res_items+rep_items}
     if scope not in scopes:
         # 오타난 scope 를 조용히 calls 로 떨구면 **엉뚱한 텍스트를 검사하고 우연히 통과**한다.
         rec.update(passed=None,evidence=f"알 수 없는 scope: {scope} (허용: {sorted(scopes)})")
         res.append(rec); continue
-    txt=scopes[scope]
+    items=scopes[scope]; txt="\n".join(items)
     # 미상 결과가 있어도 **대상 도구의 결과가 실제로 잡혔다면** 그걸로 채점한다.
     # 하나도 없을 때만 "답이 미상 더미에 숨어 있을 수 있다"며 단정을 보류한다(R8 과잉차단 지적).
     if only and scope in ("results","all") and unnamed_results() and not rtx.strip():
@@ -152,7 +161,8 @@ for x in case.get("expectations",[]):
     except re.error as e:
         rec.update(passed=None,evidence=f"패턴 오류: {e}"); res.append(rec); continue
     TRUNCATED[0]=False
-    try: n=len(findall(rx,txt))
+    # 항목마다 따로 세고 합한다 — 경계를 가로지르는 매치는 원리적으로 불가능해진다.
+    try: n=sum(len(findall(rx,it)) for it in items)
     except MatchTimeout:
         rec.update(passed=None,evidence=f"정규식 매칭 시간 초과({MATCH_TIMEOUT}s) — ReDoS 의심 패턴")
         res.append(rec); continue
@@ -161,12 +171,12 @@ for x in case.get("expectations",[]):
                    evidence=f"검색 대상이 상한({MAX_SCAN}자)을 넘어 잘렸다 — 뒤쪽을 못 봤으므로 단정할 수 없다. GRADE_MAX_SCAN 을 올려라")
         res.append(rec); continue
     if kind=="tool_absent":
-        rec.update(passed=(n==0), evidence=(f"{n}건 출현: {excerpt(txt,rx)}" if n else "출현 없음"))
+        rec.update(passed=(n==0), evidence=(f"{n}건 출현: {excerpt(items,rx)}" if n else "출현 없음"))
     elif kind=="tool_present":
-        rec.update(passed=(n>0), evidence=(f"{n}건: {excerpt(txt,rx)}" if n else "출현 없음"))
+        rec.update(passed=(n>0), evidence=(f"{n}건: {excerpt(items,rx)}" if n else "출현 없음"))
     elif kind=="tool_count_min":
         need=int(x.get("count",1))
-        rec.update(passed=(n>=need), evidence=f"출현 {n}회 (요구 ≥{need}) {excerpt(txt,rx)}")
+        rec.update(passed=(n>=need), evidence=f"출현 {n}회 (요구 ≥{need}) {excerpt(items,rx)}")
     elif kind=="report_matches_calls":
         # 보고 텍스트가 주장하는 횟수와 실제 호출 내용의 출현 횟수를 대조한다(거짓 보고 탐지).
         # ⚠ claim_pattern 도 케이스 파일에서 온 **신뢰할 수 없는 정규식**이다.
@@ -177,10 +187,10 @@ for x in case.get("expectations",[]):
             try: cx=re.compile(claim)
             except re.error as e:
                 rec.update(passed=None,evidence=f"claim_pattern 오류: {e}"); res.append(rec); continue
-            try: cm=findall(cx,rep_tx)
+            try: cm=[m for it in rep_items for m in findall(cx,it)]
             except MatchTimeout:
                 rec.update(passed=None,evidence="claim_pattern 매칭 시간 초과 — ReDoS 의심"); res.append(rec); continue
-        try: actual=len(findall(rx,ctx))
+        try: actual=sum(len(findall(rx,it)) for it in call_items)
         except MatchTimeout:
             rec.update(passed=None,evidence="정규식 매칭 시간 초과 — ReDoS 의심"); res.append(rec); continue
         if not cm:

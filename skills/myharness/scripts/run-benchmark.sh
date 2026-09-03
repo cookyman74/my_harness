@@ -102,7 +102,11 @@ root=sys.argv[1]; h=hashlib.sha256()
 for d,_,fs in os.walk(root):
     for f in sorted(fs):
         p=os.path.join(d,f); rel=os.path.relpath(p,root)
-        h.update(rel.encode()+b"\0")
+        # 내용·경로만 해시하면 **실행 비트만 다른 fixture** 가 같은 키를 공유한다(R10 지적).
+        st=os.lstat(p)
+        h.update(rel.encode()+b"\0"+oct(st.st_mode).encode()+b"\0")
+        if os.path.islink(p):
+            h.update(b"<symlink>"+os.readlink(p).encode()+b"\0"); continue
         try:
             with open(p,'rb') as fh:
                 for chunk in iter(lambda: fh.read(65536), b""): h.update(chunk)
@@ -142,6 +146,11 @@ if [ -n "$CACHE_DIR" ]; then
   [ -n "$CACHE_KEY" ] || CACHE_KEY=""
 fi
 STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; T0=$(date +%s); RC=0
+# --force 는 "다시 돌려라"는 뜻이다. 캐시로 조용히 통과시키면 force 가 force 가 아니다(R10 지적).
+if [ "$FORCE" = 1 ] && [ -n "$CACHE_KEY" ]; then
+  rm -rf "$CACHE_DIR/$CACHE_KEY" 2>/dev/null
+  echo "run-benchmark: --force — 캐시 엔트리 무효화 (key=${CACHE_KEY:0:12})"
+fi
 if [ -n "$CACHE_KEY" ] && [ -f "$CACHE_DIR/$CACHE_KEY/raw.jsonl" ]; then
   cp "$CACHE_DIR/$CACHE_KEY/raw.jsonl" "$OUT/raw.jsonl"; : > "$OUT/runner.err"
   CACHED=true
