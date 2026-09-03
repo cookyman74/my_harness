@@ -14,7 +14,15 @@
 #   ② `Bash` 실행 1회 + `Read` 로 같은 경로 참조 1회 → "2회"      (→ `"tool":"Bash"` 한정)
 #   ③ `tool:"Bash"` 로 좁혀도 `find . -name "x.sh"` 같은 **검색**이 실행으로 집계
 #   ③은 도구가 일반적으로 풀 수 없다 — "실행"이 무엇인지 케이스만 안다.
-#   **패턴을 실행 형태에 고정하라:** `run-policy-audit` (X) → `(?:bash|sh|\./)[^"]*run-policy-audit\.sh` (O)
+#
+# ⚠ 그렇다고 실행 **명령 형태**로 고정하면 반대편으로 틀린다: `(?:bash|sh|\./)` 를 요구했더니
+#   에이전트가 `scripts/x.sh` 를 접두사 없이 실행해 **거짓 실패**가 났다(실측).
+#   **권장 관용구는 실행 필드 이름에 고정하는 것이다** — 화이트리스트 덕에 채점 텍스트가
+#   `"command": <값>` 형태로 나온다:
+#       `run-policy-audit`                    (X — 언급·검색까지 집계)
+#       `(?:bash|sh|\./)[^"]*run-policy-audit` (X — 접두사 없는 실행을 놓침)
+#       `"command": [^\n]*run-policy-audit\.sh` (O — Bash 의 실행 인자에 고정)
+#   어떤 패턴도 완벽하지 않다. **실제 궤적으로 한 번 돌려 보고 확정하라.**
 set -uo pipefail
 die(){ echo "grade-trajectory: $*" >&2; exit 2; }
 CASE=""; RUN=""
@@ -42,7 +50,10 @@ MAX_SCAN=int(os.environ.get("GRADE_MAX_SCAN","2000000"))   # 2MB
 MATCH_TIMEOUT=float(os.environ.get("GRADE_MATCH_TIMEOUT","5"))
 class MatchTimeout(Exception): pass
 def _alarm(sig,frm): raise MatchTimeout()
+TRUNCATED=[False]
 def findall(rx,txt):
+    # ⚠ 상한 뒤에 결정적 문자열이 있으면 "없음"으로 보인다 — `tool_absent` 가 거짓 통과한다(R8 지적).
+    if len(txt)>MAX_SCAN: TRUNCATED[0]=True
     txt=txt[:MAX_SCAN]
     if not hasattr(signal,"setitimer"): return rx.findall(txt)   # 미지원 플랫폼: 상한만 적용
     old=signal.signal(signal.SIGALRM,_alarm); signal.setitimer(signal.ITIMER_REAL,MATCH_TIMEOUT)
@@ -52,11 +63,29 @@ def findall(rx,txt):
 
 ev=[json.loads(l) for l in open(os.path.join(run,'trajectory.jsonl'),encoding='utf-8') if l.strip()]
 # 설명·사유 필드는 **실행이 아니다**. 세면 1회 실행이 2회로 잡힌다(dogfood 실측에서 실제로 발생).
-# ⚠ **블랙리스트라 완전하지 않다**(R7 지적) — 모델이 command 를 다른 자유 필드에 옮기면 여전히 샌다.
-#   tool 스키마 기반 allowlist 가 근본이나 스키마가 런타임마다 달라 미구현. 케이스 작성 시
-#   패턴을 실행 형태에 고정하는 것이 실질적 방어다(파일 상단 주석 참조).
+# 서술 필드를 빼는 **블랙리스트는 원리적으로 불완전하다** — 모델이 `thinking`·`plan` 같은 임의 자유필드에
+# 문자열만 넣어도 "실행했다"로 집계된다(R7·R8 연속 지적, 실증). 그래서 **알려진 도구는 실행 필드만
+# 화이트리스트로 집계**한다. 러너가 허용하는 도구는 6종뿐이라 열거가 가능하다.
+EXEC_FIELDS={
+  "Bash":  {"command"},
+  "Read":  {"file_path","offset","limit"},
+  "Write": {"file_path","content"},
+  "Edit":  {"file_path","old_string","new_string","replace_all"},
+  "Glob":  {"pattern","path"},
+  "Grep":  {"pattern","path","glob","type","output_mode","head_limit"},
+}
+# 모르는 도구는 화이트리스트를 만들 수 없다 → 블랙리스트로 **폴백하고 그 사실을 드러낸다**.
 DESCRIPTIVE_KEYS={"description","explanation","reason","why","thought","rationale",
-                  "analysis","notes","comment","summary","intent"}
+                  "analysis","notes","comment","summary","intent","thinking","plan","scratchpad"}
+def call_text(c):
+    inp=c.get("input"); name=c.get("name")
+    wl=EXEC_FIELDS.get(name)
+    if wl is not None and isinstance(inp,dict):
+        return f"{name}\n"+flat({k:v for k,v in inp.items() if k in wl})
+    return f"{name}\n"+flat(inp,DESCRIPTIVE_KEYS)
+def unknown_tools(only=None):
+    return sorted({c.get("name") for c in calls
+                   if c.get("name") not in EXEC_FIELDS and (not only or c.get("name")==only)})
 def flat(x,drop=()):
     if x is None: return ""
     if isinstance(x,str): return x
@@ -96,8 +125,7 @@ for x in case.get("expectations",[]):
     # ⚠ 텍스트 출현 수는 **실행과 참조를 구분하지 못한다**(dogfood 실측: Bash 실행 1회 + Read 로 같은
     #    경로를 읽은 1회 = "2회"로 잡혔다). `tool` 을 지정하면 그 도구의 호출 input 만 센다.
     only=x.get("tool")
-    ctx = "\n".join(f"{c.get('name')}\n{flat(c.get('input'),DESCRIPTIVE_KEYS)}"
-                    for c in calls if not only or c.get("name")==only)
+    ctx = "\n".join(call_text(c) for c in calls if not only or c.get("name")==only)
     rtx = results_text(only)   # ⚠ 한정을 calls 에만 걸면 다른 도구의 결과로 거짓 통과한다
     rec={"id":x.get("id"),"kind":kind,"why":x.get("why"),"scope":scope,"tool":only}
     scopes={"calls":ctx,"results":rtx,"report":rep_tx,"all":ctx+"\n"+rtx+"\n"+rep_tx}
@@ -106,18 +134,25 @@ for x in case.get("expectations",[]):
         rec.update(passed=None,evidence=f"알 수 없는 scope: {scope} (허용: {sorted(scopes)})")
         res.append(rec); continue
     txt=scopes[scope]
-    if only and scope in ("results","all") and unnamed_results():
+    # 미상 결과가 있어도 **대상 도구의 결과가 실제로 잡혔다면** 그걸로 채점한다.
+    # 하나도 없을 때만 "답이 미상 더미에 숨어 있을 수 있다"며 단정을 보류한다(R8 과잉차단 지적).
+    if only and scope in ("results","all") and unnamed_results() and not rtx.strip():
         rec.update(passed=None,
-                   evidence=f"도구명을 알 수 없는 tool_result {unnamed_results()}건 — `tool` 한정 채점을 신뢰할 수 없다")
+                   evidence=f"'{only}' 결과가 하나도 없고 도구명 미상 tool_result 가 {unnamed_results()}건 — 단정할 수 없다")
         res.append(rec); continue
     if st=="unmeasurable":
         rec.update(passed=None,evidence="측정 불가(러너 실패) — 채점하지 않는다"); res.append(rec); continue
     try: rx=re.compile(pat)
     except re.error as e:
         rec.update(passed=None,evidence=f"패턴 오류: {e}"); res.append(rec); continue
+    TRUNCATED[0]=False
     try: n=len(findall(rx,txt))
     except MatchTimeout:
         rec.update(passed=None,evidence=f"정규식 매칭 시간 초과({MATCH_TIMEOUT}s) — ReDoS 의심 패턴")
+        res.append(rec); continue
+    if TRUNCATED[0]:
+        rec.update(passed=None,
+                   evidence=f"검색 대상이 상한({MAX_SCAN}자)을 넘어 잘렸다 — 뒤쪽을 못 봤으므로 단정할 수 없다. GRADE_MAX_SCAN 을 올려라")
         res.append(rec); continue
     if kind=="tool_absent":
         rec.update(passed=(n==0), evidence=(f"{n}건 출현: {excerpt(txt,rx)}" if n else "출현 없음"))
@@ -157,13 +192,19 @@ for x in case.get("expectations",[]):
                 rec.update(passed=None,
                            evidence=f"claim_pattern 의 캡처그룹이 {cx.groups}개 — 어느 숫자가 주장인지 모호(ambiguous). 그룹 1개로 좁혀라")
                 res.append(rec); continue
-            nums=[]
+            nums=[]; nodigit=0
             if cx.groups==1:
                 for m in cm:
                     s=m if isinstance(m,str) else (m[0] if m else "")
                     d=re.findall(r"\d+",str(s))
                     if len(d)==1: nums.append(int(d[0]))
                     elif len(d)>1: nums=None; break
+                    else: nodigit+=1     # 숫자 없는 매치
+            if nums is not None and nums and nodigit:
+                # 숫자 있는 매치와 없는 매치가 섞였다 — 어느 게 주장인지 모른다.
+                # 여기서 약한 `actual>=count` 로 폴백하면 거짓 통과가 난다(R8 지적).
+                rec.update(passed=None,evidence=f"주장 매치에 숫자 유무가 혼재(숫자 {sorted(set(nums))} · 숫자없음 {nodigit}건) — 모호(ambiguous)")
+                res.append(rec); continue
             if nums is None:
                 rec.update(passed=None,evidence="주장 캡처에 숫자가 여러 개 — 모호(ambiguous)")
                 res.append(rec); continue
@@ -214,5 +255,8 @@ print(f"grade-trajectory: {summary['status']} · {summary['passed']}/{summary['g
       + ("" if graded else " · ⚠ 채점된 항목이 0이다 — 통과로 읽지 말 것")
       + (f" · ⚠ 평가불가 {len(unevaluable)}건: {[r['id'] for r in unevaluable]} — 부분 결과를 성공으로 읽지 말 것" if unevaluable else ""))
 # 부분/공허/측정불가는 **종료코드로도** 알린다. 호출자가 산출물을 안 열어봐도 놓치지 않게.
-sys.exit(0 if summary["status"]=="ok" else 1)
+# 상태를 종료코드로도 구분한다 — `if grade-trajectory ...` 만으로는 뭉개진다던 지적(R8).
+# 러너와 번호를 맞춘다: 3=unmeasurable · 4=partial. 1=failed · 5=vacuous · 6=eval-empty.
+sys.exit({"ok":0,"failed":1,"unmeasurable":3,"partial":4,"vacuous":5,"eval-empty":6}
+         .get(summary["status"],1))
 PY

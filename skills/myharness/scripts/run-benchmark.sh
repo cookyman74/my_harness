@@ -121,7 +121,7 @@ if [ -n "$CACHE_DIR" ]; then
   # 같은 case/arm/model 이라도 **CLI 래퍼나 버전이 다르면 다른 출력**이 나온다 — 정체를 키에 묶는다.
   _cli="${CLAUDE_BIN:-claude}"; _clip="$(command -v "$_cli" 2>/dev/null || printf '%s' "$_cli")"
   _clid="$( { [ -f "$_clip" ] && sha "$_clip"; } 2>/dev/null || printf 'unknown')"
-  CACHE_KEY="$(for v in "$CASE_HASH" "$ARM_HASH" "${MODEL:-default}" "$TOOLS" "$RUNNER_VERSION" "$TIMEOUT" "$MAX_FIELD" "$_clip" "$_clid"; do
+  CACHE_KEY="$(for v in "$CASE_HASH" "$ARM_HASH" "${MODEL:-default}" "$TOOLS" "$RUNNER_VERSION" "$TIMEOUT" "$MAX_FIELD" "$_clip" "$_clid" "${BENCH_ALLOW_EXEC:-0}" "$WORK_HASH"; do
                  printf '%s:%s\n' "${#v}" "$v"; done | { sha /dev/stdin; })"
   [ -n "$CACHE_KEY" ] || CACHE_KEY=""
 fi
@@ -283,6 +283,6 @@ case "$STATUS" in
     echo "run-benchmark: ⚠ partial — 궤적 일부가 유실됐다. 채택 근거로 쓰지 말 것." >&2; exit 4 ;;
   unmeasurable)
     echo "run-benchmark: 측정 불가(unmeasurable) — rc=$RC · 궤적 $( [ -s "$OUT/trajectory.jsonl" ] && echo 있음 || echo 없음 ). 채택 근거로 쓰지 말 것." >&2
-    echo "  stderr: $(tail -2 "$OUT/runner.err" 2>/dev/null | tr '\n' ' ')" >&2
+    echo "  stderr:" >&2; tail -n 2 "$OUT/runner.err" 2>/dev/null | sed 's/^/    /' >&2
     exit 3 ;;
 esac

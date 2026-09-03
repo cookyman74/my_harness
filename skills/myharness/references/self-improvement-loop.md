@@ -99,8 +99,11 @@
 >   (`--tier` 는 manifest 에 남기는 **라벨**일 뿐 아무것도 막지 않는다). cheap-judge 는 `--model`/`BENCH_MODEL` 로 가능.
 > ⚠ **assertion 작성 함정(실측 3종):** 기계 채점은 텍스트 출현을 셀 뿐 **실행과 언급을 구분하지 못한다.**
 >   설명 필드(`description`)·다른 도구의 경로 참조·`find`/`grep` 같은 **검색**이 모두 "실행"으로 잡힌 실측이 있다.
->   `"tool":"Bash"` 로 도구를 한정하고, **패턴을 실행 형태에 고정**하라
->   (`run-policy-audit` ❌ → `(?:bash|sh|\./)[^"]*run-policy-audit\.sh` ✅).
+>   `"tool":"Bash"` 로 도구를 한정하고, **패턴을 실행 필드 이름에 고정**하라 —
+>   알려진 도구는 실행 필드만 채점 텍스트에 들어가므로 `"command": <값>` 형태가 된다.
+>   `run-policy-audit` ❌(언급·검색까지 집계) · `(?:bash|sh|\./)[^"]*run-policy-audit` ❌(접두사 없는
+>   실행을 놓쳐 **거짓 실패** — 실측) · `"command": [^\n]*run-policy-audit\.sh` ✅
+>   **어떤 패턴도 완벽하지 않다. 실제 궤적으로 한 번 돌려 보고 확정하라.**
 > **`grading.json` 의 `summary.status`:** `ok`(전건 채점·공허 없음) / `partial`(일부 미채점) / `vacuous`(대조할 주장이 없어
 >   검증 못 함) / `eval-empty`(채점 0건) / `unmeasurable`(러너 실패). **`ok` 외에는 종료코드도 0이 아니다** —
 >   호출자가 산출물을 안 열어봐도 부분 결과를 성공으로 읽지 않게.

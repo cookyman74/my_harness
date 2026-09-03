@@ -701,6 +701,90 @@ python3 -c "
 import json;m=json.load(open('$D/o2/run_manifest.json'))
 assert m.get('cached') is not True, '다른 바이너리인데 캐시 적중'" >/dev/null 2>&1 && ok "바이너리가 다르면 캐시 미적중" || no "다른 바이너리에 캐시 재사용"
 
+echo "== AV. 실행 필드 화이트리스트 — 자유필드에 문자열만 넣어도 통과하지 않는다(codex R8 MED·2R 연속) =="
+D="$TMP/av"; mkdir -p "$D"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-wl","task":"t","fixtures":[],
+ "expectations":[{"id":"exec","kind":"tool_present","tool":"Bash","pattern":"run-policy-audit","why":"실제 실행만"}]}
+J
+python3 -c "
+import json
+# 실행은 안 하고 thinking/plan 자유필드에만 문자열을 넣는다
+inp={'command':'echo hi','thinking':'run-policy-audit.sh 를 돌려야겠다','plan':'run-policy-audit'}
+print(json.dumps({'type':'assistant','message':{'content':[{'type':'tool_use','name':'Bash','input':inp}]}}))
+print(json.dumps({'type':'result','result':'done'}))" > "$TMP/wlout"
+printf '#!/usr/bin/env bash
+cat %s
+' "$TMP/wlout" > "$TMP/wlclaude"; chmod +x "$TMP/wlclaude"
+CLAUDE_BIN="$TMP/wlclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/out" >/dev/null 2>&1
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is False, '자유필드 문자열로 거짓 통과: '+str(e['passed'])" >/dev/null 2>&1 && ok "알려진 도구는 실행 필드만 집계" || no "자유필드가 실행으로 집계됨"
+
+echo "== AW. 검색 상한 절단을 조용히 넘기지 않는다(codex R8 HIGH) =="
+D="$TMP/aw"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-trunc","task":"t","fixtures":[],
+ "expectations":[{"id":"absent","kind":"tool_absent","tool":"Bash","pattern":"FORBIDDEN","why":"금지 호출"}]}
+J
+python3 -c "
+import json
+# 상한 뒤에 금지 문자열이 있다 → 잘라내면 '없음'으로 보인다
+print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'A'*3000+' FORBIDDEN'}}))" > "$D/out/trajectory.jsonl"
+echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+GRADE_MAX_SCAN=1000 bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is not True, '절단 뒤 금지 호출을 못 보고 통과'" >/dev/null 2>&1 && ok "절단 시 통과로 단정하지 않음" || no "절단으로 거짓 통과"
+
+echo "== AX. 채점기 종료코드가 상태를 구분한다(codex R8 MED) =="
+D="$TMP/ax"; mkdir -p "$D"
+mkrun(){ mkdir -p "$2"; printf '%s\n' "$3" > "$2/trajectory.jsonl"; echo "{\"status\":\"ok\"}" > "$2/run_manifest.json"; }
+cat > "$D/fail.json" <<'J'
+{"case_id":"f","task":"t","fixtures":[],"expectations":[{"id":"a","kind":"tool_present","pattern":"NOPE","why":"실패"}]}
+J
+cat > "$D/vac.json" <<'J'
+{"case_id":"v","task":"t","fixtures":[],"expectations":[{"id":"a","kind":"report_matches_calls","pattern":"z","claim_pattern":"9 ?회","count":1,"why":"공허"}]}
+J
+mkrun x "$D/r1" '{"seq":1,"kind":"tool_use","name":"Bash","input":{"command":"x"}}'
+mkrun x "$D/r2" '{"seq":1,"kind":"tool_use","name":"Bash","input":{"command":"x"}}'
+bash "$GR" --case "$D/fail.json" --run "$D/r1" >/dev/null 2>&1; c1=$?
+bash "$GR" --case "$D/vac.json" --run "$D/r2" >/dev/null 2>&1; c2=$?
+[ "$c1" != "$c2" ] && [ "$c1" != 0 ] && [ "$c2" != 0 ] && ok "failed($c1)·vacuous($c2) 를 종료코드로 구분" || no "상태가 종료코드로 뭉개짐($c1/$c2)"
+
+echo "== AY. 무관한 도구의 미상 결과가 정상 채점을 막지 않는다(agy R8 MED) =="
+D="$TMP/ay"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-un","task":"t","fixtures":[],
+ "expectations":[{"id":"r","kind":"tool_present","tool":"Bash","scope":"results","pattern":"FOUND","why":"Bash 결과"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_result','name':'Bash','content':'FOUND'}))
+print(json.dumps({'seq':2,'kind':'tool_result','name':None,'content':'무관한 잡음'}))" > "$D/out/trajectory.jsonl"
+echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is True, '대상 도구 결과가 있는데 미상 1건으로 전체 차단: '+str(e['passed'])" >/dev/null 2>&1 && ok "대상 도구 결과가 있으면 채점 진행" || no "무관한 미상 1건이 전체를 막음"
+
+echo "== AZ. 숫자 없는 주장 매치가 섞이면 약한 검사로 폴백하지 않는다(agy R8 HIGH) =="
+D="$TMP/az"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-mix","task":"t","fixtures":[],
+ "expectations":[{"id":"m","kind":"report_matches_calls","tool":"Bash","pattern":"audit","claim_pattern":"(여러|[0-9]+)회","count":1,"why":"숫자 없는 매치 혼재"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'bash audit'}}))
+print(json.dumps({'seq':2,'kind':'final','text':'여러회 시도했고 3회 성공'}))" > "$D/out/trajectory.jsonl"
+echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is None, '숫자 유무가 섞였는데 단정: '+str(e['passed'])" >/dev/null 2>&1 && ok "숫자 유무 혼재 → 평가불가" || no "약한 검사로 폴백해 통과"
+
 echo
 echo "통과 $pass · 실패 $failed"
 [ "$failed" -eq 0 ]
