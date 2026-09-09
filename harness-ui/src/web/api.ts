@@ -451,7 +451,7 @@ export async function postEvalsConfig(body: EvalsConfigPatch): Promise<{ ok: tru
 //   POST /api/context/build/draft body {kind,domain,role} → 200 {ok,kind,draft,applied:false} / 400·403·429·502
 //   POST /api/context/build/create body {kind,name,content} → 200 {ok,created,sourcePath,pathId,newHash} / 400·403·409·429
 import type {
-  ContextTree, ContextFilePreview, DefKind as CtxDefKind,
+  DefKind as CtxDefKind,
 } from "./context.js";
 export type {
   Runtime, ContextTree, ContextNode, ContextTopFile, ContextRoot, ContextFilePreview,

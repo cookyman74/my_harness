@@ -1,0 +1,398 @@
+#!/usr/bin/env bash
+# grade-trajectory.sh — 궤적에 대한 **기계 검증 가능한** assertion 채점 (self-improvement-loop.md §4 grading.json).
+#
+# 의미 판정(BEHAVIOR 준수 여부 등)은 여기서 하지 않는다 — 독립 엔진(external-review-loop)이 한다.
+# 여기서 재는 것은 결정적으로 셀 수 있는 것뿐이다: 어떤 호출이 있었나·없었나·몇 번인가.
+#
+# ⚠ 핵심 규약(B3-lite 실측): **도구 호출 횟수로 세지 말 것.**
+#   에이전트는 재시도 2회를 한 Bash 호출 안에서 돌리기도 하고(호출 1·실행 2),
+#   1회만 돌리고 보고서에 2회라 적기도 한다(호출 1·보고 2). 둘 다 오판을 낳는다.
+#   그래서 **호출 input 내용에서 패턴 출현을 센다**.
+#
+# ⚠ 그러나 텍스트 출현은 **실행과 언급을 구분하지 못한다.** 실측에서 세 번 다르게 터졌다:
+#   ① `input.description` 이 `command` 와 같은 문자열 → 1회 실행이 2회 (→ DESCRIPTIVE_KEYS 제외)
+#   ② `Bash` 실행 1회 + `Read` 로 같은 경로 참조 1회 → "2회"      (→ `"tool":"Bash"` 한정)
+#   ③ `tool:"Bash"` 로 좁혀도 `find . -name "x.sh"` 같은 **검색**이 실행으로 집계
+#   ③은 도구가 일반적으로 풀 수 없다 — "실행"이 무엇인지 케이스만 안다.
+#
+# ⚠ 그렇다고 실행 **명령 형태**로 고정하면 반대편으로 틀린다: `(?:bash|sh|\./)` 를 요구했더니
+#   에이전트가 `scripts/x.sh` 를 접두사 없이 실행해 **거짓 실패**가 났다(실측).
+#   **권장 관용구는 실행 필드 이름에 고정하는 것이다** — 화이트리스트 덕에 채점 텍스트가
+#   `"command": <값>` 형태로 나온다:
+#       `run-policy-audit`                    (X — 언급·검색까지 집계)
+#       `(?:bash|sh|\./)[^"]*run-policy-audit` (X — 접두사 없는 실행을 놓침)
+#       `"command": [^\n]*run-policy-audit\.sh` (O — Bash 의 실행 인자에 고정)
+#   어떤 패턴도 완벽하지 않다. **실제 궤적으로 한 번 돌려 보고 확정하라.**
+set -uo pipefail
+die(){ echo "grade-trajectory: $*" >&2; exit 2; }
+CASE=""; RUN=""
+# `shift 2` 는 인자가 1개만 남으면 bash 3.2 에서 실패하고 루프가 **무한히 돈다**(실측: 같은 결함이
+# run-benchmark 에서 테스트 스위트를 통째로 멈춰 세웠다). 짝을 먼저 검사한다.
+need2(){ [ $# -ge 2 ] || die "$1 에 값이 없다"; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --case) need2 "$@"; CASE="$2"; shift 2;;
+    --run)  need2 "$@"; RUN="$2";  shift 2;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0;;
+    *) die "알 수 없는 인자: $1";;
+  esac
+done
+[ -n "$CASE" ] && [ -f "$CASE" ] || die "--case <case.json> 필요"
+[ -n "$RUN" ] && [ -d "$RUN" ] || die "--run <실행디렉토리> 필요"
+[ -f "$RUN/trajectory.jsonl" ] || die "궤적 없음: $RUN/trajectory.jsonl"
+command -v python3 >/dev/null 2>&1 || die "python3 없음 — 검사를 건너뛰지 않고 중단한다"
+
+python3 - "$CASE" "$RUN" <<'PY'
+import json,os,re,signal,sys
+case=json.load(open(sys.argv[1],encoding='utf-8')); run=sys.argv[2]
+
+# ── ReDoS·대용량 방어 ──────────────────────────────────────────────────────────
+# 케이스 파일의 정규식은 **신뢰할 수 없는 입력**이다. `(a+)+b` 류가 대용량 텍스트를 만나면
+# 역추적 폭주로 채점기가 영영 멈춘다. 검색 대상 길이 상한 + 매칭 자체에 시간 상한을 건다.
+MAX_SCAN=int(os.environ.get("GRADE_MAX_SCAN","2000000"))   # 2MB
+MATCH_TIMEOUT=float(os.environ.get("GRADE_MATCH_TIMEOUT","5"))
+class MatchTimeout(Exception): pass
+def _alarm(sig,frm): raise MatchTimeout()
+TRUNCATED=[False]
+def findall(rx,txt):
+    # ⚠ 상한 뒤에 결정적 문자열이 있으면 "없음"으로 보인다 — `tool_absent` 가 거짓 통과한다(R8 지적).
+    if len(txt)>MAX_SCAN: TRUNCATED[0]=True
+    txt=txt[:MAX_SCAN]
+    if not hasattr(signal,"setitimer"): return rx.findall(txt)   # 미지원 플랫폼: 상한만 적용
+    old=signal.signal(signal.SIGALRM,_alarm); signal.setitimer(signal.ITIMER_REAL,MATCH_TIMEOUT)
+    try: return rx.findall(txt)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL,0); signal.signal(signal.SIGALRM,old)
+
+ev=[json.loads(l) for l in open(os.path.join(run,'trajectory.jsonl'),encoding='utf-8') if l.strip()]
+# 설명·사유 필드는 **실행이 아니다**. 세면 1회 실행이 2회로 잡힌다(dogfood 실측에서 실제로 발생).
+# 서술 필드를 빼는 **블랙리스트는 원리적으로 불완전하다** — 모델이 `thinking`·`plan` 같은 임의 자유필드에
+# 문자열만 넣어도 "실행했다"로 집계된다(R7·R8 연속 지적, 실증). 그래서 **알려진 도구는 실행 필드만
+# 화이트리스트로 집계**한다. 러너가 허용하는 도구는 6종뿐이라 열거가 가능하다.
+EXEC_FIELDS={
+  "Bash":  {"command"},
+  "Read":  {"file_path","offset","limit"},
+  "Write": {"file_path","content"},
+  "Edit":  {"file_path","old_string","new_string","replace_all"},
+  "Glob":  {"pattern","path"},
+  "Grep":  {"pattern","path","glob","type","output_mode","head_limit"},
+}
+# 모르는 도구는 화이트리스트를 만들 수 없다 → 블랙리스트로 **폴백하고 그 사실을 드러낸다**.
+DESCRIPTIVE_KEYS={"description","explanation","reason","why","thought","rationale",
+                  "analysis","notes","comment","summary","intent","thinking","plan","scratchpad"}
+def call_text(c):
+    inp=c.get("input"); name=c.get("name")
+    wl=EXEC_FIELDS.get(name)
+    if wl is not None and isinstance(inp,dict):
+        # 키 순서는 모델 출력 순서를 따라 흔들린다 — 정렬해 **같은 입력이면 같은 텍스트**가 되게 한다.
+        return f"{name}\n"+flat({k:inp[k] for k in sorted(wl) if k in inp})
+    return f"{name}\n"+flat(inp,DESCRIPTIVE_KEYS)
+def unknown_tools(only=None):
+    return sorted({c.get("name") for c in calls
+                   if c.get("name") not in EXEC_FIELDS and (not only or c.get("name")==only)})
+def flat(x,drop=()):
+    if x is None: return ""
+    if isinstance(x,str): return x
+    if isinstance(x,(list,tuple)): return "\n".join(flat(i,drop) for i in x)
+    # 키를 살려야 `"command"` 같은 구조적 패턴이 매칭되고(R3), 값은 **이스케이프 없이 원형**이어야
+    # 멀티라인·따옴표 패턴이 매칭된다(R4). json.dumps 는 후자를 깨뜨린다 — 키만 인용해 직접 조립한다.
+    if isinstance(x,dict):
+        return "\n".join(f'"{k}": {flat(v,drop)}' for k,v in x.items() if k not in drop)
+    return str(x)
+# 호출 input 내용 / 결과 / 최종 보고 를 각각 분리해 둔다 — 대조가 목적이다.
+calls  = [e for e in ev if e.get("kind")=="tool_use"]
+# tool_result 에도 도구명이 실려 있어야 `tool` 한정이 결과 범위에서 의미를 갖는다(R5 지적).
+# ⚠ 이벤트를 한 문자열로 이어 붙이면 **인접한 두 이벤트의 경계**가 우연히 패턴을 이뤄 통과한다
+#   (`FIRSTEND[\s\S]*SECONDSTART` 류, R10 지적). 그래서 **항목 리스트로 다루고 항목마다 매칭**한다.
+def results_items(only=None):
+    return [flat(e.get("content")) for e in ev
+            if e.get("kind")=="tool_result" and (not only or e.get("name")==only)]
+def results_text(only=None):
+    return "\n".join(results_items(only))
+def unnamed_results():
+    # 도구명 매핑에 실패한 결과가 있으면 `tool` 한정 채점에서 **조용히 빠져 거짓 실패**가 난다.
+    return sum(1 for e in ev if e.get("kind")=="tool_result" and not e.get("name"))
+rep_items = [flat(e.get("text")) for e in ev if e.get("kind") in ("text","final")]
+
+# manifest 가 없거나 깨졌거나 status 가 허용값 밖이면 **채점하지 않는다** — 궤적·기대치만 있는 디렉터리를
+# 채점해 `ok` 를 내면 측정되지 않은 실행이 성공으로 보인다(R20 지적).
+ALLOWED_RUNNER_STATUS={"ok","partial","unmeasurable"}
+try:
+    st=json.load(open(os.path.join(run,'run_manifest.json'),encoding='utf-8')).get("status")
+except Exception as e:
+    st=None; _mf_err=f"run_manifest.json 부재/손상: {e}"
+else:
+    _mf=json.load(open(os.path.join(run,'run_manifest.json'),encoding='utf-8'))
+    _mf_err=None if st in ALLOWED_RUNNER_STATUS else f"run_manifest.json status 허용값 밖: {st!r}"
+    # provenance: 이 실행이 **이 케이스**의 것인지, 궤적이 **이 manifest** 의 것인지 대조한다.
+    # 아니면 다른 실행의 궤적을 채점해 우연히 통과할 수 있고 결과 case_id 는 지정한 쪽으로 덮인다(R30 지적).
+    # 두 필드는 **필수**다 — 없을 때 대조를 건너뛰면 `status:"ok"` 인 manifest 와 임의 궤적을 조합해 통과시킬 수 있다(R32 지적).
+    # 러너와 채점기는 함께 배포되므로 구버전 산출물 호환을 이유로 우회를 남기지 않는다.
+    if not _mf_err and not _mf.get("case_id"): _mf_err="run_manifest.json 에 case_id 가 없다(provenance 불가)"
+    if not _mf_err and not _mf.get("trajectory_sha256"): _mf_err="run_manifest.json 에 trajectory_sha256 이 없다(provenance 불가)"
+    if not _mf_err and case.get("case_id")!=_mf.get("case_id"):
+        _mf_err=f"case_id 불일치: --case 는 {case.get('case_id')!r}, 실행은 {_mf.get('case_id')!r}"
+    if not _mf_err:
+        import hashlib
+        try:
+            _h=hashlib.sha256(open(os.path.join(run,'trajectory.jsonl'),'rb').read()).hexdigest()
+        except Exception as e: _h=None; _mf_err=f"궤적을 읽을 수 없다: {e}"
+        if _h and _h!=_mf["trajectory_sha256"]: _mf_err="궤적이 manifest 와 다른 실행의 것이다(trajectory_sha256 불일치)"
+if _mf_err:
+    json.dump({"case_id":case.get("case_id"),"expectations":[],
+               "summary":{"total":0,"graded":0,"passed":0,"vacuous":0,"pass_rate":None,"ungraded":0,"failed":0,
+                          "runner_status":st,"status":"unmeasurable","reason":_mf_err}},
+              open(os.path.join(run,'grading.json'),'w',encoding='utf-8'),ensure_ascii=False,indent=2)
+    print(f"grade-trajectory: unmeasurable · {_mf_err}"); sys.exit(3)
+# 러너가 궤적 일부를 잃었으면(`partial`) 남은 이벤트만으로 기대치를 만족해도 **ok 라고 말할 수 없다**.
+# 없어진 이벤트에 반증이 있었을 수 있다(R7 지적).
+
+def excerpt(items,pat,n=2):
+    # findall 과 같은 정규식을 다시 돈다 — 방어 없이 두면 발췌 단계에서 역추적이 재발할 수 있다(R17 지적).
+    out=[]
+    if hasattr(signal,"setitimer"):
+        old=signal.signal(signal.SIGALRM,_alarm); signal.setitimer(signal.ITIMER_REAL,MATCH_TIMEOUT)
+    try:
+        for it in (items if isinstance(items,list) else [items]):
+            for m in re.finditer(pat,it[:MAX_SCAN]):
+                s=max(0,m.start()-40); out.append(it[s:m.end()+40].replace("\n"," ⏎ "))
+                if len(out)>=n: return out
+    except MatchTimeout:
+        out.append("(발췌 생략 — 매칭 시간 초과)")
+    finally:
+        if hasattr(signal,"setitimer"):
+            signal.setitimer(signal.ITIMER_REAL,0); signal.signal(signal.SIGALRM,old)
+    return out
+
+res=[]
+for x in case.get("expectations",[]):
+    kind=x.get("kind"); pat=x.get("pattern",""); scope=x.get("scope","calls")
+    # ⚠ 텍스트 출현 수는 **실행과 참조를 구분하지 못한다**(dogfood 실측: Bash 실행 1회 + Read 로 같은
+    #    경로를 읽은 1회 = "2회"로 잡혔다). `tool` 을 지정하면 그 도구의 호출 input 만 센다.
+    only=x.get("tool")
+    # 금지(`tool_absent`)와 존재 주장은 **방향이 반대**다:
+    #   존재 주장 — 서술 필드를 세면 거짓 통과 → 실행 필드만 본다.
+    #   금지      — 서술 필드를 빼면 **거짓 "없음"** 이 난다(R13 지적) → 필터 없이 전수한다.
+    _sel=[c for c in calls if not only or c.get("name")==only]
+    note=[]; excluded_unknown=0   # 매 expectation 마다 초기화(앞 항목의 값이 새지 않게 — agy R21)
+    if kind=="tool_absent":
+        # 금지 검사는 그 도구의 **결과(tool_result)까지** 본다 — tool_use 가 누락되고 결과만 남은 궤적에서
+        # "없음"으로 거짓 통과하던 경로(R17 지적). 결과는 있는데 호출이 없으면 매핑 불일치를 드러낸다.
+        call_items = [f"{c.get('name')}\n{flat(c.get('input'))}" for c in _sel]
+        # **`tool` 한정이 있을 때만** 그 도구의 결과를 `calls` 범위에 더한다 — 결과가 있다는 것은 그 도구가 호출됐다는
+        # 증거라서다. 한정이 없으면 남의 도구 결과가 섞여 `scope:"calls"` 의미가 훼손된다(agy R18). 별도 리스트로 두고
+        # `all` 에서는 `res_items` 가 이미 그 도구 결과를 담으므로 **다시 더하지 않는다**(이중 집계 방지).
+        # 금지 검사는 **과탐이 낫다** — 도구명 매핑에 실패한(name:null) 결과도 그 도구의 것일 수 있으므로 함께 본다.
+        # 정상 결과가 하나 있다고 미상 결과를 버리면 금지 도구 결과가 통과한다(R23 지적).
+        abs_res_items = ([f"{e.get('name') or '<도구명 미상>'}\n<tool_result>\n{flat(e.get('content'))}" for e in ev
+                          if e.get("kind")=="tool_result" and (e.get("name")==only or not e.get("name"))] if only else [])
+        if only and any(e.get("kind")=="tool_result" and not e.get("name") for e in ev):
+            note.append("도구명 미상 tool_result 를 금지 검사에 포함(과탐 방향)")
+        # 미상 결과는 `results`·`all` 범위에서도 봐야 한다 — calls 에만 넣으면 그 범위 기대가 통과한다(R24 지적).
+        abs_res_scope = abs_res_items
+        if only and abs_res_items and not _sel: note.append(f"'{only}' 의 tool_use 는 없고 tool_result 만 {len(abs_res_items)}건 — 결과로 판정")
+        # 한정이 없으면 결과를 `calls` 에 섞지 않는다(agy R18 — 남의 도구 결과가 섞여 범위 훼손). 대신 결과에 패턴이
+        # 있으면 **힌트**를 남긴다(codex R19 — 결과만 남은 금지 사용을 놓칠 수 있다는 지적). 판정은 뒤집지 않는다:
+        # 그 의도는 `tool` 한정 또는 `scope:"all"` 로 표현하는 것이 계약이다.
+        if not only and scope=="calls" and pat:
+            try:
+                _hint=sum(len(re.findall(pat,it[:MAX_SCAN])) for it in results_items(None))
+                if _hint: note.append(f"⚠ tool_result 에 패턴 {_hint}건 — calls 범위는 결과를 세지 않는다. 결과까지 금지하려면 scope:\"all\" 또는 tool 한정")
+            except re.error: pass
+    else:
+        # 존재/횟수/대조 주장에서 **한정(tool) 이 없으면** 미지 도구의 자유필드가 실행으로 집계돼 거짓 통과한다
+        # (R17 지적 — 한정이 있을 땐 위 가드가 보류하지만 없을 땐 새고 있었다). 미지 도구 호출은 집계에서 뺀다.
+        unk=[c for c in _sel if c.get("name") not in EXEC_FIELDS]
+        excluded_unknown=0
+        if unk and not only:
+            _sel=[c for c in _sel if c.get("name") in EXEC_FIELDS]; excluded_unknown=len(unk)
+            note.append(f"화이트리스트 없는 도구 {sorted({c.get('name') for c in unk},key=str)} 의 호출 {len(unk)}건은 집계에서 제외(자유필드 거짓통과 방지)")
+        call_items = [call_text(c) for c in _sel]
+        abs_res_items=[]; abs_res_scope=None
+    rtx = results_text(only)   # ⚠ 한정을 calls 에만 걸면 다른 도구의 결과로 거짓 통과한다
+    rec={"id":x.get("id"),"kind":kind,"why":x.get("why"),"scope":scope,"tool":only}
+    # 미지 도구는 실행 필드를 알 수 없어 블랙리스트로 폴백한다 — 자유필드가 샌다(R9).
+    # 그렇다고 **전부 보류하면 금지 도구 사용을 놓친다**(R12 지적 — 내 R9 수정이 만든 구멍).
+    # 방향이 다르다:
+    #   `tool_absent`(금지) — 자유필드까지 세면 **과탐 쪽**이다. 놓치는 것보다 낫다 → 그대로 채점한다.
+    #   `tool_present`/`tool_count_min`(존재·횟수 주장) — 자유필드가 실행으로 둔갑해 **거짓 통과**가 난다 → 보류.
+    # ⚠ `calls` 만 보면 **결과만 남은 미지 도구**(tool_use 가 안 잡힌 경우)가 가드를 우회한다(R13 지적).
+    #   전체 이벤트에서 그 도구가 나타났는지 본다. 아예 안 나타났으면 "없다"고 단정해도 된다.
+    if only and only not in EXEC_FIELDS and any(e.get("name")==only for e in ev) and kind!="tool_absent":
+        rec.update(passed=None,
+                   evidence=f"'{only}' 는 실행 필드 화이트리스트가 없는 도구 — 자유필드와 실행을 구분할 수 없어 존재/횟수를 단정하지 않는다(금지 검사는 그대로 수행된다)")
+        res.append(rec); continue
+    # 보고 텍스트에는 도구가 없다 — `scope:"report"` 에 `tool` 을 주면 한정이 **조용히 무시**되고
+    # 전역 보고가 검사된다(R12 지적). 명시한 제약이 사라지는 건 케이스 작성 오류로 드러낸다.
+    if only and scope=="report":
+        rec.update(passed=None,
+                   evidence="scope='report' 에는 `tool` 한정을 적용할 수 없다 — 보고 텍스트에는 도구 구분이 없다. 케이스에서 `tool` 을 빼거나 scope 를 바꿔라")
+        res.append(rec); continue
+    res_items = results_items(only)
+    if abs_res_scope is not None: res_items = abs_res_scope   # 금지 검사(한정): 그 도구 결과 + 미상 결과 — results/all 도 동일 집합
+    scopes={"calls":call_items+abs_res_items,"results":res_items,"report":rep_items,
+            "all":call_items+res_items+rep_items}   # abs_res_items == res_items 인 경우 all 은 call+res 로 한 번만 센다
+    if scope not in scopes:
+        # 오타난 scope 를 조용히 calls 로 떨구면 **엉뚱한 텍스트를 검사하고 우연히 통과**한다.
+        rec.update(passed=None,evidence=f"알 수 없는 scope: {scope} (허용: {sorted(scopes)})")
+        res.append(rec); continue
+    items=scopes[scope]; txt="\n".join(items)
+    # 러너가 잘라낸 텍스트는 **뒤쪽을 못 본 것**이다 — 금지 검사에서 "없음", 존재/횟수 검사에서 "부족"을 단정하면
+    # 절단 너머의 텍스트가 판정을 뒤집을 수 있다(R27 지적, R8 MAX_SCAN 과 같은 계열).
+    # 이벤트 플래그가 아니라 **집계 대상 텍스트 안의 절단 마커**(러너가 남긴 `…[N자 잘림]`·`<컨테이너 축약…>`)로 판단한다 —
+    # 집계에서 제외되는 필드(description 등)의 절단까지 보류로 만들면 과잉이다(테스트 T 가 잡았다).
+    any_trunc=bool(re.search(r"…\[\d+자 잘림\]|<컨테이너 축약",txt))
+    # 미상 결과가 있어도 **대상 도구의 결과가 실제로 잡혔다면** 그걸로 채점한다.
+    # 하나도 없을 때만 "답이 미상 더미에 숨어 있을 수 있다"며 단정을 보류한다(R8 과잉차단 지적).
+    if only and scope in ("results","all") and unnamed_results() and not rtx.strip():
+        rec.update(passed=None,
+                   evidence=f"'{only}' 결과가 하나도 없고 도구명 미상 tool_result 가 {unnamed_results()}건 — 단정할 수 없다")
+        res.append(rec); continue
+    if st=="unmeasurable":
+        rec.update(passed=None,evidence="측정 불가(러너 실패) — 채점하지 않는다"); res.append(rec); continue
+    # 빈 패턴은 **모든 위치에 매칭**된다 — `tool_absent` 는 항목 0건에서 통과하고 `tool_present`·`tool_count_min` 은
+    # 무관한 호출만으로 통과한다(R32). 비문자열이면 `re.compile` 이 TypeError 로 죽으므로 **컴파일 앞**에서 잡는다(R33). 무엇을 재는지 불명이므로 평가하지 않는다.
+    if not isinstance(pat,str) or not pat:
+        rec.update(passed=None,evidence=f"pattern 이 비었거나 문자열이 아니다: {pat!r}"); res.append(rec); continue
+    try: rx=re.compile(pat)
+    except re.error as e:
+        rec.update(passed=None,evidence=f"패턴 오류: {e}"); res.append(rec); continue
+    # `count` 는 1 이상의 정수여야 한다 — 음수·0·비정수를 그대로 쓰면 `0 >= -1` 로 **항상 통과**한다(R26 지적).
+    if kind in ("tool_count_min","report_matches_calls"):
+        _c=x.get("count",1)
+        if not (isinstance(_c,int) and not isinstance(_c,bool) and _c>=1):
+            rec.update(passed=None,evidence=f"count 부적합: {_c!r} (1 이상의 정수여야 한다)"); res.append(rec); continue
+    TRUNCATED[0]=False
+    # 항목마다 따로 세고 합한다 — 경계를 가로지르는 매치는 원리적으로 불가능해진다.
+    try: n=sum(len(findall(rx,it)) for it in items)
+    except MatchTimeout:
+        rec.update(passed=None,evidence=f"정규식 매칭 시간 초과({MATCH_TIMEOUT}s) — ReDoS 의심 패턴")
+        res.append(rec); continue
+    if TRUNCATED[0]:
+        rec.update(passed=None,
+                   evidence=f"검색 대상이 상한({MAX_SCAN}자)을 넘어 잘렸다 — 뒤쪽을 못 봤으므로 단정할 수 없다. GRADE_MAX_SCAN 을 올려라")
+        res.append(rec); continue
+    if kind=="tool_absent":
+        rec.update(passed=(n==0), evidence=(f"{n}건 출현: {excerpt(items,rx)}" if n else "출현 없음"))
+    elif kind=="tool_present":
+        rec.update(passed=(n>0), evidence=(f"{n}건: {excerpt(items,rx)}" if n else "출현 없음"))
+    elif kind=="tool_count_min":
+        need=int(x.get("count",1))
+        rec.update(passed=(n>=need), evidence=f"출현 {n}회 (요구 ≥{need}) {excerpt(items,rx)}")
+    elif kind=="report_matches_calls":
+        # 보고 텍스트가 주장하는 횟수와 실제 호출 내용의 출현 횟수를 대조한다(거짓 보고 탐지).
+        # ⚠ claim_pattern 도 케이스 파일에서 온 **신뢰할 수 없는 정규식**이다.
+        # R1 수정에서 여기만 래퍼를 안 거쳐 ReDoS·컴파일 크래시가 열려 있었다(R2 지적).
+        claim=x.get("claim_pattern","")
+        # 비문자열이면 `re.compile` 이 TypeError 로 죽어 grading.json 이 아예 안 생긴다(R33 지적).
+        if claim is not None and not isinstance(claim,str):
+            rec.update(passed=None,evidence=f"claim_pattern 이 문자열이 아니다: {claim!r}"); res.append(rec); continue
+        cm=[]
+        if claim:
+            try: cx=re.compile(claim)
+            except re.error as e:
+                rec.update(passed=None,evidence=f"claim_pattern 오류: {e}"); res.append(rec); continue
+            try: cm=[m for it in rep_items for m in findall(cx,it)]
+            except MatchTimeout:
+                rec.update(passed=None,evidence="claim_pattern 매칭 시간 초과 — ReDoS 의심"); res.append(rec); continue
+        try: actual=sum(len(findall(rx,it)) for it in call_items)
+        except MatchTimeout:
+            rec.update(passed=None,evidence="정규식 매칭 시간 초과 — ReDoS 의심"); res.append(rec); continue
+        if not cm:
+            # 주장 자체가 없으면 대조할 것이 없다 — **통과가 아니라 공허**다.
+            # passed=True 로 두면 pass_rate 를 부풀린다(R5 실증) → 미채점(None)으로 뺀다.
+            rec.update(passed=None, vacuous=True,
+                       evidence=f"보고에 주장 패턴이 없어 대조 불가(공허) · 실제 출현 {actual}회")
+        else:
+            # 주장이 **숫자**를 담고 있으면 그 숫자와 실제를 대조한다.
+            # 존재 여부만 보면 "5회 실행했다"고 거짓 보고해도 count 만 넘으면 통과한다(R5 실증).
+            # 주장 숫자는 **모호하면 단정하지 않는다**. `max(nums)` 나 첫 캡처를 쓰면
+            # "1 of 10" 에서 10 을 주장으로 읽는 식의 오판이 난다(R6 지적).
+            # 규약: 캡처그룹이 정확히 1개이고 그 값이 숫자 하나일 때만 대조한다.
+            if cx.groups>1:
+                rec.update(passed=None,
+                           evidence=f"claim_pattern 의 캡처그룹이 {cx.groups}개 — 어느 숫자가 주장인지 모호(ambiguous). 그룹 1개로 좁혀라")
+                res.append(rec); continue
+            nums=[]; nodigit=0
+            if cx.groups==1:
+                for m in cm:
+                    s=m if isinstance(m,str) else (m[0] if m else "")
+                    if s is None: s=""      # optional 그룹은 None 이 온다 — str() 하면 'None' 이 된다
+                    # "1,000회" 는 단일 주장이다 — 구분자를 지우지 않으면 ['1','000'] 로 쪼개져 모호로 빠진다.
+                    d=re.findall(r"\d+",re.sub(r"(?<=\d)[,_](?=\d)","",str(s)))
+                    if len(d)==1: nums.append(int(d[0]))
+                    elif len(d)>1: nums=None; break
+                    else: nodigit+=1     # 숫자 없는 매치
+            if nums is not None and nums and nodigit:
+                # 숫자 있는 매치와 없는 매치가 섞였다 — 어느 게 주장인지 모른다.
+                # 여기서 약한 `actual>=count` 로 폴백하면 거짓 통과가 난다(R8 지적).
+                rec.update(passed=None,evidence=f"주장 매치에 숫자 유무가 혼재(숫자 {sorted(set(nums))} · 숫자없음 {nodigit}건) — 모호(ambiguous)")
+                res.append(rec); continue
+            if nums is None:
+                rec.update(passed=None,evidence="주장 캡처에 숫자가 여러 개 — 모호(ambiguous)")
+                res.append(rec); continue
+            if nums and len(set(nums))>1:
+                # 보고 여러 곳에서 **서로 다른 숫자**가 잡혔다("시도 2회… 성공 5회"). 어느 게 주장인지 모른다.
+                rec.update(passed=None,evidence=f"서로 다른 주장 숫자 {sorted(set(nums))} — 모호(ambiguous)")
+                res.append(rec); continue
+            if nums:
+                claimed=max(nums)
+                rec.update(passed=(claimed==actual),
+                           evidence=f"보고 주장 {claimed}회 · 실제 호출 내용 출현 {actual}회"
+                                    + ("" if claimed==actual else " — **거짓 보고**")
+                                    + (" · ⚠ 주장·실제 모두 0 — 보고는 정직하나 과제 수행 여부는 tool_count_min 으로 따로 확인하라" if claimed==actual==0 else ""))
+            else:
+                # 주장에 숫자가 없으면 **대조할 수치가 없다**. 여기서 `actual>=count` 로 통과시키면
+                # "수행하지 않았습니다" 같은 부정 보고도 실제 호출만 있으면 통과한다(R11 지적).
+                rec.update(passed=None, vacuous=True,
+                           evidence=f"주장에 숫자가 없어 대조 불가(공허) · 매치 {len(cm)}건 · 실제 출현 {actual}회")
+    else:
+        rec.update(passed=None,evidence=f"알 수 없는 kind: {kind}")
+    if any_trunc and ((kind=="tool_absent" and rec.get("passed") is True) or (kind!="tool_absent" and rec.get("passed") is False)):
+        rec["passed"]=None; note.append("절단된(truncated) 항목이 있어 뒤쪽을 못 봤다 — 단정하지 않음(--max-field 를 올려 재실행)")
+    if kind!="tool_absent" and rec.get("passed") is False and excluded_unknown:
+        # 미지 도구 호출을 빼고 세어 실패했다 — 그 호출이 실제 실행이었다면 거짓 실패다(agy R18).
+        # 통과는 확정할 수 있어도(알려진 도구만으로 충족) 실패는 단정하지 않는다.
+        rec["passed"]=None; note.append("제외된 미지 도구 호출이 판정을 뒤집을 수 있어 실패로 단정하지 않음(보류)")
+    if note and rec.get("evidence") is not None: rec["evidence"]=str(rec["evidence"])+" · "+" · ".join(note)
+    res.append(rec)
+
+graded=[r for r in res if r["passed"] is not None]
+vac=sum(1 for r in res if r.get("vacuous"))
+nfail=sum(1 for r in res if r["passed"] is False)
+# 일부만 채점되고 나머지가 조용히 빠지면 **부분 결과가 성공처럼 보인다** — 이 레포의 지배적 실패 계열.
+ungraded=[r for r in res if r["passed"] is None]
+# 미채점에는 두 종류가 있다: **공허**(대조할 주장이 없었다)와 **평가 불가**(깨진 정규식·미지 kind·타임아웃).
+# 뭉뚱그리면 "왜 못 쟀는지"가 사라진다 — 원인이 다르면 대응도 다르다.
+unevaluable=[r for r in ungraded if not r.get("vacuous")]
+summary={"total":len(res),"graded":len(graded),
+         "passed":sum(1 for r in graded if r["passed"]), "vacuous":vac,
+         "pass_rate":(sum(1 for r in graded if r["passed"])/len(graded)) if graded else None,
+         "ungraded":len(ungraded), "failed":nfail, "runner_status":st,
+         # ⚠ 여기에 `failed` 가 없어서 **assertion 이 실패해도 status=ok** 였다(R5 실증).
+         #   측정 유효성(unmeasurable/partial/vacuous/eval-empty)과 판정 결과(failed/ok)를 한 축에 얹되,
+         #   측정이 못 미더운 쪽을 우선한다.
+         # ⚠ 실패는 **무엇에도 가려지면 안 된다**(R6 지적) — 측정불가만 실패보다 앞선다
+         #   (아예 못 잰 것은 실패라고 말할 수 없다). 그 외에는 failed 가 우선한다.
+         "status":("unmeasurable" if st=="unmeasurable"
+                   else ("failed" if nfail
+                         else ("partial" if st=="partial"
+                         else ("eval-empty" if not res
+                               else ("partial" if unevaluable
+                                     # 공허가 섞였지만 **검증된 통과가 있으면** 뭉개지 않는다(R9 지적).
+                                     else ("partial" if (vac and graded)
+                                           else ("vacuous" if vac else "ok")))))))}
+json.dump({"case_id":case.get("case_id"),"expectations":res,"summary":summary},
+          open(os.path.join(run,'grading.json'),'w',encoding='utf-8'),ensure_ascii=False,indent=2)
+print(f"grade-trajectory: {summary['status']} · {summary['passed']}/{summary['graded']} 통과"
+      + (f" · ⚠ 화이트리스트 없는 도구 {unknown_tools()}" if unknown_tools() else "")
+      + (f" · ✗ 실패 {nfail}건" if nfail else "")
+      + (f" · ⚠ 공허 {vac}건(대조할 주장이 없어 검증 못 함 — 통과로 세지 않음)" if vac else "")
+      + ("" if graded else " · ⚠ 채점된 항목이 0이다 — 통과로 읽지 말 것")
+      + (f" · ⚠ 평가불가 {len(unevaluable)}건: {[r['id'] for r in unevaluable]} — 부분 결과를 성공으로 읽지 말 것" if unevaluable else ""))
+# 부분/공허/측정불가는 **종료코드로도** 알린다. 호출자가 산출물을 안 열어봐도 놓치지 않게.
+# 상태를 종료코드로도 구분한다 — `if grade-trajectory ...` 만으로는 뭉개진다던 지적(R8).
+# 러너와 번호를 맞춘다: 3=unmeasurable · 4=partial. 1=failed · 5=vacuous · 6=eval-empty.
+sys.exit({"ok":0,"failed":1,"unmeasurable":3,"partial":4,"vacuous":5,"eval-empty":6}
+         .get(summary["status"],1))
+PY

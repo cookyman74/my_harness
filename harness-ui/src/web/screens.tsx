@@ -1,10 +1,10 @@
 // 9화면(§IA: Overview·Build·Agents·Skills·Runs·Docs·Drift·Ops·Settings). 모두 읽기(mutating=Build dry-run/실행·Drift sync-plan만).
 // XSS: 전 텍스트 React escape. dangerouslySetInnerHTML 는 오직 renderMarkdown(markdown-it html:false + DOMPurify) 통과분에만(F5 DV8).
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useApi, Async, Badge, Card, Table, ConfBadge, MetricCell } from "./ui.js";
+import { useApi, Async, Badge, Card, Table } from "./ui.js";
 import {
-  type OverviewMetrics, type AgentsMetrics, type SkillsMetrics, type Coverage,
-  coverageSummary, coverageWindowText, truncatedReasonText, windowEmptyNotice, overviewSuggestions,
+  type Coverage,
+  coverageSummary, coverageWindowText, truncatedReasonText, 
 } from "./metrics.js";
 import {
   apiPost, apiGet, fetchArtifact, downloadDoc, downloadArtifact,
@@ -25,7 +25,7 @@ import {
   type DocsSourcesList,
   type SettingsInfo, type ProjectRootPreview,
   type DefKind, type DefinitionDoc, type PutDefResult,
-  type EvalsIndex, type LoopIndexEntry, type LoopTrend, type TrendPoint,
+  type EvalsIndex, type LoopTrend, 
   type ScorecardDetail, type EvalProposal, type EvalsConfigResolved,
   type MetricSetting,
   type EvalAxis, type ArtifactScore, type ArtifactEvalResult,
@@ -36,6 +36,9 @@ import {
   evalsEmptyState, proposalDisabledText, gateShortfalls,
   parseIntInput, thresholdError, thresholdDiff, thresholdsValid,
   stageNeedsHighRiskConfirm, adoptionStageLabel, buildConfigPatch, evalsConfigErrorText,
+  diagLiveMessage, draftInjectDecision,
+  batchSessionKey, batchIdFromHash, readSessionSet, writeSessionSet, updateBatchApplied,
+  batchApplyTransition, type BatchApplySnapshot,
 } from "./evals.js";
 import {
   defEditErrorText, diffLines, diffStats, hasChanges, isDiffCoarse, sideRows,
@@ -57,7 +60,7 @@ import {
 } from "./docs-sources.js";
 import {
   type RunTemplate, type RunSubmitResult,
-  runSubmitErrorText, focusRunFromHash, runsDeepLink,
+  runSubmitErrorText, runsDeepLink,
 } from "./agent-run.js";
 import { renderMarkdown } from "./render.js";
 import { breadcrumbTrail, isMarkdownName, viewerBanner, localDocPath, localArtifactPath, focusDocFromHash, filterDocTree } from "./docs-view.js";
@@ -67,13 +70,13 @@ import {
   nextEventCursor, mergeEventItems, nextTailDelayMs,
 } from "./run-tail.js";
 import {
-  type MetricsWindow, type WindowPreset, DEFAULT_WINDOW, PRESET_LABEL,
-  metricsPath, parseLimitInput,
+  type MetricsWindow, type WindowPreset, PRESET_LABEL,
+  parseLimitInput,
 } from "./metrics-window.js";
 import {
   type RunsFilter, type RunsQueryResult, type ChipField,
-  parseQuery, buildQuery, setField, clearField, clearAll, activeChips, hasActiveFilter,
-  toggleOrder, pageTo, truncationNotice, pageRange, nextOffset, prevOffset,
+  setField, 
+  toggleOrder, truncationNotice, pageRange, nextOffset, prevOffset,
 } from "./runs-filter.js";
 
 type Inv = { projectRoot: string; claude: { entrypoint: string | null; agents: number; skills: number }; codex: { entrypoint: string | null; agents: number; skills: number }; workspace: { exists: boolean; runs: number } };
@@ -584,6 +587,16 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
   const [remed, setRemed] = useState<RemediationResult | { status: "loading" } | null>(null); // E5-a 초안 폴링 상태
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [edited, setEdited] = useState<string>("");
+  const injectedRid = useRef<string | null>(null); // 초안 주입은 runId 당 1회(재주입=편집 덮어쓰기)
+  // 초안 주입 결과 — 배너가 사실만 말하도록 **사유까지** 남긴다(R3 codex: boolean 이면
+  //   미주입 사유를 언제나 stale 로 오표시한다).
+  const [draftState, setDraftState] = useState<"injected" | "skipped-stale" | null>(null);
+  const [returnTo, setReturnTo] = useState<string | null>(() => returnToFromHash(location.hash));
+  useEffect(() => {
+    const read = () => setReturnTo(returnToFromHash(location.hash));
+    window.addEventListener("hashchange", read);
+    return () => window.removeEventListener("hashchange", read);
+  }, []);
   const [baseHash, setBaseHash] = useState<string>(""); // 낙관적 동시성 기준(저장·adopt 시 갱신)
   const [showDiff, setShowDiff] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -624,6 +637,7 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
   useEffect(() => {
     if (!remediateRunId || !doc) return;
     let live = true, timer: ReturnType<typeof setTimeout> | undefined;
+    // (주입 1회 보장은 아래 injectedRid 참조)
     setRemed({ status: "loading" });
     const poll = async () => {
       try {
@@ -634,6 +648,23 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
         // 초안이 현재 편집기 대상과 일치할 때만 주입(딥링크/stale runId 로 엉뚱한 초안 표시 방지·codex MED).
         if (r.status === "ready") {
           if (r.kind !== kind || r.name !== name) { setRemed({ status: "invalid", error: "mismatched-target" }); return; }
+          // **한 runId 당 1회만 주입한다**(R1 agy HIGH). 이 effect 는 `doc` 에도 의존하는데,
+          //   저장하면 `setDoc` 으로 doc 이 바뀌어 effect 가 재발화한다. 그때 다시 주입하면
+          //   **방금 저장한 사용자 편집분이 과거 AI 초안으로 덮어써지고**, 사용자가 모르고
+          //   다시 저장하면 편집이 영구 유실된다.
+          // 게다가 저장 후의 초안은 stale(원본이 바뀜)이라 주입 대상이 아니다.
+          // 결정은 순수 함수가 한다(evals.ts) — 컴포넌트 안에 두면 테스트가 if 문 순서를
+          //   문자열로 단언하게 되고, 동등한 리팩터링에 거짓 실패한다(P0-c 교훈).
+          const decision = draftInjectDecision({
+            runId: remediateRunId, injectedRunId: injectedRid.current, stale: r.stale === true,
+          });
+          if (decision === "skip-stale") { setDraftState("skipped-stale"); return; }
+          // 이미 주입한 runId 로 **되돌아온** 경우에도 상태를 복원한다(R4 agy HIGH):
+          //   A(정상)→B(stale)→A 로 오가면 draftState 에 B 의 잔재가 남아, 정상 주입된 A 에서
+          //   "반영하지 않았습니다" 가 뜬다. ref 는 남고 state 는 덮어써지기 때문이다.
+          setDraftState("injected");
+          if (decision === "skip-already-injected") return;
+          injectedRid.current = remediateRunId;
           setEdited(r.proposedContent); setShowDiff(true); setMode("edit");
         }
       } catch (e) { if (live) setRemed({ status: "invalid", error: e instanceof DefEditError ? e.code : String(e) }); }
@@ -668,6 +699,10 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
       const res = await putDefinition(kind, name, { content: edited, baseHash, pathId: doc.pathId });
       setConfirmOpen(false); setConflict(null); setRolledBack(false);
       setSaveResult(res); setBaseHash(res.newHash);
+      // P0-e R7(codex HIGH): 이 저장이 **배치 검토 큐에서 온 초안 편집**이면 그 항목을
+      //   적용됨으로 기록한다. 이 연결이 없으면 큐로 돌아갔을 때 여전히 "미처리 + stale"
+      //   로 보여, 방금 끝낸 작업이 실패처럼 표시된다(R6 수정이 이 경로를 못 덮었다).
+      markBatchSaved();
       // canonical 재직렬화본을 재조회해 diff 기준 갱신(실패해도 저장 성공 배너 유지·A83).
       try { const d = await getDefinition(kind, name); setDoc(d); setEdited(d.content); setBaseHash(d.baseHash); } catch { /* 재조회 실패 격리 */ }
     } catch (e) {
@@ -698,12 +733,42 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
   };
 
   // "되돌리기" = POST rollback(expectedCurrentHash=newHash·backupHash=prevHash). 성공 → 재조회 반영.
+  /**
+   * 배치 적용 기록 갱신. **저장 시점의 식별자를 스냅샷으로 고정**해서 쓴다(R9 양 엔진).
+   *
+   * 왜: 롤백은 저장보다 나중에 일어나는데, 그 사이 해시가 바뀌면(`returnTo`·`remediate`
+   * 수정·다른 딥링크) 호출 시점 값으로는 **엉뚱한 배치 항목**을 지운다. 원래 항목은
+   * "적용됨"으로 남고 무관한 항목이 미처리가 된다.
+   *
+   * 저장 횟수도 센다: 연속 저장(1→2) 후 **마지막만 롤백**하면 파일엔 첫 저장 결과가
+   * 남으므로 여전히 적용된 상태다. 이때 기록을 지우면 실제 적용된 작업이 미처리로 보인다.
+   * 카운트가 0이 될 때만 제거한다.
+   */
+  const batchApply = useRef<BatchApplySnapshot>(null);
+  const applyTransition = (event: Parameters<typeof batchApplyTransition>[1]) => {
+    const { snap, effect } = batchApplyTransition(batchApply.current, event);
+    batchApply.current = snap;
+    if (effect) updateBatchApplied(effect.batchId, effect.runId, effect.op);
+  };
+  const markBatchSaved = () => {
+    const bid = batchIdFromHash(returnTo);
+    // 저장 **직전**의 적용 여부를 읽어 전이에 넘긴다 — 이미 적용된 항목은 되돌려도
+    //   적용 상태로 남아야 한다(R11 양 엔진).
+    const wasApplied = bid && remediateRunId
+      ? readSessionSet(batchSessionKey(bid, "applied")).has(remediateRunId) : false;
+    applyTransition({ type: "save", batchId: bid, runId: remediateRunId ?? null, wasApplied });
+  };
+  const markBatchRolledBack = () => applyTransition({ type: "rollback" });
+
   const doRollback = async () => {
     if (!saveResult) return;
     setRbBusy(true); setErr(null);
     try {
       await rollbackDefinition(kind, name, rollbackBodyFromSave(saveResult));
       setSaveResult(null); setRolledBack(true);
+      // 되돌리면 파일이 원상복구돼 서버 stale 이 풀린다. 세션 기록을 안 지우면 큐에서
+      //   **취소한 작업이 "적용됨"으로 보인다**(R8 agy HIGH). 기록도 함께 되돌린다.
+      markBatchRolledBack();
       const d = await getDefinition(kind, name); setDoc(d); setEdited(d.content); setBaseHash(d.baseHash);
     } catch (e) {
       setErr(e instanceof DefEditError ? defEditErrorText(e.code, e.status, e.detail) : String(e));
@@ -714,6 +779,15 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
     <Card title={`정의 편집 · ${name}`}>
       {/* 닫기는 onClose 제공 시에만(Agents/Skills 는 미제공 = 버튼 없음·좌측 목록으로 전환·docs/context 뷰어 동형). */}
       {onClose && <button className="link" onClick={doClose}>✕ 닫기</button>}
+      {/* P0-e 복귀 동선: 배치 검토 큐에서 왔으면 돌아갈 길을 준다.
+          뒤로가기에만 의존하면 새 탭·중간 이동 시 배치 id 를 복구할 방법이 없다. */}
+      {returnTo && (
+        <p><a className="link" href={returnTo} onClick={(e) => {
+          // 해시 라우팅은 unload 가 아니라 beforeunload 보호가 안 걸린다(R2 codex).
+          //   doClose 와 같은 미저장 게이트를 여기에도 건다.
+          if (dirty && !window.confirm("저장하지 않은 편집 내용이 있습니다. 검토 큐로 돌아갈까요?")) e.preventDefault();
+        }}>← 검토 큐로 돌아가기</a></p>
+      )}
       {loadErr && <p className="banner err" role="alert">⚠ {loadErr}</p>}
       {!doc && !loadErr && <p className="muted">불러오는 중…</p>}
       {doc && (
@@ -723,9 +797,14 @@ function DefinitionEditor({ kind, name, onClose, remediateRunId }: { kind: DefKi
           {/* E5-a AI 초안 반영 상태 배너. ready → edited 에 초안 주입됨(아래 diff·저장으로 사람 승인). */}
           {remed && remed.status === "loading" && <p className="banner" role="status">🤖 AI가 초안 생성 중…</p>}
           {remed && remed.status === "running" && <p className="banner" role="status">🤖 AI가 초안 생성 중… (실행 대기)</p>}
-          {remed && remed.status === "ready" && (
-            <p className="banner ok" role="status">🤖 AI 초안이 반영되었습니다 — 아래 diff를 검토한 뒤 <b>저장</b>하면 적용됩니다. 반려하려면 저장하지 말고 닫으세요.
-              {remed.stale && <span className="warn-text"> ⚠ 초안 생성 후 정의가 변경됨 — 저장 시 충돌하면 재검토하세요.</span>}</p>
+          {remed && remed.status === "ready" && draftState === "injected" && (
+            <p className="banner ok" role="status">🤖 AI 초안이 반영되었습니다 — 아래 diff를 검토한 뒤 <b>저장</b>하면 적용됩니다. 반려하려면 저장하지 말고 닫으세요.</p>
+          )}
+          {remed && remed.status === "ready" && draftState === "skipped-stale" && (
+            // 주입하지 않은 경우. **성공 배너를 띄우지 않는다** — 편집기엔 현재 정의가 그대로이므로
+            //   "반영됨"이라 말하면 사용자가 초안인 줄 알고 저장한다.
+            <p className="banner err" role="alert">⚠ 초안을 <b>반영하지 않았습니다</b> — 초안 생성 후 정의가 바뀌었습니다(stale).
+              편집기 내용은 <b>현재 정의 원본</b>입니다. 초안이 필요하면 Eval 화면에서 <b>재생성</b>하세요.</p>
           )}
           {remed && (remed.status === "invalid" || remed.status === "failed") && (
             <p className="banner err" role="alert">⚠ AI 초안 생성 실패({remed.error}) — 수동으로 편집하세요.</p>
@@ -2058,19 +2137,36 @@ const VERDICT: Record<string, { label: string; kind: "ok" | "warn" | "muted" }> 
 function HarnessScorecardCard() {
   const sc = useApi<HarnessScorecard>("/api/eval/harness-scorecard");
   const trend = useApi<ScTrend>("/api/eval/harness-scorecard/trend");
-  const [snapMsg, setSnapMsg] = useState<string | null>(null);
+  // R5 양 엔진: 실패가 성공과 시각적으로 구분되지 않아 사용자가 오판할 수 있었다.
+  //   기존 관례대로 실패는 role="alert"+.err, 성공은 role="status" 로 나눈다.
+  const [snapMsg, setSnapMsg] = useState<{ text: string; failed: boolean } | null>(null);
+  const [liveMsg, setLiveMsg] = useState("");   // 첫 커밋엔 빈 리전만(위 주석 참조)
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    // 문구 계산은 순수 함수(evals.ts)로 뺐다 — 컴포넌트 안에 두면 테스트가 구현 형태를
+    // 쫓게 된다. 여기서는 "첫 커밋엔 빈 리전, 다음 커밋에 주입"만 담당한다.
+    setLiveMsg(diagLiveMessage(sc, trend));
+  }, [sc.loading, sc.data, sc.err, trend.loading, trend.data, trend.err]);
   const recordSnapshot = async () => {
     setBusy(true); setSnapMsg(null);
     try {
       const r = await apiPost<{ written: boolean }>("/api/eval/harness-scorecard/snapshot", {});
-      setSnapMsg(r.written ? "스냅샷 기록됨 — 추세 갱신" : "변경 없음 — 구성 파일(.claude/agents·skills) 미변경이라 스킵(중복 방지). 정의가 바뀌면 자동 기록.");
+      setSnapMsg({ failed: false, text: r.written ? "스냅샷 기록됨 — 추세 갱신" : "변경 없음 — 구성 파일(.claude/agents·skills) 미변경이라 스킵(중복 방지). 정의가 바뀌면 자동 기록." });
       trend.reload();
-    } catch (e) { setSnapMsg("기록 실패: " + String(e)); }
+    } catch (e) { setSnapMsg({ failed: true, text: "기록 실패: " + String(e) }); }
     finally { setBusy(false); }
   };
   return (
-    <Card title="구성 자기평가 (harness_scorecard · 주축)">
+    // Card 로 감싸지 않는다 — 호출부가 이미 `<Card>` 안 `<details>` 다(중첩 방지·R1 agy MED).
+    // ⚠ `aria-live` 를 이 컨테이너에 걸지 말 것(R6 양 엔진) — 요약·결함·추세 표를 전부
+    //   감싸고 있어서, 로드가 끝나면 스크린리더가 **표 전체를 통째로 읽는다**(과다 방송).
+    //   상태 통지는 아래 작은 전용 영역이 맡고, 여기엔 `aria-busy` 만 둔다.
+    <div className="sc-diag-body" aria-busy={sc.loading || trend.loading}>
+      {/* 스크린리더 전용 상태 통지 — 짧은 문장만 방송한다.
+          ⚠ 라이브 리전은 **DOM 에 먼저 존재한 뒤 내용이 바뀔 때** 방송된다. 이 카드는 지연
+            마운트라 리전과 문구가 같은 커밋에 생기면 첫 문구가 안 읽힐 수 있다(R7 agy).
+            그래서 첫 렌더는 빈 리전만 두고, 마운트 후 다음 커밋에 문구를 채운다. */}
+      <p className="sr-only" role="status">{liveMsg}</p>
       <p className="muted">
         하네스 <b>구성 상태</b>(에이전트·스킬·오케스트레이터 연결)를 정적 파싱으로 측정. 아래 루프 평가는 보조 신호(loop_ref). ·
         <b>미선언(link_unknown)은 "아직 모름"</b>(감점 아님·마이그레이션 부채) — 고아(확실히 무연결)와 구분.
@@ -2090,6 +2186,9 @@ function HarnessScorecardCard() {
               ["범위(runtime)", <Badge kind={d.scope.runtime === "factory" ? "ok" : "muted"}>{d.scope.runtime}</Badge>],
               ["에이전트 / 스킬", `${d.counts.agents} / ${d.counts.skills}`],
               ["고아 — 에이전트 / 스킬", `${orphanBy("agent")} / ${orphanBy("skill")}`],
+              // B5(ADR-001 D6): BEHAVIOR 는 **진단 접기 안에만** 보인다. 최상위 4축 카드는 불변이고
+              // 5번째 축도 새 분류도 만들지 않는다 — 기존 orphan/dead_link 에 subject_kind 로 얹혔다.
+              ...(orphanBy("behavior") > 0 ? [["고아 — BEHAVIOR", `${orphanBy("behavior")}`]] : []),
               ["namespace", <>
                 <Badge kind={d.factory ? "ok" : "muted"}>factory {d.factory ? "policy-audit" : "n/a"}</Badge>{" "}
                 <Badge kind="muted">built portable</Badge>{" "}
@@ -2113,7 +2212,7 @@ function HarnessScorecardCard() {
                 items.length ? (
                   <details className="tier-b"><summary>{items.slice(0, 4).map((f) => f.subject + (f.target ? `→${f.target}` : "")).join(", ")}{items.length > 4 ? " …" : ""}</summary>
                     <ul style={{ margin: "4px 0 0", paddingLeft: 16 }}>
-                      {items.map((f) => <li key={f.id}><code>{f.subject}{f.target ? `→${f.target}` : ""}</code> <span className="muted">· {f.provenance}{f.detail ? ` · ${f.detail}` : ""}</span></li>)}
+                      {items.map((f) => <li key={f.id}><code>{f.subject}{f.target ? `→${f.target}` : ""}</code>{f.subject_kind === "behavior" && <> <Badge kind="muted">behavior</Badge></>} <span className="muted">· {f.provenance}{f.detail ? ` · ${f.detail}` : ""}</span></li>)}
                     </ul>
                   </details>
                 ) : "—",
@@ -2152,12 +2251,18 @@ function HarnessScorecardCard() {
             )}
             <div style={{ marginTop: 10 }}>
               <button type="button" className="primary" disabled={busy} onClick={recordSnapshot}>{busy ? "기록 중…" : "지금 스냅샷 기록"}</button>
-              {snapMsg && <span className="muted" style={{ marginLeft: 10 }}>{snapMsg}</span>}
+              {snapMsg && (
+                <span
+                  className={snapMsg.failed ? "err" : "muted"}
+                  role={snapMsg.failed ? "alert" : "status"}
+                  style={{ marginLeft: 10 }}
+                >{snapMsg.failed ? "⚠ " : ""}{snapMsg.text}</span>
+              )}
             </div>
           </>
         );
       }}</Async>
-    </Card>
+    </div>
   );
 }
 
@@ -2317,6 +2422,7 @@ export function Eval() {
 }
 
 function EvalMain() {
+  const [diagOpen, setDiagOpen] = useState(false); // P0-c: 진단 패널 지연 마운트(펼칠 때만 API 호출)
   const st = useApi<ArtifactEvalResult>("/api/eval/artifacts");
   const editLink = (a: ArtifactScore) => `#/${a.kind === "agent" ? "agents" : "skills"}?sel=${encodeURIComponent(a.name)}`;
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -2411,6 +2517,17 @@ function EvalMain() {
               </div>
             </div>
             <p className="muted" style={{ marginTop: 8 }}>정적 측정(계층A·참고용)·제안은 자동 적용 안 함(편집기 수동). 축·등급 근거는 위 <b>평가 기준</b> 참조.</p>
+            {/* P0-c: 구성 건강도 진단 — **접기로만** 제공한다(설계 §8 "노출은 하나" 불변).
+                위 `구성 관계` 칩은 집계 4개 숫자뿐이라, 개별 findings 대상·미선언(부채) 구분·
+                추세·스냅샷 기록은 여기서만 볼 수 있다. */}
+            <details className="tier-b sc-diagnostics" onToggle={(e) => (e.currentTarget as HTMLDetailsElement).open && setDiagOpen(true)}>
+              <summary>구성 건강도 진단 (harness_scorecard · 개별 대상·추세·스냅샷)</summary>
+              {/* **펼칠 때만 마운트**한다(기존 onToggle 관례). `<details>` 는 닫혀 있어도 자식을
+                  마운트하므로 그냥 넣으면 Eval 진입마다 scorecard GET 이 나간다 — 그런데
+                  4축 엔드포인트가 이미 `computeHarnessScorecard` 를 부르므로(artifacteval.ts:243)
+                  구성 파싱이 매번 **두 번** 돌게 된다(R1 양 엔진). */}
+              {diagOpen ? <HarnessScorecardCard /> : <p className="muted">펼치면 불러옵니다.</p>}
+            </details>
           </Card>
           {/* M-y2 비용 합의 카드 — 선택 대상 N개·대상당 초안 잡 1개(claude run)·quota 확인 후에만 실행. */}
           {selectable.length > 0 && (
@@ -2485,15 +2602,66 @@ export async function bulkApplyItems(
 }
 
 // M-y2 검토 큐 — 배치 진행/결과를 대상별 카드로. ready 는 diff(접힘) + [적용](사람 승인)·[건너뛰기]. 적용=putDefinition(F7 재사용).
+/**
+ * P0-e: 배치 항목 → 단건 편집기 딥링크(초안 주입).
+ * 아티팩트 목록의 `editLink` 와 같은 경로 규칙에 `remediate=<runId>` 를 더한다.
+ * 편집기는 초안의 kind/name 이 대상과 다르면 주입을 거부하므로(mismatched-target)
+ * 링크가 잘못돼도 엉뚱한 초안이 열리지 않는다.
+ */
+export function draftEditLink(
+  item: { kind: "agent" | "skill"; name: string; runId?: string | null },
+  returnTo?: string | null,
+): string {
+  let link = `#/${item.kind === "agent" ? "agents" : "skills"}?sel=${encodeURIComponent(item.name)}`;
+  if (item.runId) link += `&remediate=${encodeURIComponent(item.runId)}`;
+  // 복귀 동선(R1 codex): B 의 전제가 "고치고 **돌아옴**"인데 돌아갈 길이 없었다.
+  //   뒤로가기에만 의존하면 새 탭·중간 이동 시 배치 id 를 복구할 방법이 없다.
+  if (returnTo) link += `&returnTo=${encodeURIComponent(returnTo)}`;
+  return link;
+}
+
+/** 해시 쿼리에서 `returnTo` 를 읽는다. 값이 없거나 `#/` 로 시작하지 않으면 무시(오픈 리다이렉트 방지). */
+export function returnToFromHash(hash: string): string | null {
+  const q = hash.indexOf("?");
+  if (q < 0) return null;
+  const v = new URLSearchParams(hash.slice(q + 1)).get("returnTo");
+  return v && v.startsWith("#/") ? v : null;   // 앱 내부 해시 경로만 허용
+}
+
 const BATCH_TERMINAL = new Set(["ready", "failed", "invalid", "cancelled", "skipped"]);
 function batchStatusKind(s: string): "ok" | "warn" | "err" {
   return s === "ready" ? "ok" : s === "running" || s === "queued" ? "warn" : "err";
 }
+/**
+ * 배치 진행 상태(적용됨/건너뜀)를 **세션에 보존**하는 Set.
+ *
+ * 왜 필요한가(P0-e R6 양 엔진 HIGH): 이 상태가 로컬이면 초안 편집 딥링크로 이탈했다
+ * 돌아올 때 초기화된다. 그러면 사용자가 방금 편집·저장을 마친 항목이 큐에서
+ * `ready + stale` 로 보여 **"적용(저장)" 버튼과 "stale N개 재생성"** 이 뜬다.
+ * 성공한 작업이 실패처럼 보이는 것이다. `batchId` 로 키를 나눠 배치별로 기억한다.
+ *
+ * sessionStorage 는 사생활 보호 모드 등에서 던질 수 있으므로 읽기·쓰기 모두 감싼다.
+ */
+function useSessionSet(key: string): [Set<string>, (add: string[]) => void] {
+  const [s, setS] = useState<Set<string>>(() => readSessionSet(key));
+  // ⚠ setState **updater 안에서 sessionStorage 를 쓰지 않는다**(R7 agy HIGH).
+  //   updater 는 순수해야 한다 — StrictMode·동시성에서 중복 호출되거나 렌더가 폐기되면
+  //   메모리 상태는 롤백되는데 저장소에는 값이 남아 **불일치**가 생긴다.
+  //   상태가 실제로 바뀐 뒤 effect 에서 동기화한다.
+  useEffect(() => { writeSessionSet(key, s); }, [key, s]);
+  const add = (keys: string[]) => setS((prev) => {
+    const next = new Set(prev); for (const k of keys) next.add(k);
+    return next;
+  });
+  return [s, add];
+}
+
 function BatchReviewQueue({ batchId }: { batchId: string }) {
   const [view, setView] = useState<BatchView | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [applied, setApplied] = useState<Set<string>>(new Set());
-  const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  // 이탈·복귀·새로고침에도 유지된다(위 훅 주석 참조).
+  const [applied, addApplied] = useSessionSet(`batch:${batchId}:applied`);
+  const [skipped, addSkipped] = useSessionSet(`batch:${batchId}:skipped`);
   const keyOf = (it: BatchItemView) => it.runId ?? `${it.kind}:${it.name}`; // runId 우선(고유) — kind:name 은 배치 내 dedup 되나 방어적으로 runId 사용
   useEffect(() => {
     let live = true; let timer: ReturnType<typeof setTimeout> | null = null;
@@ -2518,7 +2686,7 @@ function BatchReviewQueue({ batchId }: { batchId: string }) {
   const bulkApply = async (items: BatchItemView[]) => {
     setBulking(true); setBulkMsg(null);
     const { okKeys, failed } = await bulkApplyItems(items, applyBatchItem);
-    if (okKeys.length) setApplied((s) => { const n = new Set(s); for (const k of okKeys) n.add(k); return n; });
+    if (okKeys.length) addApplied(okKeys);
     const failNote = failed.length ? ` · 실패 ${failed.length}: ${failed.map((f) => `${f.name}(${f.code})`).join(", ")}` : "";
     setBulking(false);
     setBulkMsg(`일괄 적용 완료 — 성공 ${okKeys.length}${failNote}${failed.length ? " · 실패분은 [stale 재생성] 또는 개별 검토" : ""}`);
@@ -2545,8 +2713,8 @@ function BatchReviewQueue({ batchId }: { batchId: string }) {
           </Card>
           {view.items.map((it) => (
             <BatchItemCard key={keyOf(it)} item={it} applied={applied.has(keyOf(it))} skipped={skipped.has(keyOf(it))} busy={bulking}
-              onApplied={() => setApplied((s) => new Set(s).add(keyOf(it)))}
-              onSkip={() => setSkipped((s) => new Set(s).add(keyOf(it)))} />
+              onApplied={() => addApplied([keyOf(it)])}
+              onSkip={() => addSkipped([keyOf(it)])} />
           ))}
         </>);
       })()}
@@ -2587,6 +2755,9 @@ function BatchItemCard({ item, applied, skipped, busy, onApplied, onSkip }: {
     <Card title={`${item.kind === "agent" ? "에이전트" : "스킬"} · ${item.name}`}>
       <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <Badge kind={batchStatusKind(item.status)}>{item.status}</Badge>
+        {/* 적용됨과 stale 은 **함께 보일 수 있다**(R7 codex MED): 세션 기록이 서버의 현재
+            상태를 가리면 적용 후 롤백·재변경을 사용자가 놓친다. 정보는 숨기지 않고,
+            아래 문구로 원인을 구분한다. */}
         {item.stale && item.status === "ready" && <Badge kind="warn">stale(정의 변경됨)</Badge>}
         {applied && <Badge kind="ok">적용됨</Badge>}
         {skipped && <Badge kind="err">건너뜀</Badge>}
@@ -2602,9 +2773,38 @@ function BatchItemCard({ item, applied, skipped, busy, onApplied, onSkip }: {
           </details>
           <div className="row" style={{ gap: 8, marginTop: 8 }}>
             <button className="btn primary" disabled={applying || busy} onClick={apply}>{applying ? "적용 중…" : "적용(저장)"}</button>
+            {/* P0-e: 일괄 경로에서도 **초안을 고쳐** 적용할 수 있게 한다.
+                단건 편집기는 `?sel=&remediate=` 로 들어오면 초안을 편집 버퍼에 주입하므로
+                (useRemedDeepLink → setEdited) 이 링크 하나로 통제 입도가 단건과 같아진다.
+                인라인 편집 대신 이 경로를 쓰는 이유: applyBatchItem 이 초안을 재조회해
+                PUT 하는 구조라, 편집분을 끼워넣으면 baseHash(=초안이 파생된 원본 버전)
+                취급을 새로 만들어야 하고 낙관적 동시성이 깨질 위험이 크다. */}
+            {item.runId && (
+              <a className="btn" href={draftEditLink(item, location.hash)}>초안 고쳐서 적용 →</a>
+            )}
             <button className="btn" disabled={applying || busy} onClick={onSkip}>건너뛰기</button>
           </div>
+          <p className="muted" style={{ marginTop: 6 }}>
+            여기서는 초안을 <b>그대로</b> 적용합니다. 내용을 고치려면 <b>초안 고쳐서 적용</b>으로 편집기에서 수정 후 저장하세요.
+          </p>
         </>
+      )}
+      {/* stale 안내는 **`!done` 밖에 둔다**(R13 agy HIGH): `!done` 안에 있으면 정작
+          "적용됨" 상태에서 안 보여, 사용자가 [stale]+[적용됨] 배지만 보고 충돌로 오인한다.
+          R7 에서 "문구로 원인을 구분한다"고 한 설계가 UI 구조로 무산돼 있었다. */}
+      {item.stale && item.status === "ready" && (
+        <p className="warn-text" style={{ marginTop: 4 }}>
+          {applied
+            // `applied` 는 **과거 처리 이력**이지 현재 stale 의 원인을 보장하지 않는다
+            //   (적용 후 롤백·외부 변경도 stale 을 만든다). 원인을 단정하지 않는다(R14 양 엔진).
+            ? <>⚠ 적용 이후 정의가 <b>다시 바뀌었을 수 있습니다</b>. 이 항목은 이미 적용 처리됐으니 보통은 그대로 두면 됩니다.
+              확인이 필요하면 <b>재생성</b> 후 현재 정의와 비교하세요.</>
+            : skipped
+              // 건너뛴 항목엔 적용·건너뛰기 버튼이 이미 없다. 없는 버튼을 누르라고 하지 않는다(R14 agy).
+              ? <>⚠ 초안 생성 후 정의가 바뀌었습니다. 이 항목은 <b>건너뜀</b> 처리됐습니다 — 다시 다루려면 <b>재생성</b> 후 검토하세요.</>
+              : <>⚠ 초안 생성 후 정의가 바뀌었습니다. <b>직접 편집해 저장했다면 이미 반영된 것</b>이니 건너뛰세요.
+                그렇지 않다면 <b>재생성</b> 후 다시 검토하세요. (이 상태에서 적용하면 거부됩니다)</>}
+        </p>
       )}
       {msg && <p className={`banner ${applied ? "ok" : "err"}`} role="status">{msg}</p>}
     </Card>

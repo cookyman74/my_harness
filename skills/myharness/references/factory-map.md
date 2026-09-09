@@ -25,7 +25,7 @@
 | `check-artifacts.sh` + pre-commit hook(결과서 방치 물리 차단·grep 검증) | ✅ active | 강제장치. L2 mock A/B 6/6 PASS. 티어 독립(T0/Tμ 무마찰). 프롬프트 아닌 런타임 |
 | 문서 체계 D4 2단계(T2 full·main_todolist+단계plan·병렬 merge·동적 격상) | 📐 **설계 승인·미구현** | 미검증 발명 보류. 코어 안정화 후. (T2-lite 구조=외부감사 기각) |
 | loop-self-eval 단계 3·4(제안·자동 환류) | 🧪 **실험적·비활성** | 데이터·holdout 후 |
-| self-improvement-loop | 📐 **설계만** | `run-benchmark.sh` **미구현** → 현재 실행 불가 |
+| self-improvement-loop | 🟡 **부분 가동** | 러너 `run-benchmark.sh`·채점기 `grade-trajectory.sh` 구현(§4 계약·궤적 수집·기계 검증). **미구현: 반복 R회 집계·baseline 캐싱·CI 비중첩 채택식(§8)** → 채택 결정은 아직 수동 |
 > 🧪/📐 기능은 **생성된 하네스가 자동 실행하지 않는다**. "있다고 적힌" 것 ≠ "돈다". MVP 전까지 설계 참조용.
 
 ## 3. 루프 개요 지도 (어떤 루프가 언제)
@@ -37,7 +37,7 @@
        [loop_scorecard] 루프 효율 측정·로깅 (build-scorecard.sh)                          ✅ 1단계
             ↓ (실험적)
        [loop-self-eval 3·4] 추세 악화 → 흐름 개선 "제안"(승인 게이트)                       🧪
-       [self-improvement-loop] 산출물 벤치(artifact_benchmark) → holdout → 채택            📐 설계만
+       [self-improvement-loop] 산출물 벤치(artifact_benchmark) → holdout → 채택            🟡 러너 가동·채택식 수동
        [test-refine] 스킬 with/without·assertion 반복 개선 (Phase 6-3, ε 수렴)             ✅
        [진화 Phase 7] 피드백·수치 트리거 → 하네스 갱신                                       ✅(관찰)/🧪(수치)
 ```

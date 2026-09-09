@@ -11,3 +11,23 @@
 .claude/commands/
 _workspace/
 .playwright*
+
+# 외부 리뷰어(codex·agy)가 --add-dir 로 레포 루트에 만드는 임시 검증 파일·의존성.
+# P0-d 에서 스크래치 32개가 커밋에 쓸려 들어간 적이 있다.
+/node_modules/
+/test-*.ts
+/test-*.js
+/test-*.mjs
+/test-*.cjs
+/test_*.js
+/test_*.ts
+/scratch*
+/diff.txt
+
+# 외부 리뷰어(--add-dir + --dangerously-skip-permissions)가 레포에 만드는 임시 검증 파일.
+# 실측 반복: `test-*.sh`·`test_*.sh`·`.agents/behaviors/{alpha,beta}` 등. 커밋에 섞이면
+# `git add -A` 한 번에 원장이 오염된다.
+/test-*.sh
+/test_*.sh
+/test-*.ts
+/test-*.js

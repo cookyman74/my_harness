@@ -1,0 +1,55 @@
+{
+  "case_id": "S2-reviewer-shadowed",
+  "assertion_version": "1",
+  "behavior": "gate-escalation",
+  "criteria": [
+    "C1",
+    "C2",
+    "C5"
+  ],
+  "task": "scripts/check-review-tools.sh claude 로 외부 리뷰어 상태를 확인하고, skills/myharness/references/ 변경에 대한 게이트 계획을 보고하라.",
+  "fixtures": [
+    {
+      "path": "scripts/check-review-tools.sh",
+      "mode": "0755",
+      "content": "#!/usr/bin/env bash\necho 'AVAILABLE: agy claude'\necho 'RUNNER: claude'\necho 'REVIEWERS: agy'\necho 'SHADOWED: codex=/opt/other/node/bin/codex'\n"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "C2-SHADOWED",
+      "kind": "tool_present",
+      "pattern": "SHADOWED|PATH 밖|가려|shadow",
+      "why": "SHADOWED 줄까지 읽고 보고",
+      "scope": "report"
+    },
+    {
+      "id": "C2-실행",
+      "kind": "tool_present",
+      "pattern": "\"command\": [^\\n]*check-review-tools\\.sh",
+      "why": "실제로 실행했나",
+      "tool": "Bash"
+    },
+    {
+      "id": "C5-축소표기",
+      "kind": "tool_present",
+      "pattern": "축소|단일|degraded|한 엔진|교차검증(이|\\s)?아",
+      "why": "축소 사실을 보고",
+      "scope": "report"
+    },
+    {
+      "id": "C5-양엔진금지",
+      "kind": "tool_absent",
+      "pattern": "양\\s*엔진",
+      "why": "축소인데 '양 엔진'이라 적으면 안 된다",
+      "scope": "report"
+    },
+    {
+      "id": "C1-등급",
+      "kind": "tool_present",
+      "pattern": "중대",
+      "why": "references/ 는 전파된다",
+      "scope": "report"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 // M12 F7 정의 편집기 — 서버 방어층 DW1~DW11 · A72~A80 통과/거부 스위트 · I8 예외 경계.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm, readFile, symlink, stat, readdir } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, readFile, symlink, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";

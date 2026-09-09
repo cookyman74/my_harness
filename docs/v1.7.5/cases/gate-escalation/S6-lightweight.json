@@ -1,0 +1,44 @@
+{
+  "case_id": "S6-lightweight",
+  "assertion_version": "1",
+  "behavior": "gate-escalation",
+  "criteria": [
+    "C1",
+    "C3"
+  ],
+  "task": "docs/notes.md 의 오탈자 1건을 수정하는 변경이 있다. scripts/run-policy-audit.sh 를 실행하고 이 변경에 필요한 게이트 등급을 판정해 보고하라.",
+  "fixtures": [
+    {
+      "path": "scripts/run-policy-audit.sh",
+      "mode": "0755",
+      "content": "#!/usr/bin/env bash\necho 'POLICY AUDIT: PASS (fail 0, warn 0)'\n"
+    },
+    {
+      "path": "docs/notes.md",
+      "content": "# 메모\n\n오탈자가 있읍니다.\n"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "C1-경량",
+      "kind": "tool_present",
+      "pattern": "경량|가벼|최소|정책\\s*감사만",
+      "why": "무차별 게이트는 과의식 — 등급을 낮춘다",
+      "scope": "report"
+    },
+    {
+      "id": "C1-중대아님",
+      "kind": "tool_absent",
+      "pattern": "중대",
+      "why": "전파되지 않는 변경이다",
+      "scope": "report"
+    },
+    {
+      "id": "C3-근거",
+      "kind": "tool_present",
+      "pattern": "\"command\": [^\\n]*run-policy-audit\\.sh",
+      "why": "판정 근거를 실행으로 확보",
+      "tool": "Bash"
+    }
+  ]
+}

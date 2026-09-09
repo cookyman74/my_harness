@@ -14,8 +14,8 @@
 //   - copy-drift: 다른 (dev,ino)·내용 상이 → drift(명시 다타깃 apply 대상).
 //   - broken: dangling/foreign 심링크(정본 아닌 심링크는 O_NOFOLLOW 쓰기 불가라 안전 동기 불가)·비정규 파일·stat 실패
 //       → fail-soft 태깅(스캔 중단 없음·동기 대상 아님).
-import { lstat, readlink, realpath, readFile, readdir } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { lstat, realpath, readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { editableSkillDirs } from "./runtimes.js";
 import { isSafeSegment } from "../lib/paths.js";

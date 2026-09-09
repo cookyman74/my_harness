@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
-import { submitRun, tick, pendingCount, _resetGovernorForTest, initGovernance, stopGovernance } from "../src/server/adapters/governed.js";
+import { submitRun, pendingCount, _resetGovernorForTest, initGovernance, stopGovernance } from "../src/server/adapters/governed.js";
 
 let stateDir: string;
 const orig = process.env.HARNESS_STATE_HOME;

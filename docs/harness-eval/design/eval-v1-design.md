@@ -1,7 +1,7 @@
 # 설계서 — 하네스 아티팩트 단일 평가 + 자동 개선 (Eval v1)
 
 > PRD: `../prd/eval-v1-prd.md`. 정합 대상: `skills/myharness/references/{harness-scorecard,loop-self-eval,external-review-loop}.md`, `harness-ui/src/server/adapters/{scorecard,evals}.ts`, myharness Phase 7-7(update).
-> 원칙: 기존 `harness_scorecard`를 **확장**(새 병렬 시스템 금지). 측정=자동 / 행동=비자동. 삭제 우선.
+> 원칙: 기존 `harness_scorecard`를 **확장**(새 병렬 시스템 금지). 측정=현재 비자동(P0-M-RESTORE) / 행동=비자동. 삭제 우선.
 
 ## 0. 요약 아키텍처
 
@@ -173,8 +173,13 @@
 ## 9. 열린 질문 (v1 캘리브레이션)
 - 등급 임계(A/B/C/D)·축 가중치·min-gate 과락선은 fixture로 캘리브레이션 후 확정.
 - outcome holdout 세트 구성·통과 임계 θ는 리스크 등급별 기본값(§3-1).
-- 완전성(over-pruning 가드) 필수 섹션 목록은 kind별(agent: 역할·프로토콜·에러 / skill: 트리거·절차·why)로 확정.
+- 완전성(over-pruning 가드) 필수 섹션 목록은 kind별로 확정 — **agent: 역할·원칙·프로토콜·에러·협업(5종) / skill: 절차·트리거(2종)**.
+  > ⚠ **2026-08-31 정정**(B2 선결 ①·B4 R6). 이 줄은 원래 `agent: 역할·프로토콜·에러 / skill: 트리거·절차·why` 였는데 **둘 다 실제와 달랐다**:
+  > - agent 3종 → `SKILL.md:113` 이 규정하는 **5종**으로 통일했다(실제 정의 6개가 전부 5종을 따르고 있었다·새 finding 0/6).
+  > - skill 의 `why` → **관례가 실재하지 않는다.** 실측: 이 레포 스킬 6개 **전부** `why` 섹션이 없어 추가 시 **6/6 이 새 finding** 이 된다. 정본(`SKILL.md`)도 스킬 필수 섹션에 `why` 를 요구하지 않는다. **설계서 쪽이 stale 이므로 코드를 바꾸지 않고 이 줄을 고친다.**
+  >
+  > 코드 SSOT 는 `artifacteval.ts` 의 `REQUIRED_SECTIONS` 다.
 
 ## 다음 단계 참조
 - **미해결·선결:** ① 이 설계 외부감사(codex+agy) → no-high. ② E1(계층A 4축·측정만) 먼저 — 저위험·재사용 큼. ③ harness_scorecard 통합 vs 병행 결정.
-- **핵심 결정:** 기존 `harness_scorecard` **확장**으로 4축 흡수(새 병렬 금지). 측정=자동·행동=비자동. **삭제(가지치기) 우선**·external-review 교차검증. 전파=update(7-7) 재사용.
+- **핵심 결정:** 기존 `harness_scorecard` **확장**으로 4축 흡수(새 병렬 금지). 측정=현재 비자동(P0-M-RESTORE)·행동=비자동. **삭제(가지치기) 우선**·external-review 교차검증. 전파=update(7-7) 재사용.

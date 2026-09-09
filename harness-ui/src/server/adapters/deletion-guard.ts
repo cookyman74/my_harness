@@ -1,0 +1,165 @@
+// 삭제 테스트 가드(B4) — E3(계층B 삭제 판정)이 붙기 **전에** 세우는 방어선.
+//
+// ⚠ **교체가 아니라 추가다.** 결정적 heading 가드를 검증되지 않은 의미 매핑으로 바꾸면
+// 안전성이 **낮아진다**. 가장 위험한 경우는 필수 문장인데 매핑기가 "대응 없음"으로 판정하는
+// false negative 이므로, 이 가드는 **대응을 찾지 못한 경우에도 자동 적용을 막는다**.
+//
+// 이 가드가 막는 것은 **자동 적용**이지 제안이 아니다(계획서 §B4: "매핑 불확실·BEHAVIOR
+// 미포괄·판정기 부재 → 자동 삭제 불가(**제안만**)"). 제안은 언제나 가능하고 사람이 판단한다.
+//
+// **게이트 2(동적 테스트)를 대체하지 않는다.** 이건 3중 게이트의 정적 1층일 뿐이다.
+import { REQUIRED_SECTIONS, splitSections } from "./artifacteval.js";
+
+export type GuardInput = {
+  /** 삭제 후보 문장(본문 한 줄). */
+  line: string;
+  /** 그 문장이 속한 섹션의 heading(`## …`). 없으면 빈 문자열. */
+  sectionHeading: string;
+  kind: "agent" | "skill";
+  /** 참조 BEHAVIOR 본문 맵(정의가 `behaviors:` 로 선언한 것). 비어 있으면 "미포괄". */
+  behaviorBodies?: ReadonlyMap<string, string>;
+  /**
+   * **의미 판정기(계층B/E3)의 결과.** 정적 토큰 겹침은 "대응 없음"과 "찾지 못했다"를
+   * **구분하지 못한다** — 계획서 §B4 는 그 구분 불가를 "매핑 불확실"로 보고 **거부**하라고 한다.
+   * 따라서 자동 적용에는 **대응 없음을 적극적으로 확인한 판정**이 필요하다.
+   * 없으면 불확실 → 자동 적용 불가.
+   */
+  semanticJudge?: { correspondsToPreserved: boolean };
+  /**
+   * **게이트 2(동적 테스트)의 결과.** 이 가드는 3중 게이트의 **정적 1층**일 뿐이고
+   * 게이트 2 를 대체하지 않는다(계획서 §B4). 없으면 "판정기 부재" → 자동 적용 불가.
+   * E3 가 붙기 전에는 `semanticJudge`·`dynamicGate` 가 항상 `undefined` 이므로
+   * **자동 삭제는 어느 문장에서도 일어나지 않는다** — 그게 이 단계의 의도된 상태다.
+   */
+  dynamicGate?: { triggerEvalPassed: boolean; holdoutNoRegression: boolean };
+};
+
+export type GuardVerdict = {
+  /** 자동 적용을 허용하는가. **제안은 이 값과 무관하게 언제나 가능하다.** */
+  autoApply: boolean;
+  /** 막은 이유(허용이면 판단 근거). 사람이 읽고 뒤집을 수 있어야 한다. */
+  reason: string;
+  /** 어느 층이 막았나 — 결정적 가드 / behavior 보존 가드 / 불확실. */
+  layer: "deterministic" | "behavior" | "uncertain" | "allow";
+};
+
+// 핵심 제약 — 금지·필수 어휘. 이 문장들은 섹션과 무관하게 보존한다.
+// (`Failure modes` 가 없던 시절 이 문장들은 협업·작업 원칙에 흩어져 있었다.)
+// **넓게 잡는다.** 여기서의 false negative 는 "보존해야 할 제약 문장이 자동 삭제되는 것"이고,
+// false positive 는 "지워도 될 문장이 제안에 머무는 것"이다 — 비대칭이 크므로 과탐을 택한다.
+// **어간 + 어미 클래스로 일반화한다.** 어미를 하나씩 추가하는 방식은 세 라운드 연속 뚫렸다
+// (R1 → R2 정중형 → R5 `금합니다`·`제외합니다`·`지우지 마`). 어미는 유한하지 않다.
+// 여기서 false negative 는 "보존할 문장이 자동 삭제됨"이고 false positive 는 "지워도 될 문장이
+// 제안에 머묾"이다 — **비대칭이 크므로 과탐을 택한다.**
+// `하`-동사는 **어간 끝 음절 자체가 바뀐다**(금하→금**한**다, 금**합**니다). 어미만 붙여서는
+// 안 잡히므로 활용 음절 집합으로 받는다.
+const HA = "(?:하|한|합|할|함|해|했)";
+// 부정 보조용언: `…지 않/말/마` 를 어떤 동사 뒤에서도 잡는다.
+const KO_NEGATION = "[가-힣]+지\\s*(?:않|말|마)";
+const CONSTRAINT = new RegExp([
+  KO_NEGATION,
+  // 한국어 금지·제약 — 어간 + 활용 음절
+  `금(?:지|${HA})`, "불가", "삼(?:가|간|갑|갈)",
+  `(?:지양|배제|제외|차단|제한)${HA}`,
+  "안\\s*(?:된|됨|됩|돼|되)", "못\\s*(?:한|합|하|해)", "말\\s*것", "없이\\s*진행",
+  // 한국어 필수·강조
+  "반드시", "절대", "필수", "의무", "무조건", "항상", "먼저", "지켜", "지킨",
+  `(?:보장|고정|유지)${HA}`,
+  "만\\s*(?:한|함|합|해)", "어야\\s*(?:한|함|합|해)", "해야",
+  // 영어 부정·금지(어형 변화 포함)
+  "must\\s*not", "mustn't", "shall\\s*not", "should\\s*not", "shouldn't",
+  "cannot", "can't", "do(?:es)?\\s*not", "don't", "doesn't", "did\\s*not", "didn't",
+  "never", "no\\s+longer", "forbid\\w*", "prohibit\\w*", "disallow\\w*",
+  "refus\\w*", "reject\\w*", "avoid\\w*", "den(?:y|ies|ied|ying)", "exclud\\w*", "restrict\\w*",
+  // 영어 필수
+  "must\\b", "requir\\w*", "mandator\\w*", "always", "only\\s+if", "ensur\\w*", "guarantee\\w*",
+].join("|"), "i");
+
+// behavior 보존 대상 차원 — **`Failure modes` 를 빠뜨리면 금지·제약 문장이 방어선을 우회한다**
+// (계획서 §B4 경고·6차원 중 안전 직결).
+export const PRESERVED_DIMENSIONS = ["Evidence", "Decision", "Recovery", "Failure modes"] as const;
+
+// 문장 정규화 — 비교는 결정적이어야 한다(LLM 없음).
+function norm(s: string): string {
+  // 마크다운 기호 **와 일반 구두점**을 모두 지운다 — `"판단한다."` 와 `"판단한다"` 가 다른
+  // 토큰이 되면 짧은 문장에서 구두점 하나로 임계 미달이 나 **보존 대상이 "대응 없음"으로
+  // 오판**된다(R3 agy HIGH).
+  return s.toLowerCase()
+    .replace(/[`*_>#~[\]()]/g, " ")
+    .replace(/[.,!?;:"'“”‘’·…—–\-/\\|]/g, " ")
+    .replace(/\s+/g, " ").trim();
+}
+// 대응 판정 — **길이 차에 강건한 overlap 계수**를 쓴다(R1 agy HIGH).
+// 자카드는 `"Do not skip"` vs `"You must not skip this phase"` 처럼 길이가 다르면 2/7=0.28 로
+// 임계 미달이 돼 **핵심 의미가 같은데 "대응 없음"** 이 된다 — 계획서가 가장 위험하다고 한
+// false negative 다. overlap = |A∩B| / min(|A|,|B|) 는 짧은 쪽이 긴 쪽에 포함되면 1.0 이다.
+// **1글자 토큰을 버리지 않는다** — "안"·"못"·"꼭" 같은 한국어 핵심 제약어가 사라진다.
+function tokens(s: string): Set<string> {
+  return new Set(norm(s).split(" ").filter((t) => t.length > 0));
+}
+export function overlap(a: string, b: string): number {
+  const A = tokens(a), B = tokens(b);
+  if (A.size === 0 || B.size === 0) return 0;
+  let inter = 0;
+  for (const t of A) if (B.has(t)) inter++;
+  return inter / Math.min(A.size, B.size);
+}
+export const CORRESPOND_THRESHOLD = 0.5;
+function correspond(a: string, b: string): boolean { return overlap(a, b) >= CORRESPOND_THRESHOLD; }
+
+export function deletionGuard(inp: GuardInput): GuardVerdict {
+  const line = inp.line.trim();
+  if (!line) return { autoApply: false, reason: "빈 줄 — 판정 대상이 아니다", layer: "uncertain" };
+  // **섹션 정보가 없으면 필수 섹션 여부를 판정할 수 없다** → 불확실이므로 거부한다
+  // (R4 codex HIGH). 이걸 통과시키면 필수 섹션 문장이 `sectionHeading: ""` 로 1층을 빠져나가
+  // 뒤에서 `semanticJudge=false` + `dynamicGate` 통과 시 자동 삭제된다.
+  if (!inp.sectionHeading.trim()) {
+    return { autoApply: false, reason: "섹션 정보 없음 — 필수 섹션 여부를 판정할 수 없다(불확실)", layer: "uncertain" };
+  }
+
+  // ── 1층: 결정적 가드(기존·불변) ──────────────────────────────────────
+  // 필수 섹션 안의 문장은 자동 삭제하지 않는다. 접촉 시 자동 거부는 불변이다.
+  const req = inp.kind === "agent" ? REQUIRED_SECTIONS.agent : REQUIRED_SECTIONS.skill;
+  // 대소문자를 정규화해 비교한다 — `## failure modes` 처럼 소문자로 적힌 섹션이 매칭되지 않으면
+  // 계획서가 가장 경계한 `Failure modes` 누락이 그대로 발생한다(R1 agy HIGH).
+  const headLc = inp.sectionHeading.toLowerCase();
+  const hitSec = req.find((s) => headLc.includes(s.toLowerCase()));
+  if (hitSec) return { autoApply: false, reason: `필수 섹션 '${hitSec}' 내부 — 완전성 가드(자동 거부 불변)`, layer: "deterministic" };
+  if (CONSTRAINT.test(line)) return { autoApply: false, reason: "핵심 제약(금지·필수) 문장 — over-pruning 차단", layer: "deterministic" };
+
+  // ── 2층: behavior 보존 가드(AND 추가) ────────────────────────────────
+  const bodies = inp.behaviorBodies;
+  if (!bodies || bodies.size === 0) {
+    // **BEHAVIOR 미포괄 = 불확실 = 자동 적용 불가.** "대응 없음"으로 읽으면 안 된다 —
+    // 그게 계획서가 경고한 false negative 다.
+    return { autoApply: false, reason: "참조 BEHAVIOR 없음(미포괄) — 대응 여부를 판정할 수 없다", layer: "uncertain" };
+  }
+  for (const [name, body] of bodies) {
+    for (const sec of splitSections(body)) {
+      const secLc = sec.heading.toLowerCase();
+      const dim = PRESERVED_DIMENSIONS.find((d) => secLc.includes(d.toLowerCase()));
+      if (!dim) continue;
+      // ⚠ **`ls.indexOf(sec.heading)` 을 쓰지 않는다**(R1 agy HIGH): heading 뒤 공백·CRLF·중복
+      // heading 이면 `-1` 이 나와 `seg` 가 빈 배열이 되고 **그 차원 검사가 조용히 생략**된다.
+      // `splitSections` 가 이미 섹션 경계를 알고 있으므로 그 결과를 그대로 쓴다.
+      for (const cand of sec.lines) {
+        if (!cand.trim()) continue;
+        if (correspond(line, cand)) {
+          return { autoApply: false, reason: `BEHAVIOR '${name}' 의 ${dim} 에 대응 — 보존`, layer: "behavior" };
+        }
+      }
+    }
+  }
+  // 대응을 못 찾았다. **이것은 "대응 없음"이 아니라 "찾지 못했다"이다** —
+  // 토큰 겹침은 의미 판정이 아니므로 여기서 자동 적용을 허용하면 계획서 §B4 의
+  // "매핑 불확실은 거부"를 정면으로 어긴다(R3 agy HIGH — 머리말은 막는다고 적고 구현은
+  // 허용하고 있었다). **대응 없음을 적극 확인한 판정**이 있어야 다음 층으로 간다.
+  const j = inp.semanticJudge;
+  if (!j) return { autoApply: false, reason: "의미 판정기 결과 없음 — 대응 없음을 확인할 수 없다(매핑 불확실)", layer: "uncertain" };
+  if (j.correspondsToPreserved) return { autoApply: false, reason: "의미 판정기가 보존 차원 대응으로 판정 — 보존", layer: "behavior" };
+  const g = inp.dynamicGate;
+  if (!g) return { autoApply: false, reason: "동적 테스트(게이트 2) 결과 없음 — 판정기 부재로 자동 적용 불가", layer: "uncertain" };
+  if (!g.triggerEvalPassed) return { autoApply: false, reason: "동적 테스트 실패 — 트리거 eval 미통과", layer: "uncertain" };
+  if (!g.holdoutNoRegression) return { autoApply: false, reason: "outcome holdout 에서 저하 관측 — 자동 적용 불가", layer: "uncertain" };
+  return { autoApply: true, reason: "결정적 가드 통과 · 의미 판정기 '대응 없음' · 동적 테스트 통과", layer: "allow" };
+}

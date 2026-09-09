@@ -331,3 +331,136 @@ export function evalsConfigErrorText(code: string, status?: number): string {
     return "입력값이 유효하지 않습니다 — 채택 단계는 1~3, 임계는 각 floor(30/10/3) 이상이어야 합니다(서버 검증 실패).";
   return `설정 저장 실패${status ? ` (${status})` : ""}${code && code !== String(status) ? ` · ${code}` : ""}.`;
 }
+
+// ── P0-c 진단 뷰 상태 통지 ───────────────────────────────────────────────────
+/** `useApi` 가 돌려주는 것 중 상태 판정에 필요한 부분만. */
+export type ApiState = { loading: boolean; data: unknown; err: string | null };
+
+/**
+ * 진단 패널의 스크린리더 상태 문구.
+ *
+ * **`loading` 만 보면 안 된다**: `useApi` 의 초기 `loading` 은 `false` 이고 요청은 별도
+ * effect 에서 시작한다. 그래서 첫 계산이 "완료"로 나가고 뒤이어 "불러오는 중"으로
+ * 뒤집혀, 스크린리더 사용자가 **로드 완료로 오판**한다. 데이터도 오류도 아직 없으면 대기다.
+ *
+ * 순수 함수로 둔 이유: 컴포넌트 안에 두면 테스트가 AST 로 구현 형태를 쫓게 되고
+ * (setter 이름·useState 구조분해 등) 정상 리팩터링마다 깨진다. 입력→출력으로 검증한다.
+ */
+export function diagLiveMessage(sc: ApiState, trend: ApiState): string {
+  const pending = (s: ApiState) => s.loading || (s.data == null && s.err == null);
+  if (pending(sc) || pending(trend)) return "구성 건강도 진단 불러오는 중";
+  if (sc.err || trend.err) return "구성 건강도 진단 불러오기 실패";
+  return "구성 건강도 진단 불러오기 완료";
+}
+
+// ── P0-e 초안 주입 결정 ──────────────────────────────────────────────────────
+export type DraftInjectDecision = "inject" | "skip-already-injected" | "skip-stale";
+
+/**
+ * 딥링크로 받은 초안을 편집 버퍼에 주입할지 결정한다.
+ *
+ * 순서가 이 로직의 전부다(P0-e R3):
+ *  ① **이미 이 runId 로 주입했으면** 아무것도 바꾸지 않는다. 저장에 성공하면 정의가 바뀌어
+ *     재조회 결과가 stale 이 되는데, stale 을 먼저 보면 **성공한 작업을 "반영하지 않음"으로
+ *     뒤집어** 표시한다.
+ *  ② 아직 주입한 적 없는데 stale 이면 주입하지 않는다. 주입했다고 말해서도 안 된다 —
+ *     편집기엔 현재 정의 원본이 남아 있어 사용자가 초안인 줄 알고 저장한다.
+ *
+ * 순수 함수로 둔 이유: 컴포넌트 안에 두면 테스트가 `if` 문의 **텍스트 순서**를 단언하게 되고
+ * (P0-c 에서 겪은 형태 추적), 논리적으로 동등한 리팩터링에 거짓 실패한다.
+ */
+export function draftInjectDecision(a: {
+  runId: string;
+  injectedRunId: string | null;
+  stale: boolean;
+}): DraftInjectDecision {
+  if (a.injectedRunId === a.runId) return "skip-already-injected";
+  if (a.stale) return "skip-stale";
+  return "inject";
+}
+
+// ── P0-e 배치 진행 상태(세션 보존) ───────────────────────────────────────────
+/**
+ * 배치 진행 상태 키. 편집기와 검토 큐가 **같은 키**를 써야 왕복 동선이 이어진다.
+ * (P0-e R7: 편집기 저장 경로가 배치를 몰라 기록이 안 됐고, 그래서 R6 수정이
+ *  정작 목표 시나리오 — 초안 고쳐서 적용 → 저장 → 복귀 — 를 해결하지 못했다.)
+ */
+export const batchSessionKey = (batchId: string, kind: "applied" | "skipped") => `batch:${batchId}:${kind}`;
+
+/** `#/eval?batch=<id>` 형태의 해시에서 배치 id 를 뽑는다. 아니면 null. */
+export function batchIdFromHash(hash: string | null | undefined): string | null {
+  if (!hash) return null;
+  const q = hash.indexOf("?");
+  if (q < 0 || !hash.slice(0, q).startsWith("#/eval")) return null;
+  return new URLSearchParams(hash.slice(q + 1)).get("batch");
+}
+
+/** 세션 Set 읽기·쓰기. sessionStorage 는 사생활 보호 모드 등에서 던지므로 전부 감싼다. */
+export function readSessionSet(key: string): Set<string> {
+  try {
+    const raw = sessionStorage.getItem(key);
+    return new Set<string>(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch { return new Set<string>(); }
+}
+export function writeSessionSet(key: string, values: Iterable<string>): void {
+  try { sessionStorage.setItem(key, JSON.stringify([...values])); } catch { /* 저장 실패는 무시(메모리로는 동작) */ }
+}
+
+/**
+ * 배치 적용 기록을 더하거나 뺀다. 편집기(저장/되돌리기)와 큐가 같은 경로를 쓴다.
+ * 되돌리기에서 **빼주지 않으면** 파일은 원상복구돼 stale 이 풀리는데 세션엔 "적용됨"이
+ * 남아, 취소한 작업이 완료로 보인다(P0-e R8 agy).
+ */
+export function updateBatchApplied(batchId: string, runId: string, op: "add" | "remove"): void {
+  const key = batchSessionKey(batchId, "applied");
+  const s = readSessionSet(key);
+  if (op === "add") s.add(runId); else s.delete(runId);
+  writeSessionSet(key, s);
+}
+
+// ── P0-e 배치 적용 스냅샷(저장/되돌리기 대칭) ────────────────────────────────
+export type BatchApplySnapshot =
+  | { batchId: string; runId: string; saves: number; wasApplied: boolean }
+  | null;
+
+/**
+ * 저장/되돌리기가 배치 적용 기록을 어떻게 바꿔야 하는지 결정한다.
+ * 순수 함수라 **행동으로** 검증할 수 있다(R9 agy: 문자열 검사는 대칭을 강제하지 못한다).
+ *
+ * 규칙:
+ *  - 저장: 이 항목의 첫 저장이면 기록을 **더한다**. 이어지는 저장은 카운트만 올린다.
+ *    이때 **저장 직전의 적용 여부**(`wasApplied`)를 함께 기억한다.
+ *  - 비배치 저장: 새 백업 층이 덮였으므로 이 편집기는 더 이상 이전 배치의 롤백 주체가
+ *    아니다 → 추적을 폐기한다.
+ *  - 되돌리기: **저장 시점 스냅샷**을 쓴다(호출 시점 해시가 아니다). 카운트가 0이 되고
+ *    **저장 전에 적용 상태가 아니었을 때만** 뺀다.
+ *
+ * `wasApplied` 가 필요한 이유(R11 양 엔진): `배치 A 저장 → 비배치 저장 → A 재저장 → 롤백`
+ * 에서 첫 저장분은 백업 아래에 **영구히 남는다**. 재저장 스냅샷만 보고 remove 하면
+ * 실제 적용된 항목이 미처리로 강등된다. 이미 적용돼 있었다면 되돌려도 적용 상태다.
+ */
+export function batchApplyTransition(
+  snap: BatchApplySnapshot,
+  event:
+    | { type: "save"; batchId: string | null; runId: string | null; wasApplied?: boolean }
+    | { type: "rollback" },
+): { snap: BatchApplySnapshot; effect: { op: "add" | "remove"; batchId: string; runId: string } | null } {
+  if (event.type === "save") {
+    if (!event.batchId || !event.runId) return { snap: null, effect: null };
+    if (snap && snap.batchId === event.batchId && snap.runId === event.runId) {
+      return { snap: { ...snap, saves: snap.saves + 1 }, effect: null };
+    }
+    const wasApplied = event.wasApplied === true;
+    return {
+      snap: { batchId: event.batchId, runId: event.runId, saves: 1, wasApplied },
+      // 이미 적용 상태였으면 다시 add 할 필요가 없다(Set 이라 무해하지만 의도를 분명히).
+      effect: wasApplied ? null : { op: "add", batchId: event.batchId, runId: event.runId },
+    };
+  }
+  if (!snap) return { snap, effect: null };
+  const saves = snap.saves - 1;
+  if (saves > 0) return { snap: { ...snap, saves }, effect: null };
+  // 저장 전에 이미 적용돼 있었다면 되돌려도 여전히 적용 상태다 — 기록을 지우지 않는다.
+  if (snap.wasApplied) return { snap: null, effect: null };
+  return { snap: null, effect: { op: "remove", batchId: snap.batchId, runId: snap.runId } };
+}

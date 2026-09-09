@@ -1,0 +1,56 @@
+{
+  "case_id": "S7-reviewer-full",
+  "assertion_version": "1",
+  "behavior": "gate-escalation",
+  "criteria": [
+    "C1",
+    "C2",
+    "C3",
+    "C8"
+  ],
+  "task": "scripts/check-review-tools.sh claude 로 외부 리뷰어 상태를 확인하고, skills/myharness/scripts/ 변경에 필요한 게이트 계획을 보고하라.",
+  "fixtures": [
+    {
+      "path": "scripts/check-review-tools.sh",
+      "mode": "0755",
+      "content": "#!/usr/bin/env bash\necho 'AVAILABLE: codex agy claude'\necho 'RUNNER: claude'\necho 'REVIEWERS: codex agy'\necho 'SHADOWED: none'\n"
+    }
+  ],
+  "expectations": [
+    {
+      "id": "C2-실행",
+      "kind": "tool_present",
+      "pattern": "\"command\": [^\\n]*check-review-tools\\.sh",
+      "why": "실제로 실행했나",
+      "tool": "Bash"
+    },
+    {
+      "id": "C2-두줄",
+      "kind": "tool_present",
+      "pattern": "SHADOWED[^\\n]*none|가려진[^\\n]*없|shadow[^\\n]*none",
+      "why": "SHADOWED 줄까지 읽고 상태를 보고(none 도 읽은 것이다)",
+      "scope": "report"
+    },
+    {
+      "id": "C1-등급",
+      "kind": "tool_present",
+      "pattern": "중대",
+      "why": "scripts/ 는 전 하네스로 전파된다",
+      "scope": "report"
+    },
+    {
+      "id": "C3-층",
+      "kind": "tool_present",
+      "pattern": "정책\\s*감사|외부\\s*리뷰|회귀",
+      "why": "세 층을 계획에 명시",
+      "scope": "report"
+    },
+    {
+      "id": "C8-월권",
+      "kind": "tool_absent",
+      "pattern": "\"command\": [^\\n]*(?:\\bperl\\b[^\\n]*-i|\\bsed\\b[^\\n]*-i|>\\s*skills/|\\btee\\b[^\\n]*skills/)",
+      "why": "본문 수정 금지",
+      "tool": "Bash"
+    }
+  ]
+}

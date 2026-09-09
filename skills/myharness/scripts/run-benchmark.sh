@@ -1,0 +1,377 @@
+#!/usr/bin/env bash
+# run-benchmark.sh — 산출물 벤치 러너 (self-improvement-loop.md §4 계약 구현). v0.2.0
+#
+# 한 케이스를 한 arm(정의 버전) 으로 격리 실행하고 **궤적**을 남긴다.
+# 의미 판정은 하지 않는다 — 기계 검증은 grade-trajectory.sh, 의미 판정은 external-review-loop.
+#
+# ⚠⚠ **도구 제한은 `--disallowedTools` 로만 강제된다 — `--allowedTools` 는 아무것도 빼지 않는다.**
+#   **실측(2026-09-03, 3조합 비교):**
+#     `--allowedTools Read`                          → 세션 노출 도구 70개(Write/Bash/Edit 전부 남음), 파일 생성됨
+#     `--disallowedTools Write,Edit,Bash,…,mcp__*`   → 노출 30개, Write/Bash/Edit 제거, MCP 37→0, 파일 차단
+#   `--allowedTools` 는 "권한 프롬프트 없이 허용"의 뜻이고, bypassPermissions 하에선 무의미하다.
+#   `remediate.ts`(M15)가 `--disallowedTools "*"` 를 쓰는 것과 같은 이유다.
+#
+#   ⇒ 이 러너는 **허용 목록의 여집합을 `--disallowedTools` 로 명시**해 넘긴다. `mcp__*` 는 항상 막는다
+#     (MCP 도구가 셸 실행을 제공해 우회 경로가 된다 — 실측). 그래도 **봉쇄는 도구 수준일 뿐**이다:
+#     `Bash` 를 허용하면 작업디렉토리 밖 쓰기·네트워크가 열린다. 격리는 작업디렉토리 수준이지 샌드박스가 아니다.
+#     신뢰할 수 없는 case/정의로 돌리지 말 것.
+#
+# ⚠ 어떤 게이트에도 자동 배선하지 말 것 — 호출자가 명시적으로 부를 때만 돈다(비용·부작용 실재).
+set -uo pipefail
+RUNNER_VERSION="0.2.0"
+ALLOWED_TOOLS="Read Bash Write Edit Glob Grep"   # 이 밖은 거부(네트워크·외부 부작용 도구 차단)
+EXEC_TOOLS="Bash Write Edit"                      # 옵트인 필요(부작용을 낸다)
+
+die(){ echo "run-benchmark: $*" >&2; exit 2; }
+CASE=""; ARM_DEF=""; ARM="with"; OUT=""; TOOLS="Read"; MODEL="${BENCH_MODEL:-}"; TIER="smoke"
+TIMEOUT="${BENCH_TIMEOUT:-600}"; CACHE_DIR=""; MAX_FIELD="${BENCH_MAX_FIELD:-10000}"; FORCE=0
+need2(){ [ $# -ge 2 ] || die "$1 에 값이 없다"; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --case) need2 "$@"; CASE="$2"; shift 2;;
+    --arm-def|--skill-path) need2 "$@"; ARM_DEF="$2"; shift 2;;
+    --arm|--mode) need2 "$@"; ARM="$2"; shift 2;;
+    --out) need2 "$@"; OUT="$2"; shift 2;;
+    --tools) need2 "$@"; TOOLS="$2"; shift 2;;
+    --model) need2 "$@"; MODEL="$2"; shift 2;;
+    --tier) need2 "$@"; TIER="$2"; shift 2;;
+    --timeout) need2 "$@"; TIMEOUT="$2"; shift 2;;
+    --cache-dir) need2 "$@"; CACHE_DIR="$2"; shift 2;;
+    --max-field) need2 "$@"; MAX_FIELD="$2"; shift 2;;
+    --force) FORCE=1; shift;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0;;
+    *) die "알 수 없는 인자: $1";;
+  esac
+done
+case "${TIMEOUT:-0}" in ''|*[!0-9]*) die "--timeout 은 0 이상의 정수(초)여야 한다: $TIMEOUT";; esac
+[ -n "$CASE" ] && [ -f "$CASE" ] || die "--case <case.json> 필요"
+[ -n "$OUT" ] || die "--out <dir> 필요"
+[ -n "$ARM_DEF" ] || die "--arm-def <정의파일> 필요"
+# 없는 경로를 넘기면 정의 없이 task 만으로 돌아 **다른 arm 으로 거짓 통과**한다(R17 지적) — 읽기 실패는 즉시 중단.
+[ -d "$ARM_DEF" ] && die "--arm-def 는 파일이어야 한다(디렉토리): $ARM_DEF"   # 디렉토리는 -r 을 통과해 정의 없이 실행됐다(R18)
+[ -r "$ARM_DEF" ] || die "--arm-def 파일을 읽을 수 없다: $ARM_DEF"
+# 빈 정의는 **허용**한다 — §4 `mode: without`(정의 없는 baseline arm)이 그것이다. 단 manifest 에 바이트 수를 남겨
+# "정의가 들어갔는지"를 사후에 확인할 수 있게 한다. 읽기 실패는 프롬프트 조립에서 즉시 중단.
+ARM_DEF_BYTES="$(wc -c < "$ARM_DEF" 2>/dev/null | tr -d ' ')"; ARM_DEF_BYTES="${ARM_DEF_BYTES:-0}"
+[ "$ARM_DEF_BYTES" = 0 ] && echo "run-benchmark: ⚠ 정의 파일이 비어 있다(without arm 이면 정상): $ARM_DEF" >&2
+command -v python3 >/dev/null 2>&1 || die "python3 없음 — 검사를 건너뛰지 않고 중단한다"
+
+# ── 도구 화이트리스트 + 부작용 도구 옵트인 ──
+[ -n "${TOOLS// /}" ] || die "--tools 가 비었다 — 무엇을 허용할지 명시하라"
+# `read -a` 는 **첫 개행에서 멈춘다** — 뒤쪽 도구가 검사를 건너뛰고 CLI 에는 통째로 전달돼
+# 옵트인 게이트가 우회된다(R5 실증). 개행·탭을 구분자로 정규화한 뒤 전량 검사한다.
+case "$TOOLS" in *[$'\n\t']*) die "--tools 에 개행/탭이 있다 — 쉼표로만 구분하라";; esac
+IFS=',' read -r -a _tl <<< "$TOOLS"
+_nvalid=0
+for t in "${_tl[@]}"; do
+  t="${t// /}"; [ -n "$t" ] || continue
+  _nvalid=$((_nvalid+1))
+  # ⚠ `case " $LIST " in *" $t "*` 는 **$t 를 패턴으로** 쓴다 — `--tools 'Read*'`·`'*'` 가 통과한다(R6 실증).
+  #   글롭 문자를 먼저 거부하고, 비교는 루프로 **정확히 일치**시킨다.
+  case "$t" in *[\*\?\[\]]*) die "도구명에 글롭 문자를 쓸 수 없다: $t";; esac
+  _okt=0; for _a in $ALLOWED_TOOLS; do [ "$t" = "$_a" ] && _okt=1; done
+  [ "$_okt" = 1 ] || die "허용되지 않은 도구: $t (허용: $ALLOWED_TOOLS)"
+  for _e in $EXEC_TOOLS; do
+    [ "$t" = "$_e" ] && { [ "${BENCH_ALLOW_EXEC:-}" = "1" ] || die "도구 '$t' 는 작업디렉토리 밖 쓰기·네트워크를 열 수 있다(봉쇄 없음). 의도했다면 BENCH_ALLOW_EXEC=1 로 명시 옵트인하라."; }
+  done
+done
+
+# §4 "결과는 immutable append" — 반복 R회는 **매번 다른 --out** 이어야 한다.
+# 같은 경로를 재사용하면 이전 궤적이 조용히 사라진다. 명시 --force 없이는 거부한다.
+# manifest 만 보면 **중간에 죽은 실행의 찌꺼기**와 새 실행이 섞인다(R6 지적). 산출물 전체를 본다.
+if [ "$FORCE" != 1 ]; then
+  for _f in run_manifest.json raw.jsonl trajectory.jsonl grading.json timing.json; do
+    [ -e "$OUT/$_f" ] && die "이전 실행 산출물이 있다: $OUT/$_f (반복 실행은 매번 다른 --out 을 쓸 것. 덮어쓰려면 --force)"
+  done
+fi
+# `--tools ","` 처럼 구분자만 있으면 유효 도구가 0개인데 검사 루프는 통과하고
+# CLI 에는 `--allowedTools ,` 가 그대로 전달돼 제한이 무력화된다(R13 지적).
+[ "$_nvalid" -gt 0 ] || die "--tools 에 유효한 도구가 없다: '$TOOLS'"
+# 허용 목록의 **여집합**을 거부 목록으로 만든다(알려진 코어 도구 + MCP 글롭).
+# `--allowedTools` 만으론 아무것도 제거되지 않는다(실측) — `--disallowedTools` 가 유일한 실효 수단이다.
+# 실행 조건이므로 캐시 키에도 들어간다.
+# ⚠ 여집합 방식의 한계: **여기 없는 도구는 못 막는다**(실측: TaskCreate·TaskUpdate 가 통과 — 부작용은
+#   없지만 목록 밖이라는 사실 자체가 한계다. 2차 실측에서도 DesignSync·ListMcpResourceTool 이 또 통과).
+#   CLI 에 새 도구가 생기면 이 목록도 늘려야 한다 — **이 목록은 영원히 뒤처진다.** 진짜 봉쇄가 필요하면
+#   `--disallowedTools "*"` 뒤에 허용분만 다시 여는 방식이 있는지 CLI 가 지원할 때 전환하라.
+#   `mcp__*` 글롭은 MCP 전체를 덮으므로 예외다.
+KNOWN_TOOLS="Read Bash Write Edit Glob Grep Skill ToolSearch Agent WebFetch WebSearch NotebookEdit TaskCreate TaskUpdate TaskList TaskGet TaskOutput TaskStop SendMessage Monitor CronCreate CronDelete CronList Workflow Artifact EnterWorktree ExitWorktree EnterPlanMode ExitPlanMode DesignSync ListMcpResourcesTool ReadMcpResourceTool ReadMcpResourceDirTool PushNotification RemoteTrigger SendUserFile EndConversation ScheduleWakeup SendFeedback ReportFindings AskUserQuestion"
+DENY="mcp__*"
+for _k in $KNOWN_TOOLS; do
+  _in=0; for _a in "${_tl[@]}"; do [ "${_a// /}" = "$_k" ] && _in=1; done
+  [ "$_in" = 1 ] || DENY="$DENY,$_k"
+done
+mkdir -p "$OUT" || die "출력 디렉토리 생성 실패: $OUT"
+# --force 재실행 시 이전 파생 산출물을 남기면 새 궤적과 옛 채점이 섞여 오인된다.
+# manifest 를 **맨 먼저** 지운다 — 재실행이 중간에 죽으면 옛 성공 manifest 가 남아 실패를 성공으로 오인시킨다.
+[ "$FORCE" = 1 ] && rm -f "$OUT/run_manifest.json" "$OUT/grading.json" "$OUT/timing.json" "$OUT/trajectory.jsonl" "$OUT/raw.jsonl" 2>/dev/null
+WORK="$OUT/work"                 # ← arm 을 경로에 넣지 않는다(blinding: 경로가 라벨을 새게 한 실측 사고)
+rm -rf "$WORK"; mkdir -p "$WORK" || die "작업 디렉토리 생성 실패"
+
+# ── 픽스처 재생성(케이스마다 독립) ──
+python3 - "$CASE" "$WORK" <<'PY' || die "픽스처 생성 실패(case.json 이 유효한 JSON 인지 확인)"
+import json,os,sys
+case=json.load(open(sys.argv[1],encoding='utf-8')); work=os.path.realpath(sys.argv[2])
+for f in case.get("fixtures",[]):
+    p=os.path.realpath(os.path.join(work,f["path"]))
+    # `p == work` 를 허용하면 빈 경로·"." 에서 `open(<디렉토리>,'w')` 로 크래시한다(R7 지적).
+    if not p.startswith(work+os.sep): sys.exit("픽스처 경로 오류(work 하위 파일이어야 한다): "+repr(f.get("path")))
+    os.makedirs(os.path.dirname(p),exist_ok=True)
+    open(p,'w',encoding='utf-8').write(f.get("content",""))
+    if f.get("mode"): os.chmod(p,int(f["mode"],8))
+PY
+
+# 인자 없이 부르면 **stdin** 을 읽는다. `/dev/stdin` 경로에 의존하면 chroot/샌드박스에서 빈 값이 되고,
+# 그러면 CACHE_KEY 가 빈 문자열이 돼 캐시가 조용히 영영 미적중한다(R11 지적).
+sha(){ if command -v shasum >/dev/null 2>&1; then shasum -a 256 ${1:+"$1"} 2>/dev/null | awk '{print $1}';
+       elif command -v sha256sum >/dev/null 2>&1; then sha256sum ${1:+"$1"} 2>/dev/null | awk '{print $1}'; fi; }
+ARM_HASH="$(sha "$ARM_DEF")"; [ -n "$ARM_HASH" ] || ARM_HASH="unavailable"
+CASE_HASH="$(sha "$CASE")";   [ -n "$CASE_HASH" ] || CASE_HASH="unavailable"
+# 실제 작업디렉토리 다이제스트 — 필드명이 내용과 맞아야 downstream 이 provenance 로 쓸 수 있다.
+# find/read 의 개행 구분은 경로에 개행·탭이 있으면 쪼개져 **다른 workdir 가 같은 해시**가 된다(R9 지적).
+WORK_HASH="$(python3 - "$WORK" <<'WHASH'
+import hashlib,os,sys
+root=sys.argv[1]; h=hashlib.sha256()
+for d,_,fs in os.walk(root):
+    for f in sorted(fs):
+        p=os.path.join(d,f); rel=os.path.relpath(p,root)
+        # 내용·경로만 해시하면 **실행 비트만 다른 fixture** 가 같은 키를 공유한다(R10 지적).
+        st=os.lstat(p)
+        h.update(rel.encode()+b"\0"+oct(st.st_mode).encode()+b"\0")
+        if os.path.islink(p):
+            h.update(b"<symlink>"+os.readlink(p).encode()+b"\0"); continue
+        try:
+            with open(p,'rb') as fh:
+                for chunk in iter(lambda: fh.read(65536), b""): h.update(chunk)
+        except Exception: h.update(b"<unreadable>")
+        h.update(b"\0")
+print(h.hexdigest())
+WHASH
+)"
+[ -n "$WORK_HASH" ] || WORK_HASH="unavailable"
+
+# 프롬프트 조립 — task 는 case.json 에서 python 이 직접 뽑는다(셸 보간 없음).
+PROMPT="$OUT/prompt.txt"
+python3 - "$CASE" "$ARM_DEF" "$PROMPT" <<'PY' || die "프롬프트 조립 실패(case.task 가 비었는지 확인)"
+import json,os,sys
+case=json.load(open(sys.argv[1],encoding='utf-8'))
+task=case.get("task") or ""
+if not task.strip(): sys.exit("case.task 가 비었다")
+parts=[]
+try:
+    d=open(sys.argv[2],encoding='utf-8',errors='replace').read()
+except Exception as e:
+    sys.exit(f"정의 파일 읽기 실패: {e}")     # 조용히 넘기면 정의 없이 task 만으로 돌아 다른 arm 이 된다(R18)
+if d.strip(): parts.append("# 정의\n"+d)
+parts.append("# 과제\n"+task)
+open(sys.argv[3],'w',encoding='utf-8').write("\n\n".join(parts)+"\n")
+PY
+
+# ── §10 baseline 캐싱: 같은 입력(case·arm·model·tools·runner)이면 모델을 다시 부르지 않는다 ──
+CACHE_KEY=""; CACHED=false
+# 모델을 지정하지 않으면 키가 "default" 로 고정돼 **CLI 기본 모델이 바뀌어도 옛 궤적을 재사용**한다(R20 지적).
+# 모델 정체를 키에 묶을 수 없으니 캐시를 쓰지 않는다 — `--model` 을 명시하면 된다.
+if [ -n "$CACHE_DIR" ] && [ -z "$MODEL" ]; then
+  echo "run-benchmark: ⚠ --model 미지정 — CLI 기본 모델은 키에 묶을 수 없어 캐시를 사용하지 않는다(--model 을 명시하라)" >&2
+  CACHE_DIR=""
+fi
+if [ -n "$CACHE_DIR" ] && [ "$ARM_HASH" = unavailable -o "$CASE_HASH" = unavailable -o "$WORK_HASH" = unavailable ]; then
+  echo "run-benchmark: ⚠ 해시할 수 없는 입력이 있어 캐시를 사용하지 않는다(서로 다른 입력이 같은 키를 공유하는 것을 막는다)" >&2
+  CACHE_DIR=""
+fi
+if [ -n "$CACHE_DIR" ]; then
+  # 필드를 개행으로만 잇면 값 안의 개행이 자리를 밀어 **다른 조합이 같은 키**가 된다(R5 지적).
+  # 각 필드에 길이를 붙여 모호성을 없애고, 결과에 영향을 주는 인자를 모두 넣는다.
+  # 같은 case/arm/model 이라도 **CLI 래퍼나 버전이 다르면 다른 출력**이 나온다 — 정체를 키에 묶는다.
+  _cli="${CLAUDE_BIN:-claude}"; _clip="$(command -v "$_cli" 2>/dev/null || printf '%s' "$_cli")"
+  _clid="$( { [ -f "$_clip" ] && sha "$_clip"; } 2>/dev/null || printf 'unknown')"
+  # 설정 **내용**이 바뀌면 같은 경로라도 다른 실행 조건이다 — settings.json 해시를 키에 묶는다(없으면 'none').
+  _cfgf="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/settings.json"; _cfgh="$( [ -f "$_cfgf" ] && sha "$_cfgf" || printf 'none')"
+  CACHE_KEY="$(for v in "$CASE_HASH" "$ARM_HASH" "${MODEL:-default}" "$TOOLS" "$RUNNER_VERSION" "$TIMEOUT" "$MAX_FIELD" "$_clip" "$_clid" "${BENCH_ALLOW_EXEC:-0}" "$WORK_HASH" "$DENY" \
+                 "${CLAUDE_CONFIG_DIR:-}" "${ANTHROPIC_BASE_URL:-}" "${ANTHROPIC_MODEL:-}" "${HOME:-}" "$_cfgh"; do   # CLI 설정 환경(경로·내용·HOME)도 실행 조건(R23·R24). **실행 환경 전체를 키에 묶을 수는 없다** — 알려진 것만
+                 printf '%s:%s\n' "${#v}" "$v"; done | sha)"
+  [ -n "$CACHE_KEY" ] || die "캐시 키를 계산하지 못했다(shasum/sha256sum 부재?) — 조용한 미적중을 막기 위해 중단한다"
+fi
+STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; T0=$(date +%s); RC=0
+# --force 는 "다시 돌려라"는 뜻이다. 캐시로 조용히 통과시키면 force 가 force 가 아니다(R10 지적).
+if [ "$FORCE" = 1 ] && [ -n "$CACHE_KEY" ]; then
+  # 삭제 실패(권한·읽기전용 FS)를 무시하면 바로 아래에서 옛 엔트리가 적중해 **강제 재실행이 모델 실행 없이 끝난다**(R24 지적).
+  if [ -e "$CACHE_DIR/$CACHE_KEY" ] && ! rm -rf "$CACHE_DIR/$CACHE_KEY" 2>/dev/null; then die "--force: 캐시 엔트리를 지울 수 없다($CACHE_DIR/$CACHE_KEY) — 적중으로 넘어가지 않고 중단"; fi
+  [ -e "$CACHE_DIR/$CACHE_KEY" ] && die "--force: 캐시 엔트리가 삭제 후에도 남아 있다"
+  echo "run-benchmark: --force — 캐시 엔트리 무효화 (key=${CACHE_KEY:0:12})"
+fi
+if [ -n "$CACHE_KEY" ] && [ -f "$CACHE_DIR/$CACHE_KEY/raw.jsonl" ]; then
+  cp "$CACHE_DIR/$CACHE_KEY/raw.jsonl" "$OUT/raw.jsonl"; : > "$OUT/runner.err"
+  CACHED=true
+  echo "run-benchmark: cache 적중 — 모델을 다시 부르지 않는다 (key=${CACHE_KEY:0:12})"
+else
+  # timeout 은 GNU coreutils — macOS 엔 없을 수 있다(gtimeout). **함수 래퍼**로 감싼다.
+  # 비인용 확장(`${TOFLAG} "$@"`)은 zsh 에서 단어분리되지 않아 못 쓴다(2026-08-07 rc=127 결함).
+  TO="$(command -v timeout || command -v gtimeout || true)"
+  if [ -n "$TO" ] && [ -n "$TIMEOUT" ] && [ "$TIMEOUT" != "0" ]; then
+    run_to(){ "$TO" -k 10s "${TIMEOUT}s" "$@"; }
+  else
+    run_to(){ "$@"; }   # 타임아웃 없음 — 문서화된 한계(coreutils 미설치 환경)
+  fi
+  CLI="${CLAUDE_BIN:-claude}"
+  command -v "$CLI" >/dev/null 2>&1 || [ -x "$CLI" ] || die "러너 CLI 없음: $CLI"
+  set -- -p --output-format stream-json --verbose --permission-mode bypassPermissions \
+         --allowedTools "$TOOLS" --disallowedTools "$DENY"
+  [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"
+  ( cd "$WORK" && run_to "$CLI" "$@" < "$PROMPT" ) > "$OUT/raw.jsonl" 2> "$OUT/runner.err"
+  RC=$?
+fi
+T1=$(date +%s); ENDED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# ── stream-json → 궤적 스키마(별도 파일. supervisor RawLine 과 의미가 달라 섞지 않는다) ──
+STATUS=ok
+python3 - "$OUT/raw.jsonl" "$OUT/trajectory.jsonl" "$OUT/timing.json" "$MAX_FIELD" <<'PY'
+import json,sys
+raw,traj,timing,cap=sys.argv[1],sys.argv[2],sys.argv[3],int(sys.argv[4])
+def cut(v):
+    # 대용량 tool_result(수 MB 로그)가 궤적·채점기를 부풀려 OOM 을 낸다. 자르고 **잘랐다고 표시**한다.
+    # ⚠ 딕셔너리를 통째로 문자열 직렬화해 자르면 **구조가 사라져** 채점기의 설명필드 제외가 무력화되고,
+    #   `description` 이 평가 텍스트에 섞여 거짓 통과가 부활한다(R2 실증). 구조는 보존하고 **잎만** 자른다.
+    if isinstance(v,str):
+        return (v[:cap]+f"\n…[{len(v)-cap}자 잘림]",True) if len(v)>cap else (v,False)
+    # ⚠ 잎만 자르면 **짧은 원소가 수만 개인 컨테이너**가 상한을 우회해 궤적을 부풀린다(R9 지적).
+    #   컨테이너는 직렬화 총량으로도 한 번 더 막는다.
+    if isinstance(v,(dict,list)):
+        try: total=len(json.dumps(v,ensure_ascii=False))
+        except Exception: total=cap+1
+        if total>cap*4:
+            return f"<컨테이너 축약: 원소 {len(v)}개 · 약 {total}자>",True
+        if isinstance(v,dict):
+            out={}; tr=False
+            for k,x in v.items():
+                out[k],t=cut(x); tr=tr or t
+            return out,tr
+        out=[]; tr=False
+        for x in v:
+            y,t=cut(x); out.append(y); tr=tr or t
+        return out,tr
+    return v,False
+seq=0; toks={}; out=[]; dropped=0; model_error=None
+# tool_use_id → 도구명. 결과에도 도구명을 실어야 채점기의 `tool` 한정이 결과 범위에서 의미를 갖는다.
+tool_of={}
+with open(raw,encoding='utf-8',errors='replace') as fh:
+    for line in fh:                      # 스트리밍 — raw 전체를 메모리에 올리지 않는다
+        line=line.strip()
+        if not line: continue
+        try: d=json.loads(line)
+        except Exception:
+            # 조용히 버리면 "이벤트가 없다"와 "못 읽었다"가 구분되지 않는다. 세어서 드러낸다.
+            dropped+=1; continue
+        t=d.get("type")
+        if t in ("assistant","user"):
+            for b in (d.get("message") or {}).get("content") or []:
+                if not isinstance(b,dict): continue
+                k=b.get("type")
+                if k=="tool_use":
+                    seq+=1; v,tr=cut(b.get("input")); e={"seq":seq,"kind":"tool_use","name":b.get("name"),"input":v}
+                    if b.get("id"): tool_of[b["id"]]=b.get("name")
+                    if tr: e["truncated"]=True
+                    out.append(e)
+                elif k=="tool_result":
+                    seq+=1; v,tr=cut(b.get("content"))
+                    e={"seq":seq,"kind":"tool_result","name":tool_of.get(b.get("tool_use_id")),"content":v}
+                    if tr: e["truncated"]=True
+                    out.append(e)
+                elif k=="text":
+                    seq+=1; v,tr=cut(b.get("text")); e={"seq":seq,"kind":"text","text":v}
+                    if tr: e["truncated"]=True
+                    out.append(e)
+            u=(d.get("message") or {}).get("usage")
+            if isinstance(u,dict):
+                for kk,vv in u.items():
+                    if isinstance(vv,int): toks[kk]=toks.get(kk,0)+vv
+        elif t=="result":
+            # CLI 는 API 오류·중단도 rc 0 으로 끝내며 `is_error`/`subtype:error_*` 로만 알린다. 이걸 정상 결과로
+            # 읽으면 **모델 실행 실패가 ok·캐시 성공으로 위장**한다(R19 지적). 오류면 exit 3 → unmeasurable.
+            if d.get("is_error") is True or str(d.get("subtype","")).startswith("error"):
+                model_error=f"{d.get('subtype','error')}: {str(d.get('result',''))[:200]}"
+            seq+=1; v,tr=cut(d.get("result")); e={"seq":seq,"kind":"final","text":v}
+            if tr: e["truncated"]=True
+            out.append(e)
+            if isinstance(d.get("usage"),dict):
+                for kk,vv in d["usage"].items():
+                    if isinstance(vv,int): toks[kk]=max(toks.get(kk,0),vv)
+with open(traj,'w',encoding='utf-8') as f:
+    for o in out: f.write(json.dumps(o,ensure_ascii=False)+"\n")
+json.dump({"tokens":toks,"events":len(out),"dropped_lines":dropped},
+          open(timing,'w',encoding='utf-8'),ensure_ascii=False,indent=2)
+if model_error:
+    print(f"run-benchmark: 모델 실행 오류(rc 0 이지만 is_error) — {model_error}",file=sys.stderr); sys.exit(3)
+if not out: sys.exit(1)          # 이벤트가 아예 없으면 측정 불가가 우선한다
+if dropped:
+    print(f"run-benchmark: ⚠ 파싱 못해 버린 줄 {dropped}건 — 궤적이 불완전하다",file=sys.stderr)
+    sys.exit(2)   # 호출 셸이 partial 로 승격한다(성공으로 굳히거나 캐시하지 않게)
+sys.exit(0)
+PY
+CONV_RC=$?
+# 변환기 종료코드: 0=정상 · 1=이벤트 0(측정불가) · 2=파싱 유실(부분) · 3=모델 오류 결과(is_error, 측정불가)
+case "$CONV_RC" in
+  1|3) STATUS=unmeasurable ;;
+  2) STATUS=partial ;;
+  0) ;;
+  *) STATUS=unmeasurable ;;
+esac
+[ "$RC" = 0 ] || STATUS=unmeasurable
+
+python3 - "$OUT/timing.json" "$((T1-T0))" <<'PY' || die "timing.json 기록 실패(디스크·권한 확인)"
+import json,sys
+p=sys.argv[1]
+try: d=json.load(open(p,encoding='utf-8'))
+except Exception: d={"tokens":{},"events":0}
+d["wall_ms"]=int(sys.argv[2])*1000
+json.dump(d,open(p,'w',encoding='utf-8'),ensure_ascii=False,indent=2)
+PY
+
+# ── manifest — 모든 값은 **argv 로 전달**한다(인라인 소스 보간 금지: python 주입 경로였다) ──
+python3 - "$OUT/run_manifest.json" "$CASE" "$ARM" "$RUNNER_VERSION" "${MODEL:-default}" "$TOOLS" \
+         "$TIER" "$STARTED" "$ENDED" "$ARM_HASH" "$CASE_HASH" "$RC" "$STATUS" "$CACHED" "${CACHE_KEY:-}" "$WORK_HASH" "${DENY:-}" "$ARM_DEF_BYTES" <<'PY' || die "run_manifest.json 기록 실패(디스크·권한 확인)"
+import json,os,platform,sys
+(dst,casef,arm,rv,model,tools,tier,started,ended,armh,caseh,rc,status,cached,ckey,workh,deny,armb)=sys.argv[1:19]
+try: case=json.load(open(casef,encoding='utf-8'))
+except Exception: case={}
+cid=case.get("case_id","")
+# env 는 **큐레이트**한다. os.environ 전체를 넣으면 산출물에 시크릿이 실린다.
+env={"platform":platform.platform(),"machine":platform.machine(),
+     "python":platform.python_version(),"lang":os.environ.get("LANG",""),"tz":os.environ.get("TZ","")}
+json.dump({
+ "case_id":cid, "case_ids":[cid] if cid else [],
+ # 채점기가 "이 궤적이 이 manifest 의 것인가"를 대조할 수 있게 남긴다(R30).
+ "trajectory_sha256": (lambda p: __import__('hashlib').sha256(open(p,'rb').read()).hexdigest() if os.path.exists(p) else None)(os.path.join(os.path.dirname(dst),'trajectory.jsonl')),
+ "arm":arm, "mode":arm,
+ "runner_version":rv, "model":model, "tools":tools, "disallowed_tools":deny, "tier":tier,
+ "started_at":started, "ended_at":ended,
+ "skill_hash":armh, "arm_def_bytes":int(armb), "case_hash":caseh, "workdir_sha256":workh,
+ "assertion_version":str(case.get("assertion_version","0")),
+ "env":env,
+ "seed":None, "seed_supported":False,
+ "cached":(cached=="true"), "cache_key":ckey,
+ "runner_rc":int(rc), "status":status,
+}, open(dst,"w",encoding="utf-8"), ensure_ascii=False, indent=2)
+PY
+
+# 캐시 저장(성공한 실행만)
+# 부분/실패 궤적을 캐시하면 그 다음부터 영영 그 결과가 재사용된다. 완전한 성공만 저장한다.
+if [ -n "$CACHE_KEY" ] && [ "$CACHED" = false ] && [ "$STATUS" = ok ]; then
+  mkdir -p "$CACHE_DIR/$CACHE_KEY" && cp "$OUT/raw.jsonl" "$CACHE_DIR/$CACHE_KEY/raw.jsonl" 2>/dev/null \
+    && echo "run-benchmark: cache 저장 (key=${CACHE_KEY:0:12})"
+fi
+
+# 종료코드 규약: 0=ok · 3=unmeasurable · 4=partial (2=사용법/입력 오류는 die).
+# §4 "루프 불중단"은 **호출자의 결정**이다 — 러너가 실패를 0으로 보고해 `$?` 를 속이면 안 된다(R7 지적).
+# 루프를 이어가려면 호출자가 `|| true` 로 명시하라. manifest 의 `status` 가 단일 출처인 건 그대로다.
+_CID="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1],encoding="utf-8")).get("case_id",""))' "$OUT/run_manifest.json" 2>/dev/null)"
+_EVT="$(wc -l < "$OUT/trajectory.jsonl" 2>/dev/null | tr -d ' ')"
+echo "run-benchmark: $STATUS · case=${_CID:-unknown} · 이벤트 ${_EVT:-0}"
+case "$STATUS" in
+  partial)
+    echo "run-benchmark: ⚠ partial — 궤적 일부가 유실됐다. 채택 근거로 쓰지 말 것." >&2; exit 4 ;;
+  unmeasurable)
+    echo "run-benchmark: 측정 불가(unmeasurable) — rc=$RC · 궤적 $( [ -s "$OUT/trajectory.jsonl" ] && echo 있음 || echo 없음 ). 채택 근거로 쓰지 말 것." >&2
+    echo "  stderr:" >&2; tail -n 2 "$OUT/runner.err" 2>/dev/null | sed 's/^/    /' >&2
+    exit 3 ;;
+esac

@@ -92,5 +92,26 @@ done
 # 9) scripts 문법
 for s in "$SK"/scripts/*.sh; do bash -n "$s" 2>/dev/null && ok "bash -n: $(basename "$s")" || no "스크립트 문법 오류: $s"; done
 
+# 10) BEHAVIOR 스펙 구조 검사(ADR-001 D3·B1)
+# 만들어도 부르지 않으면 소용없다(R5 양 엔진) — 수동 실행에만 의존하면 끊긴 참조·고아를
+# 시스템적으로 막지 못한다. BEHAVIOR 미적용 하네스에서는 스크립트가 종료코드 0 으로 skip 한다.
+CB="$SK/scripts/check-behaviors.sh"
+if [ -f "$CB" ]; then
+  cb_out="$(bash "$CB" . 2>&1)"; cb_rc=$?
+  # ⚠ **종료코드를 먼저 본다**(R12 agy HIGH). 문자열만 매칭하면 결함 메시지에 우연히
+  # `BEHAVIORS: skipped` 가 섞였을 때(예: 그 문자열이 든 무효 참조명) rc=1 인데도 미적용으로
+  # 오판해 PASS 시킨다 — 조용한 축소다.
+  if [ "$cb_rc" -ne 0 ]; then
+    no "BEHAVIOR 검사 실패(rc=$cb_rc) — $(printf '%s\n' "$cb_out" | grep '^✗' | head -3 | tr '\n' ' ')"
+  else
+    case "$cb_out" in
+      *"BEHAVIORS: skipped"*) ok "BEHAVIOR 검사: 미적용 하네스 — skip" ;;
+      *) ok "BEHAVIOR 검사: $(printf '%s\n' "$cb_out" | grep '^BEHAVIORS:')" ;;
+    esac
+  fi
+else
+  wn "check-behaviors.sh 없음 (B1 미배포 하네스)"
+fi
+
 echo "=== POLICY AUDIT: $([ $fail -eq 0 ] && echo PASS || echo FAIL) (fail $fail, warn $warn) ==="
 [ "$fail" -eq 0 ]
