@@ -47,6 +47,13 @@ case "${TIMEOUT:-0}" in ''|*[!0-9]*) die "--timeout 은 0 이상의 정수(초)�
 [ -n "$CASE" ] && [ -f "$CASE" ] || die "--case <case.json> 필요"
 [ -n "$OUT" ] || die "--out <dir> 필요"
 [ -n "$ARM_DEF" ] || die "--arm-def <정의파일> 필요"
+# 없는 경로를 넘기면 정의 없이 task 만으로 돌아 **다른 arm 으로 거짓 통과**한다(R17 지적) — 읽기 실패는 즉시 중단.
+[ -d "$ARM_DEF" ] && die "--arm-def 는 파일이어야 한다(디렉토리): $ARM_DEF"   # 디렉토리는 -r 을 통과해 정의 없이 실행됐다(R18)
+[ -r "$ARM_DEF" ] || die "--arm-def 파일을 읽을 수 없다: $ARM_DEF"
+# 빈 정의는 **허용**한다 — §4 `mode: without`(정의 없는 baseline arm)이 그것이다. 단 manifest 에 바이트 수를 남겨
+# "정의가 들어갔는지"를 사후에 확인할 수 있게 한다. 읽기 실패는 프롬프트 조립에서 즉시 중단.
+ARM_DEF_BYTES="$(wc -c < "$ARM_DEF" 2>/dev/null | tr -d ' ')"; ARM_DEF_BYTES="${ARM_DEF_BYTES:-0}"
+[ "$ARM_DEF_BYTES" = 0 ] && echo "run-benchmark: ⚠ 정의 파일이 비어 있다(without arm 이면 정상): $ARM_DEF" >&2
 command -v python3 >/dev/null 2>&1 || die "python3 없음 — 검사를 건너뛰지 않고 중단한다"
 
 # ── 도구 화이트리스트 + 부작용 도구 옵트인 ──
@@ -153,14 +160,21 @@ if not task.strip(): sys.exit("case.task 가 비었다")
 parts=[]
 try:
     d=open(sys.argv[2],encoding='utf-8',errors='replace').read()
-    if d.strip(): parts.append("# 정의\n"+d)
-except Exception: pass
+except Exception as e:
+    sys.exit(f"정의 파일 읽기 실패: {e}")     # 조용히 넘기면 정의 없이 task 만으로 돌아 다른 arm 이 된다(R18)
+if d.strip(): parts.append("# 정의\n"+d)
 parts.append("# 과제\n"+task)
 open(sys.argv[3],'w',encoding='utf-8').write("\n\n".join(parts)+"\n")
 PY
 
 # ── §10 baseline 캐싱: 같은 입력(case·arm·model·tools·runner)이면 모델을 다시 부르지 않는다 ──
 CACHE_KEY=""; CACHED=false
+# 모델을 지정하지 않으면 키가 "default" 로 고정돼 **CLI 기본 모델이 바뀌어도 옛 궤적을 재사용**한다(R20 지적).
+# 모델 정체를 키에 묶을 수 없으니 캐시를 쓰지 않는다 — `--model` 을 명시하면 된다.
+if [ -n "$CACHE_DIR" ] && [ -z "$MODEL" ]; then
+  echo "run-benchmark: ⚠ --model 미지정 — CLI 기본 모델은 키에 묶을 수 없어 캐시를 사용하지 않는다(--model 을 명시하라)" >&2
+  CACHE_DIR=""
+fi
 if [ -n "$CACHE_DIR" ] && [ "$ARM_HASH" = unavailable -o "$CASE_HASH" = unavailable -o "$WORK_HASH" = unavailable ]; then
   echo "run-benchmark: ⚠ 해시할 수 없는 입력이 있어 캐시를 사용하지 않는다(서로 다른 입력이 같은 키를 공유하는 것을 막는다)" >&2
   CACHE_DIR=""
@@ -171,14 +185,19 @@ if [ -n "$CACHE_DIR" ]; then
   # 같은 case/arm/model 이라도 **CLI 래퍼나 버전이 다르면 다른 출력**이 나온다 — 정체를 키에 묶는다.
   _cli="${CLAUDE_BIN:-claude}"; _clip="$(command -v "$_cli" 2>/dev/null || printf '%s' "$_cli")"
   _clid="$( { [ -f "$_clip" ] && sha "$_clip"; } 2>/dev/null || printf 'unknown')"
-  CACHE_KEY="$(for v in "$CASE_HASH" "$ARM_HASH" "${MODEL:-default}" "$TOOLS" "$RUNNER_VERSION" "$TIMEOUT" "$MAX_FIELD" "$_clip" "$_clid" "${BENCH_ALLOW_EXEC:-0}" "$WORK_HASH" "$DENY"; do
+  # 설정 **내용**이 바뀌면 같은 경로라도 다른 실행 조건이다 — settings.json 해시를 키에 묶는다(없으면 'none').
+  _cfgf="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}/settings.json"; _cfgh="$( [ -f "$_cfgf" ] && sha "$_cfgf" || printf 'none')"
+  CACHE_KEY="$(for v in "$CASE_HASH" "$ARM_HASH" "${MODEL:-default}" "$TOOLS" "$RUNNER_VERSION" "$TIMEOUT" "$MAX_FIELD" "$_clip" "$_clid" "${BENCH_ALLOW_EXEC:-0}" "$WORK_HASH" "$DENY" \
+                 "${CLAUDE_CONFIG_DIR:-}" "${ANTHROPIC_BASE_URL:-}" "${ANTHROPIC_MODEL:-}" "${HOME:-}" "$_cfgh"; do   # CLI 설정 환경(경로·내용·HOME)도 실행 조건(R23·R24). **실행 환경 전체를 키에 묶을 수는 없다** — 알려진 것만
                  printf '%s:%s\n' "${#v}" "$v"; done | sha)"
   [ -n "$CACHE_KEY" ] || die "캐시 키를 계산하지 못했다(shasum/sha256sum 부재?) — 조용한 미적중을 막기 위해 중단한다"
 fi
 STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; T0=$(date +%s); RC=0
 # --force 는 "다시 돌려라"는 뜻이다. 캐시로 조용히 통과시키면 force 가 force 가 아니다(R10 지적).
 if [ "$FORCE" = 1 ] && [ -n "$CACHE_KEY" ]; then
-  rm -rf "$CACHE_DIR/$CACHE_KEY" 2>/dev/null
+  # 삭제 실패(권한·읽기전용 FS)를 무시하면 바로 아래에서 옛 엔트리가 적중해 **강제 재실행이 모델 실행 없이 끝난다**(R24 지적).
+  if [ -e "$CACHE_DIR/$CACHE_KEY" ] && ! rm -rf "$CACHE_DIR/$CACHE_KEY" 2>/dev/null; then die "--force: 캐시 엔트리를 지울 수 없다($CACHE_DIR/$CACHE_KEY) — 적중으로 넘어가지 않고 중단"; fi
+  [ -e "$CACHE_DIR/$CACHE_KEY" ] && die "--force: 캐시 엔트리가 삭제 후에도 남아 있다"
   echo "run-benchmark: --force — 캐시 엔트리 무효화 (key=${CACHE_KEY:0:12})"
 fi
 if [ -n "$CACHE_KEY" ] && [ -f "$CACHE_DIR/$CACHE_KEY/raw.jsonl" ]; then
@@ -232,7 +251,7 @@ def cut(v):
             y,t=cut(x); out.append(y); tr=tr or t
         return out,tr
     return v,False
-seq=0; toks={}; out=[]; dropped=0
+seq=0; toks={}; out=[]; dropped=0; model_error=None
 # tool_use_id → 도구명. 결과에도 도구명을 실어야 채점기의 `tool` 한정이 결과 범위에서 의미를 갖는다.
 tool_of={}
 with open(raw,encoding='utf-8',errors='replace') as fh:
@@ -267,6 +286,10 @@ with open(raw,encoding='utf-8',errors='replace') as fh:
                 for kk,vv in u.items():
                     if isinstance(vv,int): toks[kk]=toks.get(kk,0)+vv
         elif t=="result":
+            # CLI 는 API 오류·중단도 rc 0 으로 끝내며 `is_error`/`subtype:error_*` 로만 알린다. 이걸 정상 결과로
+            # 읽으면 **모델 실행 실패가 ok·캐시 성공으로 위장**한다(R19 지적). 오류면 exit 3 → unmeasurable.
+            if d.get("is_error") is True or str(d.get("subtype","")).startswith("error"):
+                model_error=f"{d.get('subtype','error')}: {str(d.get('result',''))[:200]}"
             seq+=1; v,tr=cut(d.get("result")); e={"seq":seq,"kind":"final","text":v}
             if tr: e["truncated"]=True
             out.append(e)
@@ -277,6 +300,8 @@ with open(traj,'w',encoding='utf-8') as f:
     for o in out: f.write(json.dumps(o,ensure_ascii=False)+"\n")
 json.dump({"tokens":toks,"events":len(out),"dropped_lines":dropped},
           open(timing,'w',encoding='utf-8'),ensure_ascii=False,indent=2)
+if model_error:
+    print(f"run-benchmark: 모델 실행 오류(rc 0 이지만 is_error) — {model_error}",file=sys.stderr); sys.exit(3)
 if not out: sys.exit(1)          # 이벤트가 아예 없으면 측정 불가가 우선한다
 if dropped:
     print(f"run-benchmark: ⚠ 파싱 못해 버린 줄 {dropped}건 — 궤적이 불완전하다",file=sys.stderr)
@@ -284,9 +309,9 @@ if dropped:
 sys.exit(0)
 PY
 CONV_RC=$?
-# 변환기 종료코드: 0=정상 · 1=이벤트 0(측정불가) · 2=파싱 유실(부분)
+# 변환기 종료코드: 0=정상 · 1=이벤트 0(측정불가) · 2=파싱 유실(부분) · 3=모델 오류 결과(is_error, 측정불가)
 case "$CONV_RC" in
-  1) STATUS=unmeasurable ;;
+  1|3) STATUS=unmeasurable ;;
   2) STATUS=partial ;;
   0) ;;
   *) STATUS=unmeasurable ;;
@@ -304,9 +329,9 @@ PY
 
 # ── manifest — 모든 값은 **argv 로 전달**한다(인라인 소스 보간 금지: python 주입 경로였다) ──
 python3 - "$OUT/run_manifest.json" "$CASE" "$ARM" "$RUNNER_VERSION" "${MODEL:-default}" "$TOOLS" \
-         "$TIER" "$STARTED" "$ENDED" "$ARM_HASH" "$CASE_HASH" "$RC" "$STATUS" "$CACHED" "${CACHE_KEY:-}" "$WORK_HASH" "${DENY:-}" <<'PY' || die "run_manifest.json 기록 실패(디스크·권한 확인)"
+         "$TIER" "$STARTED" "$ENDED" "$ARM_HASH" "$CASE_HASH" "$RC" "$STATUS" "$CACHED" "${CACHE_KEY:-}" "$WORK_HASH" "${DENY:-}" "$ARM_DEF_BYTES" <<'PY' || die "run_manifest.json 기록 실패(디스크·권한 확인)"
 import json,os,platform,sys
-(dst,casef,arm,rv,model,tools,tier,started,ended,armh,caseh,rc,status,cached,ckey,workh,deny)=sys.argv[1:18]
+(dst,casef,arm,rv,model,tools,tier,started,ended,armh,caseh,rc,status,cached,ckey,workh,deny,armb)=sys.argv[1:19]
 try: case=json.load(open(casef,encoding='utf-8'))
 except Exception: case={}
 cid=case.get("case_id","")
@@ -315,10 +340,12 @@ env={"platform":platform.platform(),"machine":platform.machine(),
      "python":platform.python_version(),"lang":os.environ.get("LANG",""),"tz":os.environ.get("TZ","")}
 json.dump({
  "case_id":cid, "case_ids":[cid] if cid else [],
+ # 채점기가 "이 궤적이 이 manifest 의 것인가"를 대조할 수 있게 남긴다(R30).
+ "trajectory_sha256": (lambda p: __import__('hashlib').sha256(open(p,'rb').read()).hexdigest() if os.path.exists(p) else None)(os.path.join(os.path.dirname(dst),'trajectory.jsonl')),
  "arm":arm, "mode":arm,
  "runner_version":rv, "model":model, "tools":tools, "disallowed_tools":deny, "tier":tier,
  "started_at":started, "ended_at":ended,
- "skill_hash":armh, "case_hash":caseh, "workdir_sha256":workh,
+ "skill_hash":armh, "arm_def_bytes":int(armb), "case_hash":caseh, "workdir_sha256":workh,
  "assertion_version":str(case.get("assertion_version","0")),
  "env":env,
  "seed":None, "seed_supported":False,

@@ -15,6 +15,17 @@ ok(){ echo "  ✓ $1"; pass=$((pass+1)); }
 no(){ echo "  ✗ FAIL: $1"; failed=$((failed+1)); }
 has(){ printf '%s\n' "$OUT" | grep "$1" >/dev/null; }
 hasi(){ printf '%s\n' "$OUT" | grep -i "$1" >/dev/null; }
+# 러너가 만드는 manifest 와 같은 형태(provenance 포함)를 픽스처로 만든다 — 채점기는 case_id·trajectory_sha256 을 필수로 요구한다.
+mkmanifest(){  # $1=run dir  $2=case.json  [$3=status]
+  python3 -c "
+import json,hashlib,sys
+run,cf,st=sys.argv[1],sys.argv[2],sys.argv[3]
+try: cid=json.load(open(cf,encoding='utf-8')).get('case_id')
+except Exception: cid=None
+try: h=hashlib.sha256(open(run+'/trajectory.jsonl','rb').read()).hexdigest()
+except Exception: h=None
+json.dump({'status':st,'case_id':cid,'trajectory_sha256':h},open(run+'/run_manifest.json','w'),ensure_ascii=False)" "$1" "$2" "${3:-ok}"
+}
 
 # ── 픽스처: 모델을 부르지 않는 스텁 러너로 계약만 검증한다(비용 0·결정적) ──
 mkcase(){
@@ -287,8 +298,8 @@ J
 X
 chmod +x "$TMP/countclaude"
 : > "$D/calls.txt"
-CLAUDE_BIN="$TMP/countclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --cache-dir "$C" >/dev/null 2>&1
-OUT="$(CLAUDE_BIN="$TMP/countclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o2" --cache-dir "$C" 2>&1)"
+CLAUDE_BIN="$TMP/countclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --model test-model --cache-dir "$C" >/dev/null 2>&1
+OUT="$(CLAUDE_BIN="$TMP/countclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o2" --model test-model --cache-dir "$C" 2>&1)"
 [ "$(wc -l < "$D/calls.txt" | tr -d ' ')" = 1 ] && ok "두 번째 실행이 모델을 부르지 않음" || no "캐시가 있는데 모델을 또 호출"
 python3 -c "
 import json;m=json.load(open('$D/o2/run_manifest.json'))
@@ -319,7 +330,7 @@ J
 python3 -c "
 import json
 print(json.dumps({'seq':1,'kind':'final','text':'a'*60+'!'}))" > "$D/out/trajectory.jsonl"
-echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+mkmanifest "$D/out" "$D/case.json"
 TO_BIN="$(command -v timeout || command -v gtimeout || true)"
 t0=$(date +%s)
 if [ -n "$TO_BIN" ]; then OUT="$(GRADE_MATCH_TIMEOUT=2 "$TO_BIN" 15s bash "$GR" --case "$D/case.json" --run "$D/out" 2>&1)"
@@ -530,7 +541,7 @@ OUT="$(CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /
 
 echo "== AG. 부분 궤적(파싱 유실)을 성공·캐시로 굳히지 않는다(codex R5 MED) =="
 D="$TMP/ag"; mkcase "$D"; C="$D/cache"
-CLAUDE_BIN="$TMP/dropclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/out" --cache-dir "$C" >/dev/null 2>&1
+CLAUDE_BIN="$TMP/dropclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/out" --model test-model --cache-dir "$C" >/dev/null 2>&1
 python3 -c "
 import json;m=json.load(open('$D/out/run_manifest.json'))
 assert m['status']=='partial', m['status']" >/dev/null 2>&1 && ok "유실 있으면 status=partial" || no "유실인데 ok"
@@ -538,8 +549,8 @@ assert m['status']=='partial', m['status']" >/dev/null 2>&1 && ok "유실 있으
 
 echo "== AH. 캐시 키가 타임아웃·필드상한을 반영하고 구분자로 충돌하지 않는다(codex+agy R5) =="
 D="$TMP/ah"; mkcase "$D"; C="$D/cache"
-CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --cache-dir "$C" --max-field 10000 >/dev/null 2>&1
-OUT="$(CLAUDE_BIN="$TMP/failclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o2" --cache-dir "$C" --max-field 50 2>&1)"
+CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --model test-model --cache-dir "$C" --max-field 10000 >/dev/null 2>&1
+OUT="$(CLAUDE_BIN="$TMP/failclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o2" --model test-model --cache-dir "$C" --max-field 50 2>&1)"
 python3 -c "
 import json;m=json.load(open('$D/o2/run_manifest.json'))
 assert m.get('cached') is not True, 'max-field 가 달라도 캐시 적중'" >/dev/null 2>&1 && ok "필드상한이 다르면 캐시 미적중" || no "다른 조건인데 캐시 적중"
@@ -694,9 +705,9 @@ printf '%s\n' "$OUT" | grep -qi 'IsADirectory\|Traceback' || ok "빈/점 경로�
 
 echo "== AU. 캐시 키가 실행 바이너리 정체를 묶는다(codex R7 MED) =="
 D="$TMP/au"; mkcase "$D"; C="$D/cache"
-CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --cache-dir "$C" >/dev/null 2>&1
+CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --model test-model --cache-dir "$C" >/dev/null 2>&1
 cp "$TMP/fakeclaude" "$TMP/otherclaude"; echo '# 다른 래퍼' >> "$TMP/otherclaude"
-CLAUDE_BIN="$TMP/otherclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o2" --cache-dir "$C" >/dev/null 2>&1
+CLAUDE_BIN="$TMP/otherclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o2" --model test-model --cache-dir "$C" >/dev/null 2>&1
 python3 -c "
 import json;m=json.load(open('$D/o2/run_manifest.json'))
 assert m.get('cached') is not True, '다른 바이너리인데 캐시 적중'" >/dev/null 2>&1 && ok "바이너리가 다르면 캐시 미적중" || no "다른 바이너리에 캐시 재사용"
@@ -732,7 +743,7 @@ python3 -c "
 import json
 # 상한 뒤에 금지 문자열이 있다 → 잘라내면 '없음'으로 보인다
 print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'A'*3000+' FORBIDDEN'}}))" > "$D/out/trajectory.jsonl"
-echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+mkmanifest "$D/out" "$D/case.json"
 GRADE_MAX_SCAN=1000 bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
 python3 -c "
 import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
@@ -740,15 +751,15 @@ assert e['passed'] is not True, '절단 뒤 금지 호출을 못 보고 통과'"
 
 echo "== AX. 채점기 종료코드가 상태를 구분한다(codex R8 MED) =="
 D="$TMP/ax"; mkdir -p "$D"
-mkrun(){ mkdir -p "$2"; printf '%s\n' "$3" > "$2/trajectory.jsonl"; echo "{\"status\":\"ok\"}" > "$2/run_manifest.json"; }
+mkrun(){ mkdir -p "$2"; printf '%s\n' "$3" > "$2/trajectory.jsonl"; mkmanifest "$2" "$4"; }
 cat > "$D/fail.json" <<'J'
 {"case_id":"f","task":"t","fixtures":[],"expectations":[{"id":"a","kind":"tool_present","pattern":"NOPE","why":"실패"}]}
 J
 cat > "$D/vac.json" <<'J'
 {"case_id":"v","task":"t","fixtures":[],"expectations":[{"id":"a","kind":"report_matches_calls","pattern":"z","claim_pattern":"9 ?회","count":1,"why":"공허"}]}
 J
-mkrun x "$D/r1" '{"seq":1,"kind":"tool_use","name":"Bash","input":{"command":"x"}}'
-mkrun x "$D/r2" '{"seq":1,"kind":"tool_use","name":"Bash","input":{"command":"x"}}'
+mkrun x "$D/r1" '{"seq":1,"kind":"tool_use","name":"Bash","input":{"command":"x"}}' "$D/fail.json"
+mkrun x "$D/r2" '{"seq":1,"kind":"tool_use","name":"Bash","input":{"command":"x"}}' "$D/vac.json"
 bash "$GR" --case "$D/fail.json" --run "$D/r1" >/dev/null 2>&1; c1=$?
 bash "$GR" --case "$D/vac.json" --run "$D/r2" >/dev/null 2>&1; c2=$?
 [ "$c1" != "$c2" ] && [ "$c1" != 0 ] && [ "$c2" != 0 ] && ok "failed($c1)·vacuous($c2) 를 종료코드로 구분" || no "상태가 종료코드로 뭉개짐($c1/$c2)"
@@ -763,7 +774,7 @@ python3 -c "
 import json
 print(json.dumps({'seq':1,'kind':'tool_result','name':'Bash','content':'FOUND'}))
 print(json.dumps({'seq':2,'kind':'tool_result','name':None,'content':'무관한 잡음'}))" > "$D/out/trajectory.jsonl"
-echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+mkmanifest "$D/out" "$D/case.json"
 bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
 python3 -c "
 import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
@@ -779,7 +790,7 @@ python3 -c "
 import json
 print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'bash audit'}}))
 print(json.dumps({'seq':2,'kind':'final','text':'여러회 시도했고 3회 성공'}))" > "$D/out/trajectory.jsonl"
-echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+mkmanifest "$D/out" "$D/case.json"
 bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
 python3 -c "
 import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
@@ -794,7 +805,7 @@ J
 python3 -c "
 import json
 print(json.dumps({'seq':1,'kind':'tool_use','name':'MysteryTool','input':{'memo':'run-policy-audit 를 돌릴 예정'}}))" > "$D/out/trajectory.jsonl"
-echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+mkmanifest "$D/out" "$D/case.json"
 bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
 python3 -c "
 import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
@@ -811,7 +822,7 @@ python3 -c "
 import json
 print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'bash audit'}}))
 print(json.dumps({'seq':2,'kind':'final','text':'끝'}))" > "$D/out/trajectory.jsonl"
-echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+mkmanifest "$D/out" "$D/case.json"
 bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
 python3 -c "
 import json;g=json.load(open('$D/out/grading.json'))
@@ -830,7 +841,7 @@ print(json.dumps({'seq':1,'kind':'tool_use','name':'Read','input':{'limit':5,'fi
 python3 -c "
 import json
 print(json.dumps({'seq':1,'kind':'tool_use','name':'Read','input':{'file_path':'/x/y','limit':5}}))" > "$D/out2/trajectory.jsonl"
-for d in out1 out2; do echo '{"status":"ok"}' > "$D/$d/run_manifest.json"; bash "$GR" --case "$D/case.json" --run "$D/$d" >/dev/null 2>&1; done
+for d in out1 out2; do mkmanifest "$D/$d" "$D/case.json"; bash "$GR" --case "$D/case.json" --run "$D/$d" >/dev/null 2>&1; done
 python3 -c "
 import json
 a=json.load(open('$D/out1/grading.json'))['expectations'][0]['passed']
@@ -866,14 +877,14 @@ python3 -c "
 import json
 print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'echo FIRSTEND'}}))
 print(json.dumps({'seq':2,'kind':'tool_use','name':'Bash','input':{'command':'echo SECONDSTART'}}))" > "$D/out/trajectory.jsonl"
-echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+mkmanifest "$D/out" "$D/case.json"
 bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
 python3 -c "
 import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
 assert e['passed'] is False, '두 이벤트 경계를 이은 매치가 통과: '+str(e['passed'])" >/dev/null 2>&1 && ok "경계 넘김 매치 차단" || no "경계를 가로질러 거짓 통과"
 # 같은 이벤트 안이면 당연히 잡혀야 한다(과잉 차단 방지)
 cat > "$D/case2.json" <<'J'
-{"case_id":"c-in","task":"t","fixtures":[],
+{"case_id":"c-bound","task":"t","fixtures":[],
  "expectations":[{"id":"inside","kind":"tool_present","tool":"Bash","pattern":"echo[\\s\\S]*FIRSTEND","why":"한 이벤트 안"}]}
 J
 bash "$GR" --case "$D/case2.json" --run "$D/out" >/dev/null 2>&1
@@ -893,8 +904,8 @@ cat <<'J'
 J
 X
 chmod +x "$TMP/cc2"
-CLAUDE_BIN="$TMP/cc2" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --cache-dir "$C" >/dev/null 2>&1
-CLAUDE_BIN="$TMP/cc2" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --cache-dir "$C" --force >/dev/null 2>&1
+CLAUDE_BIN="$TMP/cc2" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --model test-model --cache-dir "$C" >/dev/null 2>&1
+CLAUDE_BIN="$TMP/cc2" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --model test-model --cache-dir "$C" --force >/dev/null 2>&1
 [ "$(wc -l < "$D/calls.txt" | tr -d ' ')" = 2 ] && ok "--force 가 실제로 다시 실행" || no "--force 인데 캐시로 조용히 통과"
 
 echo "== BH. 파일 모드가 다르면 캐시가 갈린다(codex R10 HIGH) =="
@@ -906,8 +917,8 @@ json.dump({'case_id':'c-mode','task':'t',
  'expectations':[]}, open('$D/case_$1.json','w'))"; }
 mkc 0644; mkc 0755
 : > "$D/calls.txt"
-CLAUDE_BIN="$TMP/cc2" bash "$RB" --case "$D/case_0644.json" --arm-def /dev/null --out "$D/o1" --cache-dir "$C" >/dev/null 2>&1
-CLAUDE_BIN="$TMP/cc2" bash "$RB" --case "$D/case_0755.json" --arm-def /dev/null --out "$D/o2" --cache-dir "$C" >/dev/null 2>&1
+CLAUDE_BIN="$TMP/cc2" bash "$RB" --case "$D/case_0644.json" --arm-def /dev/null --out "$D/o1" --model test-model --cache-dir "$C" >/dev/null 2>&1
+CLAUDE_BIN="$TMP/cc2" bash "$RB" --case "$D/case_0755.json" --arm-def /dev/null --out "$D/o2" --model test-model --cache-dir "$C" >/dev/null 2>&1
 python3 -c "
 import json;m=json.load(open('$D/o2/run_manifest.json'))
 assert m.get('cached') is not True, '모드만 다른데 캐시 적중'" >/dev/null 2>&1 && ok "실행 비트가 다르면 캐시 미적중" || no "권한 차이를 무시하고 캐시 재사용"
@@ -922,7 +933,7 @@ python3 -c "
 import json
 print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'bash audit'}}))
 print(json.dumps({'seq':2,'kind':'final','text':'감사를 수행하지 않았습니다'}))" > "$D/out/trajectory.jsonl"
-echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+mkmanifest "$D/out" "$D/case.json"
 bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
 python3 -c "
 import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
@@ -945,7 +956,7 @@ J
 python3 -c "
 import json
 print(json.dumps({'seq':1,'kind':'tool_use','name':'WebSearch','input':{'query':'비밀'}}))" > "$D/out/trajectory.jsonl"
-echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+mkmanifest "$D/out" "$D/case.json"
 bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
 python3 -c "
 import json;e={x['id']:x for x in json.load(open('$D/out/grading.json'))['expectations']}
@@ -961,18 +972,20 @@ J
 python3 -c "
 import json
 print(json.dumps({'seq':1,'kind':'final','text':'완료했습니다'}))" > "$D/out/trajectory.jsonl"
-echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+mkmanifest "$D/out" "$D/case.json"
 bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
 python3 -c "
 import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
 assert e['passed'] is None, 'tool 한정을 조용히 무시하고 전역 보고를 검사'" >/dev/null 2>&1 && ok "적용 불가한 한정을 명시 거부" || no "한정을 조용히 무시"
 
-echo "== BM. 해시 불가 성분이 있으면 캐시를 쓰지 않는다(codex R12 MED) =="
-D="$TMP/bm"; mkcase "$D"; C="$D/cache"
-OUT="$(CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /nonexistent-def --out "$D/o1" --cache-dir "$C" 2>&1)"
-python3 -c "
-import json;m=json.load(open('$D/o1/run_manifest.json'))
-assert not m.get('cache_key'), '해시 불가인데 캐시 키를 만듦: '+str(m.get('cache_key'))" >/dev/null 2>&1 && ok "해시 불가 성분 → 캐시 비활성" || no "unavailable 을 키에 넣고 캐시 사용"
+echo "== BM. 비가독 arm-def 는 실행 전에 중단한다(R17 가독 검증 — 부재는 BV, 여기는 권한) =="
+D="$TMP/bm"; mkcase "$D"; C="$D/cache"; printf '# def\n' > "$D/def.md"; chmod 000 "$D/def.md"
+if [ -r "$D/def.md" ]; then echo "  - SKIP: root 등 권한 무시 환경(chmod 000 이 가독을 못 막음)"
+else
+  OUT="$(CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def "$D/def.md" --out "$D/o1" --model test-model --cache-dir "$C" 2>&1)"; rc=$?
+  [ "$rc" = 2 ] && [ ! -d "$C" ] && ok "비가독 arm-def → rc=2, 캐시 생성 없음" || no "비가독 정의로 진행(rc=$rc)"
+fi
+chmod 644 "$D/def.md" 2>/dev/null
 
 echo "== BN. 산출물 기록 실패를 성공으로 넘기지 않는다(codex R12 MED) =="
 D="$TMP/bn"; mkcase "$D"
@@ -991,7 +1004,7 @@ J
 python3 -c "
 import json
 print(json.dumps({'seq':1,'kind':'tool_result','name':'CustomTool','content':'FOUND'}))" > "$D/out/trajectory.jsonl"
-echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+mkmanifest "$D/out" "$D/case.json"
 bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
 python3 -c "
 import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
@@ -1006,14 +1019,14 @@ J
 python3 -c "
 import json
 print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'echo hi','description':'FORBIDDEN_TOKEN 을 쓸 뻔했다'}}))" > "$D/out/trajectory.jsonl"
-echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+mkmanifest "$D/out" "$D/case.json"
 bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
 python3 -c "
 import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
 assert e['passed'] is False, '서술 필드의 금지 문자열을 못 보고 없다고 판정'" >/dev/null 2>&1 && ok "금지 검사는 필터 없이 전수" || no "필터 때문에 거짓 '없음'"
 # 존재 주장은 여전히 서술 필드에 속지 않아야 한다(BP 수정이 AV 를 깨지 않는지)
 cat > "$D/case2.json" <<'J'
-{"case_id":"c-pres","task":"t","fixtures":[],
+{"case_id":"c-absdesc","task":"t","fixtures":[],
  "expectations":[{"id":"p","kind":"tool_present","tool":"Bash","pattern":"FORBIDDEN_TOKEN","why":"존재 주장"}]}
 J
 bash "$GR" --case "$D/case2.json" --run "$D/out" >/dev/null 2>&1
@@ -1036,7 +1049,7 @@ python3 -c "
 import json
 print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'bash audit'}}))
 print(json.dumps({'seq':2,'kind':'final','text':'1,000회 실행했다'}))" > "$D/out/trajectory.jsonl"
-echo '{"status":"ok"}' > "$D/out/run_manifest.json"
+mkmanifest "$D/out" "$D/case.json"
 bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
 python3 -c "
 import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
@@ -1065,7 +1078,7 @@ grep -q -- '--disallowedTools' "$TMP/argv.txt" && ok "--disallowedTools 전달" 
 dl="$(grep -A1 -- '--disallowedTools' "$TMP/argv.txt" | tail -1)"
 case "$dl" in *mcp__\**) ok "mcp__* 항상 거부" ;; *) no "mcp__* 누락: $dl" ;; esac
 case "$dl" in *Write*) ok "기본(Read)에서 Write 거부" ;; *) no "Write 가 거부 목록에 없음: $dl" ;; esac
-case "$dl" in *Read*) no "허용한 Read 가 거부 목록에 들어감" ;; *) ok "허용 도구는 거부 목록에서 제외" ;; esac
+printf '%s\n' "$dl" | tr ',' '\n' | grep -qx 'Read' && no "허용한 Read 가 거부 목록에 들어감" || ok "허용 도구는 거부 목록에서 제외(토큰 정확 일치)"
 python3 -c "
 import json;m=json.load(open('$D/out/run_manifest.json'))
 assert 'mcp__*' in m.get('disallowed_tools',''), m.get('disallowed_tools')" >/dev/null 2>&1 && ok "manifest 에 disallowed_tools 기록" || no "manifest 누락"
@@ -1087,6 +1100,331 @@ print('시도된 도구:',sorted(names,key=str))" 2>/dev/null | sed 's/^/  /'
 else
   echo "  - SKIP: BENCH_LIVE=1 이 아니거나 claude 없음(실제 모델 호출·비용 발생)"
 fi
+
+echo "== BV. arm-def 를 읽을 수 없으면 실행하지 않는다(R17 HIGH — 다른 arm 으로 거짓 통과 방지) =="
+D="$TMP/bv"; mkcase "$D"
+OUT="$(CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def "$TMP/nonexistent.md" --out "$D/out" 2>&1)"; rc=$?
+[ "$rc" = 2 ] && [ ! -f "$D/out/run_manifest.json" ] && ok "부재 arm-def → 사용법 오류로 중단(rc=2, 실행 없음)" || no "정의 없이 실행 진행(rc=$rc)"
+
+echo "== BW. 금지 검사는 tool_result 까지 본다(R17 HIGH — tool_use 누락 궤적) =="
+D="$TMP/bw"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-resabs","task":"t","fixtures":[],
+ "expectations":[{"id":"no","kind":"tool_absent","tool":"WebSearch","pattern":"SECRET","why":"금지 도구 결과만 남음"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_result','name':'WebSearch','content':'SECRET query result'}))" > "$D/out/trajectory.jsonl"
+mkmanifest "$D/out" "$D/case.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is False, '결과만 남은 금지 도구를 없음으로 판정: '+str(e['passed'])
+assert 'tool_result' in str(e['evidence']), e['evidence']" >/dev/null 2>&1 && ok "결과만으로도 금지 사용 적발 + 매핑 불일치 명시" || no "tool_use 누락 궤적에서 거짓 통과"
+
+echo "== BX. 한정 없는 존재/대조 주장은 미지 도구 자유필드를 세지 않는다(R17 HIGH) =="
+D="$TMP/bx"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-unkfree","task":"t","fixtures":[],
+ "expectations":[{"id":"rm","kind":"report_matches_calls","pattern":"audit","claim_pattern":"([0-9]+)회","count":1,"why":"tool 미지정 대조"},
+                 {"id":"pr","kind":"tool_present","pattern":"audit","why":"tool 미지정 존재"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_use','name':'Mystery','input':{'memo':'audit audit'}}))
+print(json.dumps({'seq':2,'kind':'final','text':'audit 2회 실행'}))" > "$D/out/trajectory.jsonl"
+mkmanifest "$D/out" "$D/case.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e={x['id']:x for x in json.load(open('$D/out/grading.json'))['expectations']}
+assert e['rm']['passed'] is not True, '미지 도구 memo 로 대조 거짓 통과'
+assert e['pr']['passed'] is not True, '미지 도구 memo 로 존재 거짓 통과'
+assert '제외' in str(e['pr']['evidence']), e['pr']['evidence']" >/dev/null 2>&1 && ok "미지 도구 호출은 집계 제외 + 사유 명시" || no "자유필드가 실행으로 집계됨"
+
+echo "== BY. 디렉토리 arm-def 는 거부하고, 빈 정의(without arm)는 기록한다(R18 HIGH) =="
+D="$TMP/by"; mkcase "$D"; mkdir -p "$D/defdir"
+OUT="$(CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def "$D/defdir" --out "$D/o1" 2>&1)"; rc=$?
+[ "$rc" = 2 ] && [ ! -f "$D/o1/run_manifest.json" ] && ok "디렉토리 arm-def → rc=2" || no "디렉토리를 정의로 받아 실행(rc=$rc)"
+: > "$D/empty.md"; CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def "$D/empty.md" --arm without --out "$D/o2" >/dev/null 2>&1
+python3 -c "
+import json;m=json.load(open('$D/o2/run_manifest.json'))
+assert m.get('arm_def_bytes')==0, m.get('arm_def_bytes')" >/dev/null 2>&1 && ok "빈 정의는 허용(without arm)·manifest 에 0 바이트 기록" || no "빈 정의 처리 불명"
+
+echo "== BZ. tool_absent 의 calls 범위는 tool 한정 없이는 결과를 훔쳐보지 않는다(agy R18 H2) =="
+D="$TMP/bz"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-absscope","task":"t","fixtures":[],
+ "expectations":[{"id":"a","kind":"tool_absent","pattern":"FORBID","why":"한정 없음·calls"},
+                 {"id":"b","kind":"tool_absent","tool":"WebSearch","pattern":"FORBID","why":"한정 있음·결과만"},
+                 {"id":"c","kind":"tool_absent","tool":"WebSearch","scope":"all","pattern":"FORBID","why":"all 이중집계 확인"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'echo ok'}}))
+print(json.dumps({'seq':2,'kind':'tool_result','name':'WebSearch','content':'FORBID'}))" > "$D/out/trajectory.jsonl"
+mkmanifest "$D/out" "$D/case.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json,re;e={x['id']:x for x in json.load(open('$D/out/grading.json'))['expectations']}
+assert e['a']['passed'] is True, '한정 없는 calls 가 남의 결과를 봄: '+str(e['a'])
+assert e['b']['passed'] is False, '금지 도구 결과만 있는데 통과'
+m=re.search(r'(\\d+)건 출현',str(e['c']['evidence'])); assert m and int(m.group(1))==1, '이중 집계: '+str(e['c']['evidence'])" >/dev/null 2>&1 && ok "calls 범위 순수·한정 시 결과로 적발·all 이중집계 없음" || no "scope 의미 훼손 또는 이중 집계"
+
+echo "== CA. 한정 없는 존재 주장에서 미지 도구 제외가 거짓 실패를 만들지 않는다(agy R18 H1) =="
+D="$TMP/ca"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-unkhold","task":"t","fixtures":[],
+ "expectations":[{"id":"p","kind":"tool_present","pattern":"CustomTool","why":"미지 도구가 실제로 돌았다"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_use','name':'CustomTool','input':{'q':'x'}}))" > "$D/out/trajectory.jsonl"
+mkmanifest "$D/out" "$D/case.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is None, '제외로 인한 거짓 실패: '+str(e['passed'])" >/dev/null 2>&1 && ok "미지 도구만 있는 존재 주장 → 보류(거짓 실패 아님)" || no "False 로 단정"
+
+echo "== CB. 주장·실제 모두 0 인 대조는 통과하되 수행 여부 미확인을 명시(agy R18 MED) =="
+D="$TMP/cb"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-zero","task":"t","fixtures":[],
+ "expectations":[{"id":"z","kind":"report_matches_calls","tool":"Bash","pattern":"audit","claim_pattern":"([0-9]+)회","count":1,"why":"0=0"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'final','text':'감사를 0회 실행했다'}))" > "$D/out/trajectory.jsonl"
+mkmanifest "$D/out" "$D/case.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is True and '0' in str(e['evidence']) and ('수행' in str(e['evidence']) or 'tool_count_min' in str(e['evidence'])), e" >/dev/null 2>&1 && ok "0=0 통과 + 수행 여부 별도 확인 명시" || no "0=0 에 주의 표기 없음"
+
+echo "== CC. CLI 가 rc 0 으로 오류 결과(is_error)를 내면 측정불가·캐시 금지(R19 HIGH) =="
+D="$TMP/cc"; mkcase "$D"; C="$D/cache"
+cat > "$TMP/errclaude" <<'X'
+#!/usr/bin/env bash
+cat <<'J'
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"x"}}]}}
+{"type":"result","subtype":"error_during_execution","is_error":true,"result":"API error: overloaded"}
+J
+X
+chmod +x "$TMP/errclaude"
+OUT="$(CLAUDE_BIN="$TMP/errclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/out" --model test-model --cache-dir "$C" 2>&1)"; rc=$?
+python3 -c "
+import json;m=json.load(open('$D/out/run_manifest.json'))
+assert m['status']=='unmeasurable', m['status']" >/dev/null 2>&1 && ok "is_error 결과 → unmeasurable" || no "모델 오류를 ok 로 위장(rc=$rc)"
+[ -d "$C" ] && [ -n "$(ls -A "$C" 2>/dev/null)" ] && no "오류 실행을 캐시에 저장" || ok "오류 실행은 캐시하지 않음"
+[ "$rc" = 3 ] && ok "종료코드 3" || no "rc=$rc"
+
+echo "== CD. 한정 없는 tool_absent(calls) 는 결과를 세지 않되, 결과에 패턴이 있으면 힌트를 남긴다(R19 #2 · agy R18 H2 절충) =="
+D="$TMP/cd"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-hint","task":"t","fixtures":[],
+ "expectations":[{"id":"a","kind":"tool_absent","pattern":"FORBID","why":"한정 없음"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'echo ok'}}))
+print(json.dumps({'seq':2,'kind':'tool_result','name':'Bash','content':'FORBID in output'}))" > "$D/out/trajectory.jsonl"
+mkmanifest "$D/out" "$D/case.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is True, 'calls 범위가 결과를 셈'
+assert 'scope' in str(e['evidence']) and '1건' in str(e['evidence']), '힌트 없음: '+str(e['evidence'])" >/dev/null 2>&1 && ok "calls 는 순수 · 결과 출현 힌트 표기" || no "힌트 누락 또는 범위 훼손"
+
+echo "== CE. 모델 미지정이면 캐시를 쓰지 않는다(R20 — 기본 모델 변경을 키가 구분 못 함) =="
+D="$TMP/ce"; mkcase "$D"; C="$D/cache"
+OUT="$(CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --cache-dir "$C" 2>&1)"
+python3 -c "
+import json;m=json.load(open('$D/o1/run_manifest.json'))
+assert not m.get('cache_key'), '모델 미지정인데 캐시 키 생성: '+str(m.get('cache_key'))" >/dev/null 2>&1 && ok "모델 미지정 → 캐시 비활성(경고)" || no "기본 모델 궤적을 캐시"
+printf '%s\n' "$OUT" | grep -qi '모델' && ok "사유 안내" || no "조용히 비활성: $OUT"
+OUT="$(CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o2" --cache-dir "$C" --model test-model 2>&1)"
+python3 -c "
+import json;m=json.load(open('$D/o2/run_manifest.json'))
+assert m.get('cache_key'), '모델 지정인데 캐시 미사용'" >/dev/null 2>&1 && ok "모델 지정 시 캐시 정상" || no "모델 지정에도 캐시 안 됨"
+
+echo "== CF. manifest 부재·손상·허용 외 status 는 채점하지 않는다(R20) =="
+D="$TMP/cf"; for v in missing broken weird; do mkdir -p "$D/$v"; printf '%s\n' '{"seq":1,"kind":"tool_use","name":"Bash","input":{"command":"audit"}}' > "$D/$v/trajectory.jsonl"; done
+echo 'not json' > "$D/broken/run_manifest.json"; echo '{"status":"banana"}' > "$D/weird/run_manifest.json"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-mf","task":"t","fixtures":[],"expectations":[{"id":"p","kind":"tool_present","tool":"Bash","pattern":"audit","why":"통과할 assertion"}]}
+J
+allok=1; for v in missing broken weird; do bash "$GR" --case "$D/case.json" --run "$D/$v" >/dev/null 2>&1; rc=$?; python3 -c "
+import json,sys
+try: g=json.load(open('$D/$v/grading.json'))
+except Exception: sys.exit(0)   # grading 자체를 안 만든 것도 허용(측정불가)
+assert g['summary']['status']=='unmeasurable', '$v: '+g['summary']['status']" >/dev/null 2>&1 || allok=0; [ "$rc" = 3 ] || allok=0; done
+[ "$allok" = 1 ] && ok "manifest 부재/손상/허용외 → unmeasurable(rc 3)" || no "손상된 manifest 로 ok 채점"
+
+echo "== CG. tool 한정 금지 검사는 이름 없는 결과도 본다 — 정상 결과가 함께 있어도(R23 HIGH) =="
+D="$TMP/cg"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-unnamed","task":"t","fixtures":[],
+ "expectations":[{"id":"no","kind":"tool_absent","tool":"WebSearch","pattern":"SECRET","why":"금지 도구 결과가 name:null"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_result','name':'WebSearch','content':'harmless'}))
+print(json.dumps({'seq':2,'kind':'tool_result','name':None,'content':'SECRET leaked'}))" > "$D/out/trajectory.jsonl"
+mkmanifest "$D/out" "$D/case.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e=json.load(open('$D/out/grading.json'))['expectations'][0]
+assert e['passed'] is not True, '이름 없는 결과의 금지 패턴을 놓침: '+str(e['passed'])" >/dev/null 2>&1 && ok "이름 미상 결과의 금지 패턴을 통과시키지 않음" || no "name:null 결과로 거짓 통과"
+
+echo "== CH. 캐시 키가 CLI 설정 환경(CLAUDE_CONFIG_DIR 등)을 구분한다(R23) =="
+D="$TMP/ch"; mkcase "$D"; C="$D/cache"
+CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --model test-model --cache-dir "$C" >/dev/null 2>&1
+CLAUDE_CONFIG_DIR="$D/otherconf" CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o2" --model test-model --cache-dir "$C" >/dev/null 2>&1
+python3 -c "
+import json;m=json.load(open('$D/o2/run_manifest.json'))
+assert m.get('cached') is not True, '설정 디렉토리가 달라도 캐시 적중'" >/dev/null 2>&1 && ok "CLAUDE_CONFIG_DIR 가 다르면 캐시 미적중" || no "설정 환경 차이를 무시하고 캐시 재사용"
+
+echo "== CI. tool 한정 금지 검사의 results/all 범위도 이름 없는 결과를 본다(R24 HIGH) =="
+D="$TMP/ci"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-unres","task":"t","fixtures":[],
+ "expectations":[{"id":"r","kind":"tool_absent","tool":"WebSearch","scope":"results","pattern":"SECRET","why":"results 범위"},
+                 {"id":"a","kind":"tool_absent","tool":"WebSearch","scope":"all","pattern":"SECRET","why":"all 범위"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_result','name':'WebSearch','content':'harmless'}))
+print(json.dumps({'seq':2,'kind':'tool_result','name':None,'content':'SECRET leaked'}))" > "$D/out/trajectory.jsonl"
+mkmanifest "$D/out" "$D/case.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json,re;e={x['id']:x for x in json.load(open('$D/out/grading.json'))['expectations']}
+assert e['r']['passed'] is not True and e['a']['passed'] is not True, str(e)
+m=re.search(r'(\\d+)건 출현',str(e['a']['evidence'])); assert m and int(m.group(1))==1, 'all 이중집계: '+str(e['a']['evidence'])" >/dev/null 2>&1 && ok "results/all 에서도 미상 결과 적발 · 이중집계 없음" || no "범위별 미상 결과 누락 또는 이중집계"
+
+echo "== CJ. --force 캐시 삭제 실패는 적중으로 넘어가지 않는다(R24 HIGH) =="
+D="$TMP/cj"; mkcase "$D"; C="$D/cache"
+CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --model test-model --cache-dir "$C" >/dev/null 2>&1
+key=$(ls "$C" | head -1); chmod 555 "$C" 2>/dev/null   # 엔트리 삭제 불가
+OUT="$(CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --model test-model --cache-dir "$C" --force 2>&1)"; rc=$?; chmod 755 "$C"
+if [ -f "$D/o1/run_manifest.json" ]; then python3 -c "
+import json;m=json.load(open('$D/o1/run_manifest.json'))
+assert m.get('cached') is not True, '삭제 실패 후 캐시 적중으로 위장'" >/dev/null 2>&1 && ok "삭제 실패 → 적중 금지(rc=$rc)" || no "삭제 실패인데 cached=true"; else [ "$rc" != 0 ] && ok "삭제 실패 → 중단(rc=$rc)" || no "manifest 없이 rc=0"; fi
+
+echo "== CK. 설정 파일 내용·HOME 이 다르면 캐시가 갈린다(R24) =="
+D="$TMP/ck"; mkcase "$D"; C="$D/cache"; mkdir -p "$D/conf"; echo '{"a":1}' > "$D/conf/settings.json"
+CLAUDE_CONFIG_DIR="$D/conf" CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o1" --model test-model --cache-dir "$C" >/dev/null 2>&1
+echo '{"a":2}' > "$D/conf/settings.json"
+CLAUDE_CONFIG_DIR="$D/conf" CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o2" --model test-model --cache-dir "$C" >/dev/null 2>&1
+python3 -c "
+import json;m=json.load(open('$D/o2/run_manifest.json'))
+assert m.get('cached') is not True, '설정 내용이 바뀌었는데 적중'" >/dev/null 2>&1 && ok "settings.json 내용 변경 → 미적중" || no "설정 내용 변경을 무시"
+
+echo "== CL. count 가 1 이상 정수가 아니면 평가불가(R26 HIGH — 음수는 항상 통과였다) =="
+D="$TMP/cl"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-cnt","task":"t","fixtures":[],
+ "expectations":[{"id":"neg","kind":"tool_count_min","pattern":"anything","count":-1,"why":"음수"},
+                 {"id":"zero","kind":"tool_count_min","pattern":"anything","count":0,"why":"0"},
+                 {"id":"str","kind":"tool_count_min","pattern":"anything","count":"2","why":"문자열"},
+                 {"id":"ok","kind":"tool_count_min","tool":"Bash","pattern":"\"command\": x","count":1,"why":"정상"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'x'}}))" > "$D/out/trajectory.jsonl"
+mkmanifest "$D/out" "$D/case.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e={x['id']:x for x in json.load(open('$D/out/grading.json'))['expectations']}
+assert e['neg']['passed'] is None and e['zero']['passed'] is None and e['str']['passed'] is None, str(e)
+assert e['ok']['passed'] is True, e['ok']" >/dev/null 2>&1 && ok "음수·0·문자열 count → 평가불가, 정상 count 는 채점" || no "부적합 count 를 통과시킴"
+
+echo "== CM. 러너가 잘라낸 항목의 뒤쪽은 단정하지 않는다(R27 HIGH) =="
+D="$TMP/cm"; mkcase "$D"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-trunc2","task":"t","fixtures":[],
+ "expectations":[{"id":"abs","kind":"tool_absent","tool":"Bash","pattern":"FORBID","why":"절단 너머 금지 패턴"},
+                 {"id":"head","kind":"tool_present","tool":"Bash","pattern":"HEADTOKEN","why":"절단 앞 패턴은 확정 가능"},
+                 {"id":"tailp","kind":"tool_present","tool":"Bash","pattern":"FORBID","why":"절단 너머 존재 주장은 단정 불가"}]}
+J
+python3 -c "
+import json
+print(json.dumps({'type':'assistant','message':{'content':[{'type':'tool_use','name':'Bash','input':{'command':'HEADTOKEN '+'x'*300+' FORBID'}}]}}))
+print(json.dumps({'type':'result','result':'done'}))" > "$TMP/truncout"
+printf '#!/usr/bin/env bash\ncat %s\n' "$TMP/truncout" > "$TMP/truncclaude"; chmod +x "$TMP/truncclaude"
+CLAUDE_BIN="$TMP/truncclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/out" --max-field 100 >/dev/null 2>&1
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e={x['id']:x for x in json.load(open('$D/out/grading.json'))['expectations']}
+assert e['abs']['passed'] is None, '절단 너머 금지 패턴을 없음으로 단정: '+str(e['abs'])
+assert e['head']['passed'] is True, e['head']
+assert e['tailp']['passed'] is None, e['tailp']" >/dev/null 2>&1 && ok "절단 시 absent/present 부정 판정 보류, 앞쪽 존재는 확정" || no "절단 뒤쪽을 단정"
+
+echo "== CN. 다른 케이스·다른 실행의 궤적은 채점하지 않는다(R30 HIGH · provenance) =="
+D="$TMP/cn"; mkcase "$D"
+CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/out" >/dev/null 2>&1
+python3 -c "
+import json
+c=json.load(open('$D/case.json')); c['case_id']='other-case'
+json.dump(c,open('$D/other.json','w'),ensure_ascii=False)"
+bash "$GR" --case "$D/other.json" --run "$D/out" >/dev/null 2>&1; rc=$?
+python3 -c "
+import json;g=json.load(open('$D/out/grading.json'))
+assert g['summary']['status']=='unmeasurable' and 'case_id' in str(g['summary'].get('reason','')), g['summary']" >/dev/null 2>&1 && [ "$rc" = 3 ] && ok "case_id 불일치 → unmeasurable(rc 3)" || no "다른 케이스 기대치로 채점(rc=$rc)"
+CLAUDE_BIN="$TMP/fakeclaude" bash "$RB" --case "$D/case.json" --arm-def /dev/null --out "$D/o2" >/dev/null 2>&1
+printf '%s\n' '{"seq":1,"kind":"tool_use","name":"Bash","input":{"command":"tampered"}}' > "$D/o2/trajectory.jsonl"
+bash "$GR" --case "$D/case.json" --run "$D/o2" >/dev/null 2>&1; rc=$?
+python3 -c "
+import json;g=json.load(open('$D/o2/grading.json'))
+assert g['summary']['status']=='unmeasurable' and 'trajectory' in str(g['summary'].get('reason','')), g['summary']" >/dev/null 2>&1 && ok "궤적 교체 감지 → unmeasurable" || no "다른 실행의 궤적을 채점(rc=$rc)"
+
+echo "== CO. 빈 pattern 은 평가하지 않는다(R32 HIGH — 모든 위치 매칭) =="
+D="$TMP/co"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-empty","task":"t","fixtures":[],
+ "expectations":[{"id":"a","kind":"tool_absent","tool":"Bash","pattern":"","why":"빈 패턴"},
+                 {"id":"p","kind":"tool_present","tool":"Bash","pattern":"","why":"빈 패턴"},
+                 {"id":"n","kind":"tool_present","tool":"Bash","why":"pattern 없음"}]}
+J
+python3 -c "
+import json,hashlib,os
+os.makedirs('$D/out',exist_ok=True)
+tr='$D/out/trajectory.jsonl'
+open(tr,'w').write(json.dumps({'seq':1,'kind':'tool_use','name':'Bash','input':{'command':'x'}})+'\n')
+json.dump({'status':'ok','case_id':'c-empty','trajectory_sha256':hashlib.sha256(open(tr,'rb').read()).hexdigest()},open('$D/out/run_manifest.json','w'))"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1
+python3 -c "
+import json;e={x['id']:x for x in json.load(open('$D/out/grading.json'))['expectations']}
+assert all(e[k]['passed'] is None for k in ('a','p','n')), str(e)" >/dev/null 2>&1 && ok "빈/부재 pattern → 전건 평가불가" || no "빈 패턴으로 통과/실패 단정"
+
+echo "== CP. provenance 필드가 없는 manifest 는 채점하지 않는다(R32 HIGH) =="
+D="$TMP/cp"; mkdir -p "$D/o1" "$D/o2"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-prov","task":"t","fixtures":[],"expectations":[{"id":"p","kind":"tool_present","tool":"Bash","pattern":"x","why":"t"}]}
+J
+printf '%s\n' '{"seq":1,"kind":"tool_use","name":"Bash","input":{"command":"x"}}' > "$D/o1/trajectory.jsonl"
+cp "$D/o1/trajectory.jsonl" "$D/o2/trajectory.jsonl"
+echo '{"status":"ok","case_id":"c-prov"}' > "$D/o1/run_manifest.json"          # sha 없음
+echo '{"status":"ok","trajectory_sha256":"deadbeef"}' > "$D/o2/run_manifest.json"   # case_id 없음
+allok=1; for v in o1 o2; do bash "$GR" --case "$D/case.json" --run "$D/$v" >/dev/null 2>&1; [ "$?" = 3 ] || allok=0; python3 -c "
+import json;g=json.load(open('$D/$v/grading.json')); assert g['summary']['status']=='unmeasurable', '$v'" >/dev/null 2>&1 || allok=0; done
+[ "$allok" = 1 ] && ok "case_id·trajectory_sha256 부재 → unmeasurable(rc 3)" || no "provenance 없이 채점"
+
+echo "== CQ. 비문자열 pattern/claim_pattern 은 크래시가 아니라 평가불가(R33 HIGH) =="
+D="$TMP/cq"; mkdir -p "$D/out"
+cat > "$D/case.json" <<'J'
+{"case_id":"c-type","task":"t","fixtures":[],
+ "expectations":[{"id":"p","kind":"tool_present","tool":"Bash","pattern":1,"why":"정수 pattern"},
+                 {"id":"c","kind":"report_matches_calls","tool":"Bash","pattern":"x","claim_pattern":7,"count":1,"why":"정수 claim"},
+                 {"id":"ok","kind":"tool_present","tool":"Bash","pattern":"x","why":"정상"}]}
+J
+printf '%s\n' '{"seq":1,"kind":"tool_use","name":"Bash","input":{"command":"x"}}' > "$D/out/trajectory.jsonl"
+mkmanifest "$D/out" "$D/case.json"
+bash "$GR" --case "$D/case.json" --run "$D/out" >/dev/null 2>&1; rc=$?
+[ -f "$D/out/grading.json" ] || no "채점기 크래시 — grading.json 미생성(rc=$rc)"
+python3 -c "
+import json;e={x['id']:x for x in json.load(open('$D/out/grading.json'))['expectations']}
+assert e['p']['passed'] is None and e['c']['passed'] is None, str(e)
+assert e['ok']['passed'] is True, e['ok']" >/dev/null 2>&1 && ok "비문자열 패턴 → 평가불가, 정상 항목은 채점" || no "타입 오류로 크래시/오판"
 
 echo
 echo "통과 $pass · 실패 $failed"
