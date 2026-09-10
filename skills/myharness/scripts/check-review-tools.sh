@@ -40,10 +40,16 @@ probe_shadow() {  # $1=도구명 → 첫 히트 경로를 출력하고 0, 없으
            "$HOME"/.bun/bin "$HOME"/.local/bin \
            /opt/homebrew/bin /usr/local/bin; do
     [ -d "$d" ] || continue
-    # Windows Git Bash 의 npm shim 은 `<t>.cmd`·`<t>.exe` 로도 놓인다(R3 codex MED). 전 후보에 -x 를 요구한다 —
-    # MSYS/Cygwin 은 .exe/.cmd/.bat 을 확장자로 실행 가능 판정하므로 -x 가 선다. -f 만 보면 데이터 파일 `codex.cmd` 가 설치 도구로 오탐(R4 codex MED).
+    # Windows Git Bash 의 npm shim 은 `<t>.cmd`·`<t>.exe` 로도 놓인다(R3 codex MED). 전 후보에 -x 를 요구하고(R4 MED: -f 만 보면 데이터 파일 오탐),
+    # MSYS/Cygwin 은 **확장자만으로 -x 를 참으로 판정**하므로(R5 codex MED, cygwin-ug special names) 확장자 변형은 내용도 본다:
+    #   .cmd → 첫 바이트 `@`(npm cmd-shim 은 `@ECHO off`/`@IF EXIST` 로 시작) · .exe → `MZ` 매직. 커스텀 shim 은 놓칠 수 있다(거짓 음성 = 경고 부재, R3 이전 상태).
     for c in "$d/$t" "$d/$t.cmd" "$d/$t.exe"; do
-      [ -f "$c" ] && [ -x "$c" ] && { printf '%s' "$c"; return 0; }
+      [ -f "$c" ] && [ -x "$c" ] || continue
+      case "$c" in
+        *.cmd) [ "$(head -c 1 "$c" 2>/dev/null)" = "@" ] || continue ;;
+        *.exe) [ "$(head -c 2 "$c" 2>/dev/null)" = "MZ" ] || continue ;;
+      esac
+      printf '%s' "$c"; return 0
     done
   done
   return 1

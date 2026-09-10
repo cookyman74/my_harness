@@ -60,6 +60,12 @@ mkdir -p "$GT/home/$SD2"; printf '@echo off\r\n' > "$GT/home/$SD2/$T3.cmd"; chmo
 run claude; o5="$(out)"; [ "$RC" -eq 0 ] || f "⑤ 종료코드 $RC"
 case " $(line SHADOWED "$o5") " in *" $T3="*) ok "⑤ PATH 밖($SD2) $T3.cmd → SHADOWED 에 반영";; *) f "⑤ SHADOWED='$(line SHADOWED "$o5")' — .cmd shim 을 보고하지 않음";; esac
 
+# ⑥ 데이터 파일이 shim 이름·실행 비트만 갖춘 경우(MSYS 는 확장자만으로 -x 참) → SHADOWED 에 **없어야**(R5 codex MED). 대상은 아직 아무 데도 없는 `claude`.
+printf 'not a shim\n' > "$GT/home/$SD/claude.cmd"; chmod +x "$GT/home/$SD/claude.cmd"; printf 'data' > "$GT/home/$SD/claude.exe"; chmod +x "$GT/home/$SD/claude.exe"
+run claude; o6="$(out)"; [ "$RC" -eq 0 ] || f "⑥ 종료코드 $RC"
+case " $(line SHADOWED "$o6") " in *" claude="*) f "⑥ 내용 없는 claude.cmd/.exe 가 SHADOWED 에 잡힘(데이터 파일 오탐)";; *) ok "⑥ 내용 없는 .cmd/.exe 는 SHADOWED 에 없음";; esac
+rm -f "$GT/home/$SD/claude.cmd" "$GT/home/$SD/claude.exe"
+
 # ④ 러너=codex: 가짜 claude·codex 둘 다 PATH 에 → REVIEWERS 에 claude 는 있고 codex 는 없어야(러너 제외 독립성)
 fake "$GT/bin/claude"; fake "$GT/bin/codex"
 run codex; o4="$(out)"; [ "$RC" -eq 0 ] || f "④ 종료코드 $RC"
