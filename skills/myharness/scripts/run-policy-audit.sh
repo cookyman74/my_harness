@@ -121,7 +121,7 @@ fi
 st_out="$(bash "$SK/scripts/selftest-review-tools.sh" "$SK/scripts/check-review-tools.sh" 2>&1)"; st_rc=$?
 st_detail(){ printf '%s\n' "$st_out" | grep -E '✗|SELFTEST' | sed 's/^/    /' || true; }
 case "$st_rc" in
-  0) ok "check-review-tools.sh 행동 자기검증(격리 PATH/HOME 6케이스·무작위 도구/경로)" ;;
+  0) ok "check-review-tools.sh 행동 자기검증(격리 PATH/HOME 8케이스·무작위 도구/경로)" ;;
   2) no "check-review-tools.sh 자기검증을 **실행하지 못했다**(rc=2: 파일 없음·mktemp 실패) — 검사 부재를 통과로 세지 않는다"; st_detail ;;
   *) no "check-review-tools.sh 가 환경에 반응하지 않는다(rc=$st_rc, 스텁 의심) — 실패 케이스:"; st_detail ;;
 esac

@@ -76,12 +76,24 @@ agy 는 R1~R4·R6 새 결함 없음, R5 LOW 1(미재현). codex 는 R3·R5·R6 H
 
 ## 6. 미실측 · 남은 것
 
-- **MSYS 의 `-x` 판정**: codex R5 가 Cygwin 문서로 "확장자만으로 참"을 제시 → 그래서 내용 판별(`@`/`MZ`)을 붙였다. 실제 npm cmd-shim 이 `@` 로 시작하는지·BOM 유무는 **windows CI 잡이 첫 실측**이다(push 후). 틀리면 거짓 음성(경고 부재)이지 거짓 양성이 아니다.
+- **MSYS 의 `-x` 판정 — 실측 완료(§7):** windows CI 첫 실측에서 selftest ⑤⑥ 이 FAIL 했다. 앞선 판단 "틀리면 거짓 음성(경고 부재)이지 거짓 양성이 아니다" 는 **틀렸다** — ⑥ 은 가짜 `claude.exe` 를 PATH 밖 설치로 보고한 **거짓 양성**이었다. `cf515a2` 로 수정, 양 잡 green.
 - `head -c` 이식성(busybox·Git Bash)은 R6 질문으로 넘겼다.
 - `codex exec` 샌드박스는 `mktemp` 를 차단해 selftest 를 **실행으로 검증할 수 없다** — codex 는 정독으로만 판정했다. 정독은 R4 HIGH(서브셸 RC)를 찾아냈으니 무력하지 않지만, 실행 축은 agy 와 로컬 30회가 담당했다.
 - **핫픽스 릴리스 여부**(사용자 결정): `harness-update.sh` 로 갱신받은 생성 하네스는 스텁을 상속했다.
 - `… | grep -q` 패턴을 정책 감사 항목으로 올릴지(#4 교훈).
 - 측정 꼬리: `_workspace/evals/external-review/stubguard/stubguard_20260910/verdicts.json`(R1~R4 기록) → 수렴 후 `emit-loop-scorecard.sh`.
+
+## 7. 후속 — windows CI 첫 실측(2026-09-10)
+
+| 실행 | 결과 | 조치 |
+|---|---|---|
+| 34493930541 (`93f80aa`) | windows 정책 감사 #11 FAIL(rc=1) · linux PASS. **감사가 selftest 출력을 `>/dev/null` 로 버려 원인이 로그에 없었다** | `eb215f9` — #11 실패 시 selftest 의 `✗`·`SELFTEST` 줄을 로그에 출력 |
+| 34495487124 (`eb215f9`) | windows: selftest ①~④ 통과 · **⑤ PATH 밖 `agy.cmd`(첫 바이트 `@`) 미탐지 · ⑥ 내용 없는 `claude.cmd/.exe` 가 SHADOWED 로 오탐** | 원인 후보 두 가지(windows 재현 불가라 추정): MSYS 가 `.cmd` 에 `-x` 를 세우지 않음(⑤) · 확장자 없는 이름을 `.exe` 로 자동 보완해 내용 검사를 우회(⑥) |
+| 34495934486 (`cf515a2`) | **linux·windows 전 단계 success** · windows 감사 #11 PASS | 어느 후보가 사실이든 맞게 동작하도록 수정 — `.cmd/.exe` 는 `-x` 없이 **내용만**(`@`/`MZ`), 확장자 없는 후보는 `<t>.exe` 와 **같은 파일(`-ef`)이면 건너뜀**. selftest ⑦(실행 비트 없는 `.cmd` shim → 탐지)·⑧(하드링크로 `.exe` 와 같은 가짜 → 미탐지) 추가 — HEAD 판에서 ⑦⑧ FAIL, 수정판 PASS 로 로컬 재현 |
+
+**교훈:** ① 로그에 원인이 남지 않는 가드는 CI 에서 진단할 수 없다 — 실패 상세 출력은 가드의 일부다 ② "틀려도 이 방향으로만 틀린다" 는 안전 논증도 실측 전에는 가정이다(⑥ 이 반대 방향으로 틀렸다) ③ 재현할 수 없는 환경의 결함은 원인을 단정하지 말고 **후보 전부에 맞게** 고친 뒤 그 환경에서 확인한다.
+
+**남은 것:** 이번 정본 변경(`eb215f9`·`cf515a2` — `check-review-tools.sh`·`run-policy-audit.sh`·`selftest-review-tools.sh`)은 중대 등급이나 **외부리뷰를 거치지 않았다**(windows CI 로 수정 효과만 확인). 게이트 여부는 사용자 결정.
 
 ## 다음 단계 참조
 
