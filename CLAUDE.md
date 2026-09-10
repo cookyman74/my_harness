@@ -32,13 +32,13 @@
 
 ## 변경 이력
 
-전체 원장: [`docs/harness-history.md`](docs/harness-history.md) — 22건(2026-06-08~), 날짜 역순, 원문 보존. 과거 문서의 "CLAUDE.md 이력 YYYY-MM-DD" 인용은 원장의 같은 날짜 행이다.
+전체 원장: [`docs/harness-history.md`](docs/harness-history.md) — 23건(2026-06-08~), 날짜 역순, 원문 보존. 과거 문서의 "CLAUDE.md 이력 YYYY-MM-DD" 인용은 원장의 같은 날짜 행이다.
 **여기에는 최근 5건만 한 줄로 둔다** — 매 세션 로딩되는 파일이라 상세는 원장에 쓴다. 새 변경은 원장에 전문 행을 먼저 추가하고, 여기에 한 줄 요약을 올린 뒤 가장 오래된 요약을 지운다.
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+| 2026-09-10 | v1.7.6 작업계획서 7개 + 소스 대조 하네스 리뷰(repo-qa A~M) — 결함 87+58건 반영·설계서 약 30건 정정 · 최종 MED 1 반영 후 재검증 없이 종료(수렴 미선언) | `docs/v1.7.6/{todo,design}` | 사용자 요청 |
 | 2026-09-10 | **정본 회귀 복원** — `check-review-tools.sh` 가 v1.7.5 에 5줄 스텁으로 릴리스된 것을 109줄로 복원, 정책 감사 #11 을 **행동 자기검증**(`selftest-review-tools.sh`)으로. v1.7.6=구성 인터뷰·v1.7.7=모델 배치 PRD 재편. 외부리뷰 R1~R6 수렴 | `skills/myharness/scripts/*`, `docs/v1.7.6·7/prd/` | PRD 소스 대조 리뷰 중 발견 |
 | 2026-09-03 | **B3-pre** 벤치 러너·궤적 채점기 구현(거짓 통과 26종 적발) + `run-review.sh` `REVIEWERS_OVERRIDE`·stage 락 | `skills/myharness/scripts/{run-benchmark,grade-trajectory,run-review}.sh` | eval-upgrade-plan §B3-pre |
 | 2026-09-02 | **B3-lite** 실측 — BEHAVIOR 분리 before/after, false 3건 전부 before(R=1 · 확정 아님) | `docs/v1.7.5/working_history/B3-lite-probe.md` | B3 판정 성립 여부 |
 | 2026-08-07 | 외부 제보 `external-review-loop` 결함 4건 수정 — zsh 단어분리로 리뷰어 전원 rc=127 등 → 런처 `run-review.sh` 이관 | `skills/myharness/{SKILL.md,scripts/*,references/external-review-loop.md}` | skillhub fork 운영자 handoff |
-| 2026-07-26 | 이슈 #7(`.claude` 정의 추적)·#8(`codex exec` 커스텀 에이전트 미로드) + 외부리뷰 축소 게이트(`SHADOWED:`·`degraded`) | `.gitignore`, `skills/myharness/*`, README×3 | 이슈 #7·#8 |

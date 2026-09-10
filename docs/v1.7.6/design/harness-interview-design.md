@@ -1,6 +1,6 @@
 # 설계서 — 하네스 구성 인터뷰 (`harness-intake`) v1.7.6
 
-> 상태: **초안(검토용)** · 상위: `docs/v1.7.6/prd/harness-interview-prd.md`(HI1~HI13) · 작성일 2026-09-10
+> 상태: **초안(검토용) · 작업계획서 소스 대조 리뷰(repo-qa A~I, 2026-09-10) 반영** · 상위: `docs/v1.7.6/prd/harness-interview-prd.md`(HI1~HI13) · 작성일 2026-09-10
 > 이 문서가 확정하는 것(PRD 「다음 단계 참조」가 설계서로 넘긴 7항목): **런타임 중립 문항 스키마** · **항목별 "안전한 쪽"(기본값 규칙)** ·
 > **선택지 도출 규칙(결정적)** · **스캔 출력 계약** · **Phase 0.5 배선 지점** · **차분 회귀 테스트 목록** · **`CLAUDE.md` 전제 절 템플릿**.
 > 작성 원칙: **모든 설계 근거는 소스·실측이다.** 확인하지 못한 것은 추정으로 채우지 않고 **"미실측"** 으로 표기하고 착수 전 측정 항목(M#)으로 올린다.
@@ -21,7 +21,7 @@
 | Phase 6(6-1~6-6)에 **도메인 완료 기준 항목이 0건**. 6-6 은 "정상 흐름 1개 + 에러 흐름 1개 기술" | `SKILL.md:332-394` |
 | 5-4 `CLAUDE.md` 템플릿 = 목표·트리거·변경 이력. "넣지 않는 것: 에이전트 목록·스킬 목록·디렉토리 구조·실행 규칙 상세" | `SKILL.md:267-288` |
 | 5-5(후속 작업 지원 23줄)의 항목 1·2 는 `orchestrator-template.md` 에 **이미 있다**(Phase 0 컨텍스트 확인 45-54행, 「description 작성 시 후속 작업 키워드」 343-349행). 항목 3(에이전트 정의의 재호출 지침)은 없다 | 두 파일 대조 |
-| 4-4(Progressive Disclosure 24줄)의 **3단계 로딩 표·크기 관리 규칙은 `skill-writing-guide.md` §5 에 없다**(§5 는 분리 패턴 1~3 과 300줄 목차 규칙만). `cloud-deploy/` 트리 예시는 §5 패턴 1(`bigquery-skill/`)과 같은 내용 | `skill-writing-guide.md:139-175` |
+| 4-4(Progressive Disclosure 24줄) 중 **3단계 로딩 표**와 크기 관리 **규칙 1**(`SKILL.md:180` "500줄 근접 시 references/ 분리")만 `skill-writing-guide.md` §5 에 없다. **규칙 2**(300줄 목차)는 §5 패턴 3(`:171`), **규칙 3**(도메인별 분리)과 `cloud-deploy/` 트리 예시는 §5 패턴 1(`:141-152`)과 같은 내용이다 | `skill-writing-guide.md:139-175` |
 | 스크립트 호출 경로가 **두 규약으로 갈라져 있다** — `bash skills/myharness/scripts/check-review-tools.sh`(레포 상대, 이 레포에서만 유효) vs `bash scripts/harness-update.sh`. **배포판(설치 캐시 1.5.5) SKILL.md 도 같다** | `SKILL.md:204`, `:459`, `:468` · 캐시판 `:204`, `:467` |
 
 ### 0-2. 전파·감사·CI
@@ -100,7 +100,7 @@ PRD 의 핵심 수용 기준 셋은 **결정성**을 요구한다: HI11③(같�
 Phase 0   node harness-intake.mjs scan                         → 스캔 계약(§2-2)
 Phase 0.5 node harness-intake.mjs questions --mode <분기>       → 문항 JSON(선택지·기본값)       [결정적]
           모델: 추천·근거를 붙여 질문(대화형) ─┬→ node harness-intake.mjs answer --set …   → 프로파일
-                                              └→ (질문 도구 없음) answer --from-env | --defaults
+                                              └→ (질문 도구 없음) answer --from-env|--from-file <파일> --defaults
 Phase 1~6 node harness-intake.mjs render                       → 표식 블록 5종(§7)            [결정적]
           모델: 블록을 지정 위치에 삽입
 Phase 6-7 node harness-intake.mjs verify                       → WIRED: … (누락·변조 = FAIL)    [결정적]
@@ -116,6 +116,7 @@ Phase 6-7 node harness-intake.mjs verify                       → WIRED: … (�
 | 파일 | 종류 | 전파(`MANAGED_RELS`) |
 |---|---|---|
 | `skills/myharness/scripts/harness-intake.mjs` | 신규 — 서브커맨드 `scan`·`questions`·`answer`·`render`·`verify`·`selftest` | **예**(생성 하네스 Phase 0 이 `verify` 를 부른다) |
+| `skills/myharness/scripts/selftest-harness-intake.mjs` | 신규 — 스텁 회귀 가드(§2-7) · 정책 감사 #12 가 호출 | 아니오(팩토리 감사 전용) |
 | `skills/myharness/references/harness-interview.md` | 신규 — 카탈로그·안전한 쪽·렌더링 규칙·결선표의 **단일 출처** | 아니오(인터뷰는 팩토리에서만 돈다) |
 | `skills/myharness/SKILL.md` | 변경 — Phase 0 스캔 실행화 · Phase 0.5 · 2-4 · 5-4 전제 · 6-7 · 체크리스트, **축소 선행**(§9-1) | — |
 | `skills/myharness/references/orchestrator-template.md` | 변경 — 표식 블록 4종 섹션 · Phase 0 `verify` · 재호출 지침(5-5 이관분) | — |
@@ -138,7 +139,7 @@ Phase 6-7 node harness-intake.mjs verify                       → WIRED: … (�
 - **결정성:** 모든 목록은 코드포인트 정렬. 시각은 `at` 필드에만 쓰고 `--now <ISO>` 로 주입 가능(테스트).
 - 종료 코드: `0` 정상 · `1` 검증 실패(`verify` 누락·`answer` 규칙 위반 등 **내용** 문제) · `2` 사용·환경 오류(인자·파일·권한).
   감사 #11 과 같은 3분할 — rc=2 를 "통과"로 세지 않는다.
-- stdout 계약 줄은 `KEY: value` 형식, 사람용 진단은 stderr. (`check-review-tools.sh` 의 계약 줄·진단 분리 규약과 같다.)
+- stdout 계약 줄은 `KEY: value` 형식, 사람용 진단은 stderr. (선례가 아니다 — `check-review-tools.sh` 는 진단 줄도 stdout 으로 낸다(실측). 이 스크립트가 새로 도입하는 규약이다.)
 
 ### 2-2. `scan` — HI9
 
@@ -215,7 +216,7 @@ ASSUMED:  cost(2026-09-10)                                                      
 ### 2-7. `selftest` — 스텁 회귀 가드
 
 `check-review-tools.sh` 가 5줄 스텁으로 3개월간 릴리스된 전례(2026-09-10 결과서)를 스캐너에 되풀이하지 않는다.
-`selftest` 는 **임시 디렉토리에 픽스처 프로젝트를 만들고** 에이전트 추가·삭제·frontmatter 변경 전후로 `scan` 출력이 **바뀌는지** 본다
+가드는 **별도 파일** `skills/myharness/scripts/selftest-harness-intake.mjs <대상>`(기본 대상 = 같은 디렉토리의 `harness-intake.mjs`)에 둔다. 대상을 **자식 프로세스**로 실행해 임시 디렉토리의 픽스처 프로젝트에서 에이전트 추가·삭제·frontmatter 변경 전후로 `scan` 출력이 **바뀌는지** 본다(행동 검사 — 텍스트 매칭 가드가 세 번 틀렸던 교훈). `harness-intake.mjs selftest` 는 이 파일을 부르는 얇은 위임만 둔다 — v1.7.5 사고는 **파일 전체 덮어쓰기**였으므로 가드가 대상과 같은 파일에 있으면 함께 사라진다(`selftest-review-tools.sh` 선례). 임시 디렉토리 생성 실패는 rc=2.
 (행동 검사 — 텍스트 매칭 가드가 세 번 틀렸던 교훈). 임시 디렉토리 생성 실패는 rc=2.
 
 ---
@@ -231,6 +232,7 @@ ASSUMED:  cost(2026-09-10)                                                      
   "select": "multi",
   "options": [
     { "key": "release-publish", "label": "릴리스·태그 발행", "signal": "changelog+plugin-manifest" },
+    { "key": "force-push",      "label": "보호 브랜치 강제 push", "signal": null },
     { "key": "external-send",   "label": "외부 발송(메일·메시지·웹훅)", "signal": null },
     { "key": "unknown",         "label": "모름 — 비가역으로 취급", "signal": null },
     { "key": "none",            "label": "없음 — 전부 되돌릴 수 있다", "signal": null, "exclusive": true }
@@ -240,7 +242,7 @@ ASSUMED:  cost(2026-09-10)                                                      
   "recommended": [],
   "confirm_only": false,
   "other": true,
-  "pages": 1
+  "pages": 2
 }
 ```
 
@@ -251,7 +253,7 @@ ASSUMED:  cost(2026-09-10)                                                      
 | `default` | 스크립트가 §4 규칙으로 계산. **비어 있으면 생성 실패**(HI1-1: 무응답이 갈 곳이 있어야 한다) |
 | `recommended` | 스크립트는 **비워서** 낸다. 모델이 채우고 `answer --recommended` 로 기록 |
 | `other` | **항상 `true`.** `false` 인 문항이 생성되면 rc=1(HI11① fail-loud) |
-| `pages` | 선택지(`other` 제외)가 4개를 넘으면 4개씩 쪽 분할(§5-1). **조용히 자르지 않는다** |
+| `pages` | 선택지(`other` 제외)가 4개를 넘으면 쪽 분할 — 쪽당 ≤4 · **마지막 쪽 ≥2**(도구 하한 · 균등 분할, §5-1). **조용히 자르지 않는다** |
 | 런타임 고유 필드 | **없다**(HI12①). `multiSelect`·`preview` 같은 이름은 렌더러가 매핑 |
 
 ---
@@ -267,7 +269,7 @@ ASSUMED:  cost(2026-09-10)                                                      
 | `tests` | `package.json`(루트 또는 1단계 하위) `scripts.test` 존재 · 또는 `tests/`·`test/` 디렉토리 | 참(`harness-ui/package.json` `vitest run`, `tests/`) |
 | `changelog` | `CHANGELOG.md` | 참 |
 | `plugin-manifest` | `.claude-plugin/marketplace.json` 또는 `plugin.json` | 참 |
-| `publishable` | `package.json` 중 `private !== true` 이고 `name` 이 있는 것 | 거짓(`harness-ui` 는 `private: true`) |
+| `publishable` | `package.json`(루트 또는 1단계 하위 · **`node_modules` 제외**) 중 `private !== true` 이고 `name` 이 있는 것 | 거짓(`harness-ui` 는 `private: true`) |
 | `release-cmd` | 워크플로에 `gh release`·`action-gh-release`·`npm publish`·`git tag` | 거짓 |
 | `migrations` | `migrations/`·`prisma/migrations/`·`db/migrate/` 디렉토리 | 거짓 |
 
@@ -337,7 +339,7 @@ ASSUMED:  cost(2026-09-10)                                                      
 | `options[].label` | `label` |
 | 기본·추천 표식·`signal` | `description` 에 `← 기본` / `← 추천` / `← 기본 · 추천` + 근거(HI1-2). 추천 옵션은 도구 규약대로 목록 **맨 앞**, 라벨 끝 `(Recommended)` |
 | `other: true` | **아무것도 하지 않는다** — 도구가 "그 외"를 자동 제공(직접 추가 금지) |
-| `pages > 1` | 쪽마다 별도 문항(`비가역 1/2`, `비가역 2/2`). 호출당 4문항을 넘치면 다음 호출로 |
+| `pages > 1` | 쪽마다 별도 문항(`비가역 1/2`, `비가역 2/2`). 호출당 4문항을 넘치면 다음 호출로 · **마지막 쪽 선택지 1개(4+1) 금지**(도구 하한 2 — 균등 분할) · `none`(배타)의 쪽 간 배타 검증은 `answer` 가 한다 |
 
 모델은 받은 답의 라벨을 키로 되돌려 `answer --set` 으로 넘긴다. 스크립트가 키를 검증하므로 라벨 오역은 rc=2 로 드러난다.
 
@@ -355,6 +357,8 @@ HARNESS_INTAKE_ANSWERS='completion=tests-pass,ci-green;irreversible=release-publ
 node harness-intake.mjs answer --from-env --defaults
 ```
 - **값은 안정 키**(§0-6 d). 위치 번호는 받지 않는다 — 숫자만 오면 rc=2.
+- **`--from-file <파일>`** — env 와 같은 형식의 파일(끝 개행·CRLF·UTF-8 BOM 만 제거). 바깥 env 를 넣을 수 없는 비대화 실행(벤치)의 답 경로다. `--from-env`·`--from-file`·`--set` 은 **하나만** 준다(둘 이상 rc=2 — 우선순위는 호출자인 `SKILL.md` Phase 0.5 가 정한다).
+- **비대화에서는 항상 `--defaults` 를 붙인다** — 응답할 사람이 없으므로 빠진 항목을 `assumed` 로 채운다(없으면 rc=2 로 멈춘다).
 - 빠진 항목은 `--defaults` 가 있을 때만 기본값으로 채우고 `source: assumed`.
 - 인터뷰는 **팩토리 메인 세션**에서만 돈다. 서브에이전트에게 위임하지 않는다.
 
@@ -386,7 +390,7 @@ node harness-intake.mjs answer --from-env --defaults
     "irreversible": { "value": ["release-publish"], "source": "declared", … },
     "cost":         { "value": ["error-worse"], "source": "assumed", … },
     "approval":     { "value": ["before:release-publish","ladder"], "source": "declared", … },
-    "assets":       { "value": ["reuse"], "source": "declared", "scanned": {"agents": 6, "skills": 6}, … }
+    "assets":       { "value": ["reuse"], "source": "declared", "scanned": {"agents": ["doc-syncer", "…"], "skills": ["doc-sync", "…"]}, … }
   }
 }
 ```
@@ -396,6 +400,8 @@ node harness-intake.mjs answer --from-env --defaults
 | `scanned` | 스캐너가 관측 | `scan` 재실행으로 자동 |
 | `declared` | 사용자가 골랐다 | **기계로 불가** — `verify` 가 `DECLARED:` 로 분리 보고(HI7) |
 | `assumed` | 무응답·비대화로 기본값 | `verify` 가 `ASSUMED:` 로 보고, 전제 절 맨 위에 둔다(HI4③) |
+
+**항목별 `at` 규칙:** 그 항목의 해시 필드(`value`·`other`·`source`, `assets` 는 `scanned` 포함 — §7-1)가 기존 프로파일과 달라질 때만 갱신한다. 같은 값 재기록은 갱신하지 않고, `assumed`→`declared` 로 같은 값을 확정하면 갱신한다(`DECLARED:` 날짜가 선언일이 되게). `assumed` 항목의 `at` = `--defaults` 로 채운 실행 시각. `extend` 의 `carried` 항목은 보존. **최상위 `at` 은 렌더에 쓰지 않는다.** 최상위 `factory_version` 은 premise 항목(`irreversible`·`assumed` 집합)이 바뀔 때만 갱신한다.
 
 ---
 
@@ -411,7 +417,7 @@ node harness-intake.mjs answer --from-env --defaults
 - 산출물 경로 존재 (`artifacts-present`)
 <!-- /harness-profile:completion -->
 ```
-해시는 **답의** 해시다(블록 문장의 해시가 아니다). 블록 **내용**은 `render` 출력과 정확히 같아야 한다 — 모델이 손으로 고치면 `drift`.
+해시는 **답의** 해시다(블록 문장의 해시가 아니다). 블록 **내용**은 `render` 출력과 정확히 같아야 한다 — 모델이 손으로 고치면 `drift`. **원칙: 렌더 내용에 들어가는 값은 전부 그 블록의 해시 입력에 넣는다**(해시 밖 값이 내용을 바꾸면 같은 답의 재기록이 `drift` 로 오분류된다). 항목별 해시 필드 = `value`·`other`·`source`(+`assets` 의 `scanned` 이름 목록) · 모든 블록 공통 `catalog_version`(스크립트 상수 — 카탈로그 라벨이 바뀌면 올린다 → 팩토리 라벨 변경은 `drift` 가 아니라 `stale`) · premise = `irreversible` + `assumed` 항목 + 그 항목들의 항목별 `at`(날짜 = 최신값) + 최상위 `factory_version` + 프로파일 경로. 판정 우선순위 missing → stale → drift.
 이것은 의도된 fail-loud 다: 결선 블록을 바꾸려면 답을 바꾸고 다시 렌더한다.
 
 ### 7-2. 결선표 (PRD §6-2 확정판)
@@ -447,7 +453,7 @@ node harness-intake.mjs answer --from-env --defaults
 | `cost` 를 `delay-worse` 로 | `tier`(하한 규칙 소멸) |
 | `approval` 에 `autonomous` 추가 | `approval` |
 | `assets` 를 `ignore` 로 | `assets` |
-| **기본값 전부 vs 추천값 전부** | 하나 이상 달라야 한다 — 같으면 기본·추천 분리(HI1-1)가 실효 없다 |
+| **기본값 전부 vs 추천값 전부** | **두 프로파일 모두 `declared`**(기본값도 `--set` — `source` 가 해시 필드라 assumed 와 비교하면 모든 표식이 늘 달라진다)로 두고 **premise 를 제외한** 4블록 중 하나 이상 달라야 한다 · 추천 = 기본인 대조 픽스처는 4블록 동일 — 같으면 기본·추천 분리(HI1-1)가 실효 없다 |
 
 ---
 
@@ -490,14 +496,14 @@ Phase 2 인 이유: 등급이 4-6(외부 리뷰 스킬 생성 여부)·5-6(게�
 | 변경 | 줄 |
 |---|---|
 | **축소** 5-5 후속 작업 지원(290-312, 23줄) → 헤딩 + 포인터 2줄. 항목 1·2 는 템플릿에 이미 있고(§0-1), 항목 3(재호출 지침 3줄)은 `orchestrator-template.md` §「description 작성 시 후속 작업 키워드」 뒤로 이관 | **−20** |
-| **축소** 4-4 Progressive Disclosure(169-192, 24줄) → 헤딩 + 포인터 2줄. 3단계 로딩 표·크기 관리 3규칙은 `skill-writing-guide.md` §5 로 이관(§5 에 없음을 확인), `cloud-deploy/` 트리는 §5 패턴 1 과 중복이라 삭제 | **−21** |
+| **축소** 4-4 Progressive Disclosure(169-192, 24줄) → 헤딩 + 포인터 2줄. 3단계 로딩 표 + 크기 관리 규칙 1 은 `skill-writing-guide.md` §5 로 이관, 규칙 2(§5 패턴 3 `:171`)·규칙 3 과 `cloud-deploy/` 트리(§5 패턴 1 `:141-152`)는 중복이라 삭제 | **−21** |
 | Phase 0 1단계: 산문 → `node <이 스킬>/scripts/harness-intake.mjs scan` + `check-review-tools.sh` (줄 교체) | 0 |
 | `### Phase 0.5: 구성 인터뷰` 신설 — 분기별 적용 · 질문 2회 · 비대화 경로 · 포인터 | +7 |
 | `#### 2-4. 리스크 등급 기준 확정` | +4 |
 | 5-4 템플릿에 전제 블록 | +4 |
 | `#### 6-7. 결선 검증` — `verify` 실행, 비-`ok` = Phase 6 FAIL | +4 |
 | 산출물 체크리스트 2줄 · 참고 1줄(`references/harness-interview.md` 링크 — 감사 #3 대상) | +3 |
-| **합계** | **500 − 41 + 22 = 481** |
+| **합계** | **500 − 41 + 22 = 481**(빈 줄을 유지하면 축소가 37~41줄 → 481~485) |
 
 **축소는 별도 커밋으로 먼저 한다**(§13 S0): 내용 이동만 있고 동작이 같아야 하므로, 인터뷰 변경과 섞으면 리뷰가 둘을 구분하지 못한다.
 
@@ -506,18 +512,19 @@ Phase 2 인 이유: 등급이 4-6(외부 리뷰 스킬 생성 여부)·5-6(게�
 - `MANAGED_RELS` 에 `scripts/harness-intake.mjs` 추가. `NEW_EXCLUDE_RELS` 에는 넣지 **않는다** — 읽기 전용 스캔·검증이라 벤치 러너(모델 실행)와 달리 기존 하네스에 NEW 로 배포해도 안전하다.
 - 헤더 주석(4행)의 관리 대상 목록 갱신.
 - `references/harness-interview.md` 는 넣지 않는다 — 인터뷰는 팩토리에서만 돈다.
+- **7-7 update 후 결선 재렌더** — `catalog_version` 이 바뀐 스크립트가 적용되면 `verify` 가 전 블록 `stale` 이다. 7-7(또는 `references/harness-update.md`)에 "apply 후 `verify` → `stale` 만 있으면 `render` 로 블록 교체 → 재 `verify` ok · `missing`/`drift` 는 사용자 보고" 를 둔다. 없으면 라벨 하나를 바꾸는 팩토리 릴리스가 모든 생성 하네스를 Phase 0 에서 멈춘다.
 
 ### 9-3. 정책 감사
 
 | 항목 | 변경 |
 |---|---|
 | #9 | `scripts/*.mjs` 마다 `node --check`. **node 가 없으면 FAIL** — 도구 부재 시 검사가 조용히 증발한 전례(PR #6 python3) 를 따라 warn 이 아니라 실패로 둔다. 팩토리가 node 를 필수로 요구하게 되는 정책 변경이다 |
-| #12 신설 | `node harness-intake.mjs selftest` — rc 0 통과 / rc 2 "실행하지 못했다"(검사 부재를 통과로 세지 않음) / 그 밖 "스캐너가 환경에 반응하지 않는다". #11 과 같은 3분할 |
+| #12 신설 | `node skills/myharness/scripts/selftest-harness-intake.mjs skills/myharness/scripts/harness-intake.mjs` — rc 0 통과 / rc 2 **또는 rc 127(node 없음)** "실행하지 못했다"(검사 부재를 통과로 세지 않음) / 그 밖 "스캐너가 환경에 반응하지 않는다". #11 과 같은 3분할 · 가드를 대상과 다른 파일에 둔다(§2-7) |
 
 ### 9-4. CI — `factory-ci.yml`
 
-- 두 잡에 `actions/setup-node@v4`(`node-version: 20`) 추가. GitHub 호스티드 러너 이미지의 기본 node 에 기대지 않는다 — 버전을 명시해야 `node --test` 가용이 보장된다.
-- 스텝: `node --test tests/harness-intake/` (windows 는 `shell: bash`, 기존 스텝 규약).
+- 두 잡 모두 `actions/checkout@v4` **바로 다음**(`Policy audit` 앞 — 감사 #9·#12 가 node 를 요구)에 `actions/setup-node@v4`(`node-version: 20`) 추가. GitHub 호스티드 러너 이미지의 기본 node 에 기대지 않는다 — 버전을 명시해야 `node --test` 가용이 보장된다.
+- 스텝: `node --test tests/harness-intake/*.test.mjs` — **비인용 셸 글롭**(디렉토리 인자는 node 22·24 에서 `Cannot find module` rc=1, 따옴표 글롭은 node 20 에서 rc=1 — 실측) · windows 는 `shell: bash`(기존 스텝 규약) · `.gitattributes` 에 `*.mjs text eol=lf`·`tests/fixtures/** -text`
 - `paths` 필터는 `skills/**`·`tests/**` 가 이미 덮는다.
 - **범위 밖 보고:** v1.7.5 의 `test-run-benchmark.sh`·`test-run-review.sh`·`test-case-coverage.sh`·`test-check-behaviors.sh` 가 여전히 CI 밖이다. 이 릴리스에서 같이 배선할지는 별도 결정.
 
@@ -530,7 +537,7 @@ Phase 2 인 이유: 등급이 4-6(외부 리뷰 스킬 생성 여부)·5-6(게�
 ### 9-6. `orchestrator-template.md`
 
 - 템플릿 A~D 공통으로 `## 완료 기준` · `## 리스크 등급` · `## 승인 관문` · `## 기존 자산` 네 섹션을 **표식 블록 자리**로 둔다.
-- Phase 0 컨텍스트 확인(45행)에 3단계 추가: `node scripts/harness-intake.mjs verify` → `WIRED` 비-`ok` 면 멈추고 보고, `DECLARED`·`ASSUMED` 를 사용자에게 보여준다(HI8③).
+- Phase 0 컨텍스트 확인(45행)에 3단계 추가: `node .claude/skills/{오케스트레이터}/scripts/harness-intake.mjs verify`(듀얼은 `.agents/skills/{오케스트레이터}/scripts/…` · `scripts/harness-intake.mjs` 단독 표기 금지 — 생성 하네스 cwd 는 프로젝트 루트다, §10) → `WIRED` 비-`ok` 면 멈추고 보고, `DECLARED`·`ASSUMED` 를 사용자에게 보여준다(HI8③).
 - 5-5 에서 이관한 "에이전트 정의의 재호출 지침" 3줄.
 
 ---
@@ -569,11 +576,13 @@ Phase 2 인 이유: 등급이 4-6(외부 리뷰 스킬 생성 여부)·5-6(게�
 | T10 | `harness-update.sh plan` 이 `scripts/harness-intake.mjs` 를 NEW 로 분류(`test-harness-update.sh` 에 1케이스) | HI13 ② |
 | T11 | 감사 #9 — 문법 오류 `.mjs` 주입 시 FAIL | HI13 ③ |
 
-**픽스처는 결함 하나씩**(2026-09-10 교훈: 여러 결함을 한 픽스처에 넣으면 앞 단정이 뒤 결함을 가린다).
+T11 은 감사 #9 를 구현하는 S1 에 둔다(TDD — 구현과 그 테스트를 같은 단계에). **픽스처는 결함 하나씩**(2026-09-10 교훈: 여러 결함을 한 픽스처에 넣으면 앞 단정이 뒤 결함을 가린다).
 
 ---
 
-## 12. HI10 실측 — 정본 반영 전 · **비용 합의 필요**
+## 12. HI10 실측 — S4 뒤 · 릴리스 전 · **비용 합의 필요**
+
+> **순서 결정(작업계획서 S5):** PRD HI10 은 "정본 반영 전" 실측을 요구하지만 after arm 이 S4 `SKILL.md` 여야 측정할 수 있어 S4 뒤에 둔다. 대신 S4 는 main 머지·태그·릴리스 **전** 상태로 두고, 효과 미확인 항목은 **릴리스 전에** 제거한다(조건부 S5b). PRD 취지(효과 없는 항목을 배포하지 않는다)는 유지된다.
 
 | 실측 제약 | 설계 결정 |
 |---|---|
@@ -582,8 +591,7 @@ Phase 2 인 이유: 등급이 4-6(외부 리뷰 스킬 생성 여부)·5-6(게�
 | `test-case-coverage.sh` 기준 하드코딩 | 케이스 디렉토리의 `criteria.json` 을 읽도록 일반화(기존 gate-escalation 은 파일로 이관) |
 | 벤치 비용 | 케이스 = 팩토리 1회 실행(하네스 생성). 최소 세트 **2 답 세트 × 1 도메인**부터. 실행 전 예상 비용 보고·승인(v1.7.5 계획서 §8 비용 합의 규약) |
 
-케이스 위치 `docs/v1.7.6/cases/harness-interview/`. 기대: `Write` 호출 내용에 표식 블록 존재(`tool_present`, `tool: Write`) ·
-답 A/B 에서 블록이 다르게 쓰였는지 · 최종 보고가 `verify` 결과와 일치(`report_matches_calls`).
+케이스 위치 `docs/v1.7.6/cases/harness-interview/`. 기대(배선 확인 — 효과 판정 아님): 표식 블록 존재는 블록마다 `tool_present` **한 건**을 `tool` 한정 없이(Write·Edit·Bash 실행 필드 OR — `grade-trajectory.sh:72-78`, 두 건으로 나누면 AND 가 되어 Write 만 쓴 정상 생성이 `failed` · 패턴은 표식 전체 `<!-- harness-profile:<id> sha256=` + 해시) · 답 A/B 차이는 케이스별로 나눈다(A: `tool_present` 로 A 에만 있는 키 / B: `tool_absent` 로 같은 키 부재 — 채점기는 궤적 1개만 본다) · 보고-`verify` 정합은 `tool_present` `scope:"results"` `tool:"Bash"` 로 `WIRED:` 실제 결과를 확정한 뒤 `scope:"report"` 에서 같은 상태어의 존재/부재로 본다(`report_matches_calls` 는 호출 **입력** 횟수 대조 전용이라 tool_result 대조에 못 쓴다 — `grade-trajectory.sh:282`). 상세는 작업계획서 S5 「B. 케이스」.
 
 ---
 
@@ -592,11 +600,12 @@ Phase 2 인 이유: 등급이 4-6(외부 리뷰 스킬 생성 여부)·5-6(게�
 | 단계 | 내용 | 완료 판정 |
 |---|---|---|
 | **S0 선행** | ① M1 경로 실측 · M2 `enabledPlugins` 병합 순서 실측 ② `SKILL.md` 축소(5-5·4-4 이관) **단독 커밋** | 실측 결과를 이 설계서 §10·§2-2 에 반영 · 감사 PASS · 이관 전후 내용 대조 |
-| S1 | `scan`·`selftest` + T1~T3·T9 + 감사 #9·#12 + CI node | CI 3종(linux·windows) green |
+| S1 | `scan`·`selftest` + T1~T3·T9·**T11** + 감사 #9·#12 + CI node | `factory-ci` 두 잡(linux·windows) green |
 | S2 | `questions`·`answer`·프로파일 + T4~T6 + `references/harness-interview.md` | T4~T6 |
 | S3 | `render`·`verify` + T7·T8 | T7·T8 |
-| S4 | 정본 배선 — `SKILL.md`·템플릿·`runtime-adapters.md`·`MANAGED_RELS`·`:213` 어휘 + T10·T11 | 감사 PASS(≤500) · 외부리뷰 no-high 2연속 |
+| S4 | 정본 배선 — `SKILL.md`·템플릿·`runtime-adapters.md`·`MANAGED_RELS`·`:213` 어휘 + T10 | 감사 PASS(≤500) · 외부리뷰 no-high 2연속 |
 | S5 | HI10 실측(비용 승인 후) | 결과서 before/after · 효과 미확인 항목은 인터뷰에서 제외 |
+| S5b(조건부) | S5 에서 효과 미확인 항목을 빼기로 한 경우만 — `references/harness-interview.md`·카탈로그·`SKILL.md` Phase 0.5·PRD·설계서 갱신(중대 · stabilizer 게이트) | 정책감사·외부리뷰 수렴 |
 
 ---
 
