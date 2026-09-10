@@ -113,5 +113,15 @@ else
   wn "check-behaviors.sh 없음 (B1 미배포 하네스)"
 fi
 
+# 11) 스텁 회귀 가드 — check-review-tools.sh 는 실제 탐지를 해야 한다.
+#     v1.7.5 릴리스에 5줄 스텁(REVIEWERS 하드코딩·SHADOWED: none 고정)이 섞여 나갔다(d33d304, 2026-09-10 복원).
+#     탐지 원시(command -v)와 PATH 밖 판정(SHADOWED)이 코드에 있어야 하고, 고정 문자열 출력이면 실패.
+CRT="$SK/scripts/check-review-tools.sh"
+if [ -f "$CRT" ] && grep -q 'command -v' "$CRT" && grep -q 'SHADOWED' "$CRT" && ! grep -Eq "^echo +['\"]SHADOWED: *none['\"] *\$" "$CRT"; then
+  ok "check-review-tools.sh 실탐지(command -v·SHADOWED 조건부)"
+else
+  no "check-review-tools.sh 가 스텁이다(고정 출력) — 원본 복원 필요"
+fi
+
 echo "=== POLICY AUDIT: $([ $fail -eq 0 ] && echo PASS || echo FAIL) (fail $fail, warn $warn) ==="
 [ "$fail" -eq 0 ]
