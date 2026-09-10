@@ -69,8 +69,8 @@
 
 | 사건 | 어느 갈래인가(§3) | 실제 발견 시점 |
 |---|---|---|
-| **측정 꼬리 누락** — 오케스트레이터가 `verdicts.json → build-scorecard` 를 이어받지 않아 **자기평가가 한 번도 실행되지 않음** | ① 사용자만 아는 것 — "이 하네스의 성과를 무엇으로 측정합니까?" 를 묻지 않았다 | M14/M15 외부감사 **~22라운드 뒤**, 사용자 지적으로(CLAUDE.md 2026-07-10) |
-| **"재사용" 오표기**(F8 crypto·owner/mode 가 코드에 미실재) | ② 기계가 실측할 것 — 설계서가 "재사용"이라 썼지만 **코드에 없었다**. 스캔(HI9)이 잡는 종류 | 하네스 3 구축 시 설계서 코드근거 검증 12/13 에서(CLAUDE.md 2026-07-09) |
+| **측정 꼬리 누락** — 오케스트레이터가 `verdicts.json → build-scorecard` 를 이어받지 않아 **자기평가가 한 번도 실행되지 않음** | ① 사용자만 아는 것 — "이 하네스의 성과를 무엇으로 측정합니까?" 를 묻지 않았다 | M14/M15 외부감사 **~22라운드 뒤**, 사용자 지적으로(`docs/harness-history.md` 2026-07-10) |
+| **"재사용" 오표기**(F8 crypto·owner/mode 가 코드에 미실재) | ② 기계가 실측할 것 — 설계서가 "재사용"이라 썼지만 **코드에 없었다**. 스캔(HI9)이 잡는 종류 | 하네스 3 구축 시 설계서 코드근거 검증 12/13 에서(`docs/harness-history.md` 2026-07-09) |
 
 첫 줄이 핵심이다. **앞에서 5분 물을 것을 뒤에서 22라운드에 지불했다.**
 둘째 줄은 인터뷰가 아니라 **스캔**의 근거다 — 사람에게 "무엇이 있습니까"를 물으면 같은 오표기가 답으로 돌아온다.
@@ -419,7 +419,7 @@ Claude Code 에는 객관식 질문 도구(`AskUserQuestion`)가 있지만 **cod
 | # | 제약(실측) | 의미 | 대응 |
 |---|---|---|---|
 | 1 | **`SKILL.md` 가 정확히 500/500 줄** — 정책 감사 #1 이 `≤500줄` 을 FAIL 로 강제 | Phase 0.5 를 **한 줄도 못 넣는다** | 본문은 `references/harness-interview.md` 로 · SKILL.md 에는 포인터 1~2줄 · **그래도 넘치므로 기존 본문 축소가 선행 과제** · 새 reference 는 감사 #3(링크 정합)에 걸리므로 SKILL.md 에서 링크 필수 |
-| 2 | **`harness-update.sh` `MANAGED_RELS` 화이트리스트** — 등재 안 된 파일은 생성 하네스에 **영영 미전파** | 스캔 `.mjs` 를 만들어도 기존 하네스는 못 받는다 | `MANAGED_RELS` 등재. 전례: `emit-loop-scorecard.sh` 가 번들 목록엔 있고 화이트리스트엔 없어 미갱신(CLAUDE.md 2026-08-07) |
+| 2 | **`harness-update.sh` `MANAGED_RELS` 화이트리스트** — 등재 안 된 파일은 생성 하네스에 **영영 미전파** | 스캔 `.mjs` 를 만들어도 기존 하네스는 못 받는다 | `MANAGED_RELS` 등재. 전례: `emit-loop-scorecard.sh` 가 번들 목록엔 있고 화이트리스트엔 없어 미갱신(`docs/harness-history.md` 2026-08-07) |
 | 3 | **정책 감사 #9 는 `scripts/*.sh` 만 `bash -n`** | `.mjs` 는 문법 검사에서 **빠진다** | `node --check scripts/*.mjs` 를 #9 에 추가 |
 | 4 | **`factory-ci.yml` 은 `run-policy-audit.sh` + `tests/test-harness-update.sh` 만 실행** | 새 테스트를 써도 CI 가 안 돌린다 | 스캔·인터뷰 테스트를 CI 스텝에 **명시 배선** |
 
@@ -546,7 +546,7 @@ Phase 5-4  CLAUDE.md      ← HI8 "이 하네스가 서 있는 전제" 기록
 
 - 사용자 요청 — 2026-09-10 세션(사전질문 필요성 · 팀 구성 비유 · 릴리스 재편 결정)
 - 팩토리 정본 실측 — `skills/myharness/SKILL.md`(35·56·98·138·278·319-321·332-343행), `references/agent-design-patterns.md:226`
-- 결함 이력 — `CLAUDE.md` 변경 이력(2026-07-10 측정 꼬리 누락 · 2026-07-26 `SHADOWED:` · 2026-09-03 `REVIEWERS_OVERRIDE`)
+- 결함 이력 — `docs/harness-history.md`(2026-07-10 측정 꼬리 누락 · 2026-07-26 `SHADOWED:` · 2026-09-03 `REVIEWERS_OVERRIDE`)
 - 실측 도구 — `docs/v1.7.5/working_history/B3-pre-benchmark-runner.md`(R20 `stat` 이식성 HIGH 포함), `B3-lite-probe.md`
 - 스캔 대상 실측 — 이 개발 머신(2026-09-10): 프로젝트 6 · 전역 1 · 플러그인 **35** · codex 0 · Claude 빌트인 조회 명령 부재 · `claude --version` = `2.1.267 (Claude Code)`
 - 정본 하드 제약 실측 — `SKILL.md` 500/500줄 · `run-policy-audit.sh` #1(≤500)·#3(링크)·#7(듀얼 parity)·#9(`*.sh` only) · `harness-update.sh:48` `MANAGED_RELS` · `factory-ci.yml:68-70·96-99`
