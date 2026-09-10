@@ -1,6 +1,6 @@
 # 결과서 — `check-review-tools.sh` 스텁 릴리스 복원 + 행동 자기검증 게이트 (2026-09-10)
 
-상태: **`degraded-blocked` — 사용자 결정 대기.** R5 양 엔진 HIGH 0 · R6 codex 새 결함 없음 · **agy R6 두 차례 런타임 실패**(일시 네트워크). 규약(`external-review-loop.md` 축소종결판정: 중대·미승인 → BLOCK)에 따라 재시도 루프에 들어가지 않고 정지 · 브랜치 `fix/v1.7.6-stub-restore-prd`
+상태: **수렴(`converged`, R6)** — R5·R6 **양 엔진 HIGH 0 2연속**. R6 agy 는 런타임 실패 2회(일시 네트워크)로 `degraded-blocked` 정지 → 사용자 선택(agy 재시도) → 복구 후 `r6c` 에서 새 결함 없음. scorecard `alignment 0.893` · `regression_catch 2.25` · warnings 0 · 브랜치 `fix/v1.7.6-stub-restore-prd`
 계기: v1.7.6 PRD 를 "추측 없이 소스 대조" 리뷰하던 중 PRD 가 선례로 인용한 스크립트를 열어 본 것.
 
 ## 1. 무엇이 일어났나
@@ -61,8 +61,9 @@ R3 1차 수정(파일 경로에 `.cmd` 붙이기)이 **glob 경로에서 무효*
 | 5 | MED 1 · **HIGH 0** | LOW 1 · **HIGH 0** | 확인 1 · **부분 1**(agy: BSD sed 가 `\r` 을 리터럴 `r` 로 — 실측 `/usr/bin/sed`(BSD)는 CR 로 해석해 **미재현**. 구현 종속은 사실이라 ANSI-C 쿼팅으로 고정) |
 | 6 | **새 결함 없음**(HIGH·MED·LOW 0) | **런타임 실패**(rc=1·출력 0줄 — `Eligibility check failed … dial tcp`, 일시 네트워크) | 규약대로 agy 1회 재실행 → stage `r6b`(`REVIEWERS_OVERRIDE=agy`, 프롬프트 동일). codex 산출물 보존을 위해 별도 stage |
 | 6b | — | **재실패**(rc=1 · `dial tcp … i/o timeout`). 같은 시각 셸 `curl` 은 해당 호스트 도달(HTTP 400) → agy 프로세스 경로의 일시 장애 | 1회 재실행 규약 소진. **중대·미승인 = `degraded-blocked`** → 정지. 선택지: agy 복구 대기 후 R6 재시도 / `degraded-override` 승인(codex 단일 출처로 수렴) / claude 대체축(러너 동일 = 자기검증, 약함) |
+| 6c | — | **새 결함 없음**(프로브 `pong` 으로 복구 확인 후 `REVIEWERS_OVERRIDE=agy` 재실행) | **사용자 선택: agy 재시도.** R6 = codex + agy 양 엔진 HIGH 0 → R5 와 2연속 → **수렴** |
 
-agy 는 R1~R4 새 결함 없음, R5 LOW 1(미재현). codex 는 R3·R5 HIGH 0. 축소(degraded): agy 모델 미지정(설정 모델 사용) · gemini PATH 밖 — agy 가 성능축이므로 리뷰어 수 축소는 아님.
+agy 는 R1~R4·R6 새 결함 없음, R5 LOW 1(미재현). codex 는 R3·R5·R6 HIGH 0. 판정 집계: 확인 12 · 부분 1 · 기각 1. 축소(degraded): agy 모델 미지정(설정 모델 사용) · gemini PATH 밖 — agy 가 성능축이므로 리뷰어 수 축소는 아님.
 
 ## 5. 교훈 — 이 레포에 이미 있던 규칙을 내가 다시 밟았다
 
@@ -84,7 +85,7 @@ agy 는 R1~R4 새 결함 없음, R5 LOW 1(미재현). codex 는 R3·R5 HIGH 0. �
 
 ## 다음 단계 참조
 
-- **사용자 결정** → (대기·재시도 성공 시) `converged` / (override 승인 시) `degraded-override` → `emit-loop-scorecard.sh` → 이 결과서 상태 확정 → CLAUDE.md 변경 이력 갱신.
-- 어느 쪽이든 **"양 엔진 검증"으로 표기하지 않는다** — R6 는 codex 단일 출처다(축소 리뷰 표기 의무).
+- 측정 꼬리 발행 완료: `_workspace/evals/external-review/stubguard/stubguard_20260910/scorecard.json` · `summary.jsonl` 추가(alignment 0.893 · regression_catch 2.25 · warnings 0).
+- R6 는 양 엔진 판정이다(codex R6 + agy r6c). 단 agy 판정은 **재실행 산출물**이라 R6 원 실행과 시각이 다르다 — 그 사이 코드 변경은 없다(HEAD 동일).
 - push → windows CI 에서 `-x`/`.cmd` 실측 → 결과를 §6 에 기록.
 - v1.7.6 PRD HI9(스캔 스크립트)는 **처음부터 행동 자기검증을 동반**한다(PRD 다음 단계에 이미 명시).
