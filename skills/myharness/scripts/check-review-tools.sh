@@ -33,6 +33,7 @@ probe_shadow() {  # $1=도구명 → 첫 히트 경로를 출력하고 0, 없으
            ${PNPM_HOME:+"$PNPM_HOME/$t"} ${NPM_CONFIG_PREFIX:+"$NPM_CONFIG_PREFIX/bin/$t"} \
            "$HOME"/Library/pnpm/"$t" "$HOME"/.local/share/pnpm/"$t" \
            "$HOME"/.npm-global/bin/"$t" "$HOME"/.yarn/bin/"$t" \
+           "$HOME"/.config/yarn/global/node_modules/.bin/"$t" "$HOME"/.npm/bin/"$t" "$HOME"/.npm-packages/bin/"$t" \
            "$HOME"/.bun/bin/"$t" "$HOME"/.local/bin/"$t" \
            /opt/homebrew/bin/"$t" /usr/local/bin/"$t"; do
     # -f 필수: 디렉토리도 search bit 로 -x 가 true 라, `-x` 단독이면 `~/.local/bin/codex/` 같은

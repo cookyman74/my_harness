@@ -68,6 +68,8 @@ jobs:
         run: bash skills/myharness/scripts/run-policy-audit.sh
       - name: Harness update regression tests
         run: bash tests/test-harness-update.sh
+      - name: Review-tools selftest regression
+        run: bash tests/test-selftest-review-tools.sh
 
   windows:
     runs-on: windows-latest
@@ -97,3 +99,6 @@ jobs:
       - name: Harness update regression tests
         shell: bash
         run: bash tests/test-harness-update.sh
+      - name: Review-tools selftest regression
+        shell: bash
+        run: bash tests/test-selftest-review-tools.sh

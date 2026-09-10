@@ -113,24 +113,13 @@ else
   wn "check-behaviors.sh 없음 (B1 미배포 하네스)"
 fi
 
-# 11) 스텁 회귀 가드 — check-review-tools.sh 는 실제 탐지를 해야 한다.
-#     v1.7.5 릴리스에 5줄 스텁(REVIEWERS 하드코딩·SHADOWED: none 고정)이 섞여 나갔다(d33d304, 2026-09-10 복원).
-#     판정: 주석 줄(첫 비공백이 #)을 제외한 코드에 탐지 원시(command -v)·SHADOWED 산출·제어 구조(if/for/case/while)가 있어야 한다.
-#     실패 이력(자기검증으로 잡음): ① 리터럴 "SHADOWED: none" 부정검사 — 진짜 스크립트도 else 분지에서 그 문자열을 낸다
-#       ② `^[^#]*` 비주석 휴리스틱 — bash 의 `${#arr[@]}` 를 주석으로 오판해 복원본을 FAIL 로 판정. 그래서 줄 단위로 주석을 걷어낸다.
-#     한계: 우발적 스텁(d33d304 류) 차단이 목적이다. 인라인 `# command -v` 를 섞은 고의 위장은 대상이 아니다.
-CRT="$SK/scripts/check-review-tools.sh"
-if [ -f "$CRT" ]; then
-  CRT_CODE="$(grep -Ev '^[[:space:]]*#' "$CRT")"
-  if printf '%s\n' "$CRT_CODE" | grep -Eq 'command -v[[:space:]]+[^[:space:]]' \
-     && printf '%s\n' "$CRT_CODE" | grep -q 'SHADOWED' \
-     && printf '%s\n' "$CRT_CODE" | grep -Eq '^[[:space:]]*(if|for|while|case)[[:space:]]'; then
-    ok "check-review-tools.sh 실탐지(command -v·SHADOWED·제어구조 — 주석 줄 제외)"
-  else
-    no "check-review-tools.sh 가 스텁이다(탐지 코드 없음) — 원본 복원 필요"
-  fi
+# 11) 스텁 회귀 가드 — check-review-tools.sh 가 실제로 환경에 반응하는지 **실행해서** 본다(텍스트 매칭 아님).
+#     v1.7.5 에 5줄 스텁(REVIEWERS 고정 출력)이 릴리스됐다(d33d304, 2026-09-10 복원). 텍스트 가드 3판은 전부 거짓 PASS/FAIL 이 있었다
+#     (리터럴 부정검사→복원본 FAIL · ^[^#]* 휴리스틱→${#arr[@]} 오판 · 부분 스텁 통과 R1 codex HIGH). 행동 검사는 selftest-review-tools.sh 로 분리해 tests/ 에서도 돈다.
+if bash "$SK/scripts/selftest-review-tools.sh" "$SK/scripts/check-review-tools.sh" >/dev/null 2>&1; then
+  ok "check-review-tools.sh 행동 자기검증(격리 PATH/HOME 3케이스)"
 else
-  no "check-review-tools.sh 부재"
+  no "check-review-tools.sh 가 환경에 반응하지 않는다(스텁 의심) — bash $SK/scripts/selftest-review-tools.sh 로 상세 확인"
 fi
 
 echo "=== POLICY AUDIT: $([ $fail -eq 0 ] && echo PASS || echo FAIL) (fail $fail, warn $warn) ==="
