@@ -40,10 +40,10 @@ probe_shadow() {  # $1=도구명 → 첫 히트 경로를 출력하고 0, 없으
            "$HOME"/.bun/bin "$HOME"/.local/bin \
            /opt/homebrew/bin /usr/local/bin; do
     [ -d "$d" ] || continue
-    # Windows Git Bash 의 npm shim 은 `<t>.cmd`·`<t>.exe` 로도 놓인다(R3 codex MED). 확장자 변형은 -x 가 안 서 있어도 -f 로 인정.
+    # Windows Git Bash 의 npm shim 은 `<t>.cmd`·`<t>.exe` 로도 놓인다(R3 codex MED). 전 후보에 -x 를 요구한다 —
+    # MSYS/Cygwin 은 .exe/.cmd/.bat 을 확장자로 실행 가능 판정하므로 -x 가 선다. -f 만 보면 데이터 파일 `codex.cmd` 가 설치 도구로 오탐(R4 codex MED).
     for c in "$d/$t" "$d/$t.cmd" "$d/$t.exe"; do
-      [ -f "$c" ] || continue
-      case "$c" in *.cmd|*.exe) printf '%s' "$c"; return 0 ;; *) [ -x "$c" ] && { printf '%s' "$c"; return 0; } ;; esac
+      [ -f "$c" ] && [ -x "$c" ] && { printf '%s' "$c"; return 0; }
     done
   done
   return 1
