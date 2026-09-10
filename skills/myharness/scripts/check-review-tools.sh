@@ -40,14 +40,19 @@ probe_shadow() {  # $1=도구명 → 첫 히트 경로를 출력하고 0, 없으
            "$HOME"/.bun/bin "$HOME"/.local/bin \
            /opt/homebrew/bin /usr/local/bin; do
     [ -d "$d" ] || continue
-    # Windows Git Bash 의 npm shim 은 `<t>.cmd`·`<t>.exe` 로도 놓인다(R3 codex MED). 전 후보에 -x 를 요구하고(R4 MED: -f 만 보면 데이터 파일 오탐),
-    # MSYS/Cygwin 은 **확장자만으로 -x 를 참으로 판정**하므로(R5 codex MED, cygwin-ug special names) 확장자 변형은 내용도 본다:
-    #   .cmd → 첫 바이트 `@`(npm cmd-shim 은 `@ECHO off`/`@IF EXIST` 로 시작) · .exe → `MZ` 매직. 커스텀 shim 은 놓칠 수 있다(거짓 음성 = 경고 부재, R3 이전 상태).
+    # Windows Git Bash 의 npm shim 은 `<t>.cmd`·`<t>.exe` 로도 놓인다(R3 codex MED).
+    # 확장자 변형은 **내용만으로** 판정한다 — .cmd → 첫 바이트 `@`(npm cmd-shim 은 `@ECHO off`/`@IF EXIST` 로 시작) · .exe → `MZ` 매직.
+    #   `-x` 는 보지 않는다: MSYS 의 실행 비트 판정은 확장자·내용에 좌우돼 환경마다 다르다(2026-09-10 windows CI: `.cmd` shim 미탐지).
+    #   데이터 파일 오탐(R4 MED)은 내용 검사가 막는다. 커스텀 shim 은 놓칠 수 있다(거짓 음성 = 경고 부재, R3 이전 상태).
+    # 확장자 없는 후보는 `-x` 를 요구하되, `<t>.exe` 와 **같은 파일**이면 건너뛴다 — MSYS 는 `<t>` 를 `<t>.exe` 로 자동 보완해
+    #   내용 검사 없이 통과시킨다(2026-09-10 windows CI: 가짜 claude.exe 가 SHADOWED 로 오탐). 건너뛰면 .exe 후보가 MZ 검사를 받는다.
     for c in "$d/$t" "$d/$t.cmd" "$d/$t.exe"; do
-      [ -f "$c" ] && [ -x "$c" ] || continue
+      [ -f "$c" ] || continue
       case "$c" in
         *.cmd) [ "$(head -c 1 "$c" 2>/dev/null)" = "@" ] || continue ;;
         *.exe) [ "$(head -c 2 "$c" 2>/dev/null)" = "MZ" ] || continue ;;
+        *)     [ -x "$c" ] || continue
+               [ -e "$c.exe" ] && [ "$c" -ef "$c.exe" ] && continue ;;
       esac
       printf '%s' "$c"; return 0
     done

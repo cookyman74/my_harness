@@ -63,8 +63,25 @@ case " $(line SHADOWED "$o5") " in *" $T3="*) ok "⑤ PATH 밖($SD2) $T3.cmd →
 # ⑥ 데이터 파일이 shim 이름·실행 비트만 갖춘 경우(MSYS 는 확장자만으로 -x 참) → SHADOWED 에 **없어야**(R5 codex MED). 대상은 아직 아무 데도 없는 `claude`.
 printf 'not a shim\n' > "$GT/home/$SD/claude.cmd"; chmod +x "$GT/home/$SD/claude.cmd"; printf 'data' > "$GT/home/$SD/claude.exe"; chmod +x "$GT/home/$SD/claude.exe"
 run claude; o6="$(out)"; [ "$RC" -eq 0 ] || f "⑥ 종료코드 $RC"
-case " $(line SHADOWED "$o6") " in *" claude="*) f "⑥ 내용 없는 claude.cmd/.exe 가 SHADOWED 에 잡힘(데이터 파일 오탐)";; *) ok "⑥ 내용 없는 .cmd/.exe 는 SHADOWED 에 없음";; esac
+case " $(line SHADOWED "$o6") " in *" claude="*) f "⑥ 내용 없는 claude.cmd/.exe 가 SHADOWED 에 잡힘(데이터 파일 오탐) — SHADOWED='$(line SHADOWED "$o6")'";; *) ok "⑥ 내용 없는 .cmd/.exe 는 SHADOWED 에 없음";; esac
 rm -f "$GT/home/$SD/claude.cmd" "$GT/home/$SD/claude.exe"
+
+# ⑦ 실행 비트 없는 진짜 shim(`@` 로 시작하는 .cmd) → SHADOWED 에 **있어야**(MSYS 가 .cmd 에 -x 를 세우지 않는 환경 재현 · windows CI 2026-09-10)
+printf '@ECHO off\r\n' > "$GT/home/$SD/claude.cmd"; chmod -x "$GT/home/$SD/claude.cmd" 2>/dev/null
+run claude; o7="$(out)"; [ "$RC" -eq 0 ] || f "⑦ 종료코드 $RC"
+case " $(line SHADOWED "$o7") " in *" claude="*) ok "⑦ 실행 비트 없는 .cmd shim 도 SHADOWED 에 반영";; *) f "⑦ 실행 비트 없는 claude.cmd shim 을 보고하지 않음 — SHADOWED='$(line SHADOWED "$o7")'";; esac
+rm -f "$GT/home/$SD/claude.cmd"
+
+# ⑧ 확장자 없는 이름이 .exe 와 같은 파일(하드링크 — MSYS 의 .exe 자동 보완 재현) + 내용이 가짜 → SHADOWED 에 **없어야**
+printf 'data' > "$GT/home/$SD/claude.exe"
+if ln "$GT/home/$SD/claude.exe" "$GT/home/$SD/claude" 2>/dev/null; then
+  chmod +x "$GT/home/$SD/claude" 2>/dev/null
+  run claude; o8="$(out)"; [ "$RC" -eq 0 ] || f "⑧ 종료코드 $RC"
+  case " $(line SHADOWED "$o8") " in *" claude="*) f "⑧ .exe 와 같은 파일인 확장자 없는 가짜 claude 가 SHADOWED 에 잡힘 — SHADOWED='$(line SHADOWED "$o8")'";; *) ok "⑧ .exe 와 같은 파일인 확장자 없는 후보는 건너뛰고 MZ 검사";; esac
+else
+  ok "⑧ 하드링크 불가 환경 — 생략(MSYS 는 자동 보완이 같은 경로를 탄다)"
+fi
+rm -f "$GT/home/$SD/claude" "$GT/home/$SD/claude.exe"
 
 # ④ 러너=codex: 가짜 claude·codex 둘 다 PATH 에 → REVIEWERS 에 claude 는 있고 codex 는 없어야(러너 제외 독립성)
 fake "$GT/bin/claude"; fake "$GT/bin/codex"
