@@ -24,26 +24,30 @@ set -uo pipefail
 # → '없는 것'과 '가려진 것'을 구분해 SHADOWED 로 별도 보고한다. 자동 PATH 주입은 하지 않는다
 #   (임의 경로 실행은 공급망 리스크 — 사용자가 명시적으로 PATH/설치를 고치게 한다).
 probe_shadow() {  # $1=도구명 → 첫 히트 경로를 출력하고 0, 없으면 1
-  local t="$1" p
-  for p in "$HOME"/.nvm/versions/node/*/bin/"$t" \
-           "$HOME"/.fnm/node-versions/*/installation/bin/"$t" \
-           "$HOME"/.asdf/installs/nodejs/*/bin/"$t" \
-           "$HOME"/.volta/tools/image/packages/*/bin/"$t" \
-           "$HOME"/.local/share/mise/installs/node/*/bin/"$t" \
-           ${PNPM_HOME:+"$PNPM_HOME/$t"} ${NPM_CONFIG_PREFIX:+"$NPM_CONFIG_PREFIX/bin/$t"} \
-           "$HOME"/Library/pnpm/"$t" "$HOME"/.local/share/pnpm/"$t" \
-           "$HOME"/.npm-global/bin/"$t" "$HOME"/.yarn/bin/"$t" \
-           "$HOME"/.config/yarn/global/node_modules/.bin/"$t" "$HOME"/.npm/bin/"$t" "$HOME"/.npm-packages/bin/"$t" \
-           "$HOME"/.bun/bin/"$t" "$HOME"/.local/bin/"$t" \
-           /opt/homebrew/bin/"$t" /usr/local/bin/"$t"; do
-    # -f 필수: 디렉토리도 search bit 로 -x 가 true 라, `-x` 단독이면 `~/.local/bin/codex/` 같은
-    # 디렉토리를 "설치됨"으로 오탐한다. -f 는 심링크를 따라가므로 정상 실행파일은 그대로 통과.
-    # 글롭 미매치는 리터럴로 남아 -f 가 false.
-    [ -f "$p" ] && [ -x "$p" ] && { printf '%s' "$p"; return 0; }
+  # 디렉터리를 먼저 glob 하고 그 안에서 이름 후보(`t`·`t.cmd`·`t.exe`)를 본다.
+  # 파일 경로를 glob 하면(`*/bin/$t`) `.cmd` 만 있는 디렉터리에서 패턴이 리터럴 `*` 로 남아 확장자 후보가 영영 안 잡힌다
+  # (R3 반영 뒤 selftest 무작위 조합 7/30 이 잡음). `"$HOME"` 은 인용해 공백 경로(Windows `C:/Users/Jung Ho`)를 지킨다.
+  local t="$1" d c
+  for d in "$HOME"/.nvm/versions/node/*/bin \
+           "$HOME"/.fnm/node-versions/*/installation/bin \
+           "$HOME"/.asdf/installs/nodejs/*/bin \
+           "$HOME"/.volta/tools/image/packages/*/bin \
+           "$HOME"/.local/share/mise/installs/node/*/bin \
+           ${PNPM_HOME:+"$PNPM_HOME"} ${NPM_CONFIG_PREFIX:+"$NPM_CONFIG_PREFIX/bin"} \
+           "$HOME"/Library/pnpm "$HOME"/.local/share/pnpm \
+           "$HOME"/.npm-global/bin "$HOME"/.yarn/bin \
+           "$HOME"/.config/yarn/global/node_modules/.bin "$HOME"/.npm/bin "$HOME"/.npm-packages/bin \
+           "$HOME"/.bun/bin "$HOME"/.local/bin \
+           /opt/homebrew/bin /usr/local/bin; do
+    [ -d "$d" ] || continue
+    # Windows Git Bash 의 npm shim 은 `<t>.cmd`·`<t>.exe` 로도 놓인다(R3 codex MED). 확장자 변형은 -x 가 안 서 있어도 -f 로 인정.
+    for c in "$d/$t" "$d/$t.cmd" "$d/$t.exe"; do
+      [ -f "$c" ] || continue
+      case "$c" in *.cmd|*.exe) printf '%s' "$c"; return 0 ;; *) [ -x "$c" ] && { printf '%s' "$c"; return 0; } ;; esac
+    done
   done
   return 1
 }
-
 avail=()
 shadow=()
 # codex/claude = 일반/정합성 리뷰어(대형 모델). agy = 성능/안정성(Gemini). gemini = agy 없을 때 legacy.

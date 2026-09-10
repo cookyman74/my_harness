@@ -50,6 +50,13 @@ o3="$(run claude)"; [ "$RC" -eq 0 ] || f "③ 종료코드 $RC"
 case " $(line SHADOWED "$o3") " in *" $T_SHADOW="*) ok "③ PATH 밖($SD) $T_SHADOW → SHADOWED 에 반영";; *) f "③ SHADOWED='$(line SHADOWED "$o3")' — PATH 밖 설치($SD)를 보고하지 않음";; esac
 case " $(line AVAILABLE "$o3") " in *" $T_SHADOW "*) f "③ PATH 밖 $T_SHADOW 가 AVAILABLE 에 있음(가려진 것을 가용으로 오판)";; *) ok "③ PATH 밖 $T_SHADOW 는 AVAILABLE 에 없음";; esac
 
+# ⑤ 세 번째 도구(T3 ∉ {T_PATH,T_SHADOW})를 PATH 밖 다른 경로에 `.cmd` 로만 → SHADOWED 에 반영(R3 codex MED: Git Bash npm shim)
+#   ④ 보다 앞에 둔다 — ④ 가 가짜 codex·claude 를 PATH 에 넣으면 T3=codex 조합에서 codex 가 "가용"이 돼 probe 를 타지 않는다(1/3 확률 거짓 FAIL, 실측 4/10).
+T3="${tools[$(( (i+2) % 3 ))]}"; SD2="${shadow_dirs[$(( ($(printf '%s' "$SD" | wc -c) + 1) % ${#shadow_dirs[@]} ))]}"; [ "$SD2" = "$SD" ] && SD2=".local/bin"
+mkdir -p "$GT/home/$SD2"; printf '@echo off\r\n' > "$GT/home/$SD2/$T3.cmd"
+o5="$(run claude)"; [ "$RC" -eq 0 ] || f "⑤ 종료코드 $RC"
+case " $(line SHADOWED "$o5") " in *" $T3="*) ok "⑤ PATH 밖($SD2) $T3.cmd → SHADOWED 에 반영";; *) f "⑤ SHADOWED='$(line SHADOWED "$o5")' — .cmd shim 을 보고하지 않음";; esac
+
 # ④ 러너=codex: 가짜 claude·codex 둘 다 PATH 에 → REVIEWERS 에 claude 는 있고 codex 는 없어야(러너 제외 독립성)
 fake "$GT/bin/claude"; fake "$GT/bin/codex"
 o4="$(run codex)"; [ "$RC" -eq 0 ] || f "④ 종료코드 $RC"
