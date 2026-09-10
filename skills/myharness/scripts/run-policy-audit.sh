@@ -116,11 +116,12 @@ fi
 # 11) 스텁 회귀 가드 — check-review-tools.sh 가 실제로 환경에 반응하는지 **실행해서** 본다(텍스트 매칭 아님).
 #     v1.7.5 에 5줄 스텁(REVIEWERS 고정 출력)이 릴리스됐다(d33d304, 2026-09-10 복원). 텍스트 가드 3판은 전부 거짓 PASS/FAIL 이 있었다
 #     (리터럴 부정검사→복원본 FAIL · ^[^#]* 휴리스틱→${#arr[@]} 오판 · 부분 스텁 통과 R1 codex HIGH). 행동 검사는 selftest-review-tools.sh 로 분리해 tests/ 에서도 돈다.
-if bash "$SK/scripts/selftest-review-tools.sh" "$SK/scripts/check-review-tools.sh" >/dev/null 2>&1; then
-  ok "check-review-tools.sh 행동 자기검증(격리 PATH/HOME 3케이스)"
-else
-  no "check-review-tools.sh 가 환경에 반응하지 않는다(스텁 의심) — bash $SK/scripts/selftest-review-tools.sh 로 상세 확인"
-fi
+bash "$SK/scripts/selftest-review-tools.sh" "$SK/scripts/check-review-tools.sh" >/dev/null 2>&1; st_rc=$?
+case "$st_rc" in
+  0) ok "check-review-tools.sh 행동 자기검증(격리 PATH/HOME 4케이스·무작위 도구/경로)" ;;
+  2) no "check-review-tools.sh 자기검증을 **실행하지 못했다**(rc=2: 파일 없음·mktemp 실패) — 검사 부재를 통과로 세지 않는다" ;;
+  *) no "check-review-tools.sh 가 환경에 반응하지 않는다(rc=$st_rc, 스텁 의심) — bash $SK/scripts/selftest-review-tools.sh 로 상세 확인" ;;
+esac
 
 echo "=== POLICY AUDIT: $([ $fail -eq 0 ] && echo PASS || echo FAIL) (fail $fail, warn $warn) ==="
 [ "$fail" -eq 0 ]
