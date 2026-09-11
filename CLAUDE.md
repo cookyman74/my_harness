@@ -32,13 +32,13 @@
 
 ## 변경 이력
 
-전체 원장: [`docs/harness-history.md`](docs/harness-history.md) — 26건(2026-06-08~), 날짜 역순, 원문 보존. 과거 문서의 "CLAUDE.md 이력 YYYY-MM-DD" 인용은 원장의 같은 날짜 행이다.
+전체 원장: [`docs/harness-history.md`](docs/harness-history.md) — 27건(2026-06-08~), 날짜 역순, 원문 보존. 과거 문서의 "CLAUDE.md 이력 YYYY-MM-DD" 인용은 원장의 같은 날짜 행이다.
 **여기에는 최근 5건만 한 줄로 둔다** — 매 세션 로딩되는 파일이라 상세는 원장에 쓴다. 새 변경은 원장에 전문 행을 먼저 추가하고, 여기에 한 줄 요약을 올린 뒤 가장 오래된 요약을 지운다.
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+| 2026-09-12 | **v1.7.6 S2** — `questions`·`answer`·프로파일 + `references/harness-interview.md`(단일 출처 · 카탈로그 JSON↔스크립트 대조 테스트) · 테스트 342(작성자 분리) · 디렉토리 심링크·동시 쓰기 결함 수정 · 외부리뷰 R1~R3 수렴 · windows CI 첫 실측 green | `skills/myharness/{scripts/harness-intake.mjs,references/harness-interview.md}`, `tests/harness-intake/**` | v1.7.6 S2 |
 | 2026-09-11 | **v1.7.6 S1** — `harness-intake.mjs scan`·selftest(스텁 가드) · 감사 #9 node 필수·#12 · CI node 20 · 테스트 191(작성자 분리) · 외부리뷰 R1~R3 수렴 · windows CI 첫 실측 green | `skills/myharness/scripts/*.mjs`, `tests/harness-intake/**` | v1.7.6 S1 |
 | 2026-09-11 | **v1.7.6 S0** — M1·M2 실측(M2 에이전트 단위 · `claude -p` 기준) · `SKILL.md` 500→463 동작 불변 이동 · 외부리뷰 R1~R5 수렴(R4·R5 2연속) | `skills/myharness/{SKILL.md,references/*}`, `docs/v1.7.6/*` | v1.7.6 S0 |
 | 2026-09-10 | windows CI 첫 실측 — `check-review-tools.sh` `.cmd/.exe` 판정 결함 2건(미탐지·오탐) 수정 + 감사 #11 실패 상세 출력 · 양 잡 green · 외부리뷰 미실시 | `skills/myharness/scripts/*` | push 후 CI 실패 |
 | 2026-09-10 | v1.7.6 작업계획서 7개 + 소스 대조 하네스 리뷰(repo-qa A~M) — 결함 87+58건 반영·설계서 약 30건 정정 · 최종 MED 1 반영 후 재검증 없이 종료(수렴 미선언) | `docs/v1.7.6/{todo,design}` | 사용자 요청 |
-| 2026-09-10 | **정본 회귀 복원** — `check-review-tools.sh` 가 v1.7.5 에 5줄 스텁으로 릴리스된 것을 109줄로 복원, 정책 감사 #11 을 **행동 자기검증**(`selftest-review-tools.sh`)으로. v1.7.6=구성 인터뷰·v1.7.7=모델 배치 PRD 재편. 외부리뷰 R1~R6 수렴 | `skills/myharness/scripts/*`, `docs/v1.7.6·7/prd/` | PRD 소스 대조 리뷰 중 발견 |

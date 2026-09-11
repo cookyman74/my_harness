@@ -1,4 +1,4 @@
-# S2 — 문항 생성 · 답 검증 · 프로파일 `🔨 구현중`
+# S2 — 문항 생성 · 답 검증 · 프로파일 `✅ 완료`
 
 > **목표:** 선택지와 기본값을 **스크립트가 결정적으로** 만들고(HI11③), 답을 안정 키로 검증해 출처(`scanned`/`declared`/`assumed`)와 함께 프로파일에 남긴다(HI4·HI7).
 > **등급:** 중대 · **근거:** 설계서 §2-3 · §2-4 · §3 · §4 · §5 · §6 · §7-2 · §11(T4~T6) · §13 S2
@@ -51,10 +51,10 @@
 ## 외부리뷰 (단계 완료 전 필수 · [R-4](00-index.md#r-4-외부리뷰-절차-단계-공통))
 - [x] 리뷰어 확인 · 프롬프트 `v176-S2-r1_prompt_{general,perf}.md` — SCOPE: `harness-intake.mjs`(questions·answer) · `references/harness-interview.md` · 테스트·픽스처 — ✔ 2026-09-11 · 미커밋 · 근거: `check-review-tools.sh claude` → `AVAILABLE: codex claude agy` · `RUNNER: claude` · `REVIEWERS: codex agy` · `SHADOWED: gemini=~/.nvm/versions/node/v22.11.0/bin/gemini`(`_workspace/repo-maintainer/v176-S2/03_review-tools.txt`) · 프롬프트 두 파일 SCOPE 8경로(스크립트·참조 문서·테스트·S2 픽스처·설계서·PRD·S3·S4 — 행 번호 정정분 포함) · 패치 `git diff 69d9f509 -- <SCOPE>` · 판정 마커 형식 재강조(S1 R3 `판정:` 접두 suspect 교훈)
 - [x] **외부리뷰 중점:** ① 기본값이 정말 **"안전한 쪽"** 인가 — 무응답이 위험한 쪽으로 흐르는 입력 ② 기본값 계산이 신호 조합에 따라 비는 경우 ③ env 파싱 우회(구분자·공백·유니코드·중복 키) ④ 프로파일 원자적 쓰기의 동시성·권한·심링크 ⑤ `none` 배타·`other` 처리 누락 ⑥ 쪽 분할이 문항 수 상한과 겹칠 때 — ✔ 2026-09-11 · 미커밋 · 근거: 프롬프트 「중점」 1~8 — 단계 문서 ①~⑥ 그대로 + ⑦ 참조 문서↔스크립트 불일치(같은 규칙의 두 구현) · ⑧ `at`·`factory_version` 규칙 · ③ 에 전각 구분자·제로폭 문자 명시
-- [ ] 라운드 반복 → 수렴 — 라운드 기록: `R1 codex: HIGH 1(부분 — TOCTOU 문서화)·MED 2(확인 — 동시성 잠금·설계서 §4 ④) / agy: 새 결함 없음 — 미수렴` (트리 hash 747303d) · `R2 codex: 새 결함 없음 / agy: 런타임 실패(rc=1) → r2b agy 재실행(같은 트리 9789845)` · `r2b agy: 새 결함 없음(ok) → R2 = r2 codex + r2b agy 합산 클린 (1/2)` (라운드마다 한 줄 추가)
-- [ ] `verdicts.json` → 측정 꼬리 발행
-- [ ] 결과서 `docs/v1.7.6/working_history/S2-questions-answer.md` + `## 다음 단계 참조` + `check-artifacts.sh` PASS
-- [ ] 변경 이력 · 상태 뱃지 · 00-index 표 · 커밋
+- [x] 라운드 반복 → 수렴 — 라운드 기록: `R1 codex: HIGH 1(부분 — TOCTOU 문서화)·MED 2(확인 — 동시성 잠금·설계서 §4 ④) / agy: 새 결함 없음 — 미수렴` (트리 hash 747303d) · `R2 codex: 새 결함 없음 / agy: 런타임 실패(rc=1) → r2b agy 재실행(같은 트리 9789845)` · `r2b agy: 새 결함 없음(ok) → R2 = r2 codex + r2b agy 합산 클린 (1/2)` · `R3 codex: MED 1 → 기각(Node 문서 "destination … will be overwritten" + windows CI 「prev 1세대 보존」 3회 rename 통과) / agy: 새 결함 없음 → R3 클린 (2/2) — 수렴` (라운드마다 한 줄 추가) — ✔ 2026-09-12 · 미커밋 · 근거: R2(r2 codex + r2b agy — 같은 트리 9789845)·R3 양 엔진 HIGH 0·MED 0 2연속 · R3 codex MED 는 Node 문서 + windows CI 실측(run 34617863406)으로 기각 · `termination_reason=converged`
+- [x] `verdicts.json` → 측정 꼬리 발행 — ✔ 2026-09-12 · 미커밋 · 근거: `_workspace/evals/external-review/v176-S2/v176-S2_20260911/verdicts.json`(4건: 확인 2·부분 1·기각 1 · converged) → `loop_scorecard 발행:` · `eval_status` = ok · `alignment_score 0.625` · `regression_catch_rate 0` · summary.jsonl v176-S2 1행
+- [x] 결과서 `docs/v1.7.6/working_history/S2-questions-answer.md` + `## 다음 단계 참조` + `check-artifacts.sh` PASS — ✔ 2026-09-12 · 미커밋 · 근거: `check-artifacts.sh --file` 끝줄 `ARTIFACTS: ok` · §1 선검증(행 번호 밀림 정정 포함) · §2 S2 결정 · §3 TDD(적색 3회) · §4 라운드 표 R1~R3·기각 근거·windows CI · `## 다음 단계 참조`
+- [x] 변경 이력 · 상태 뱃지 · 00-index 표 · 커밋 — ✔ 2026-09-12 · 이 커밋(자기 해시는 S3 첫 커밋에서 채움 — R-2) · 근거: 원장 `docs/harness-history.md` 맨 위 행(27건) · CLAUDE.md 요약 5건 유지 · 상태 뱃지 `✅ 완료` · 00-index S2 행 `✅ 완료` · 코드·테스트 WIP `e4bbf43`(사용자 승인 push · windows CI green) + 이 완료 커밋 · S1 체크 해시 `69d9f50` 채움(37건)
 
 ---
 

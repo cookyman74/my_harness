@@ -3,7 +3,7 @@
 > 단계 문서: [`docs/v1.7.6/todo/S2-questions-answer.md`](../todo/S2-questions-answer.md) · 설계서 §2-3·§2-4·§3·§4·§5·§6·§7 · 등급 중대
 > BASE `69d9f509d4b29c74622dc731d7fd098dd1c6fd9a` · 작업 브랜치 `fix/v1.7.6-stub-restore-prd`
 > 하네스: `repo-maintainer` — 오케스트레이터(참조 문서·명세·판정) · **repo-qa(테스트)** · **skill-maintainer(구현)** — S1 과 같이 **서로의 파일을 보지 않고** 같은 계약(`references/harness-interview.md`)만 보고 썼다.
-> 상태: **작성 중**
+> 상태: **완료** — 외부리뷰 R1~R3 수렴(2026-09-12) · windows CI 실측 green `e4bbf43`
 
 ---
 
@@ -48,8 +48,12 @@
 |---|---|---|---|---|
 | R1 | HIGH 1 · MED 2 | 새 결함 없음 | 747303d | 부분 1 · 확인 2 — 미수렴 |
 | R2 | 새 결함 없음 | r2: 런타임 실패(`There was a network issue connecting to the server`) → **r2b 재실행: 새 결함 없음(ok)** | 9789845(r2·r2b 동일) | HIGH 0·MED 0 (1/2) |
-| R3 | (진행 중) | (진행 중) | 9789845 | |
+| R3 | MED 1 — windows `renameSync` 가 기존 파일을 덮어쓰지 못한다는 주장 → **기각**(아래) | 새 결함 없음 | 9789845 | HIGH 0·MED 0 (2/2) — **수렴** |
 
+- **R3 기각 근거(추측 판정 안 함):** ① Node 24 공식 문서 `fs.rename` — "If the destination path already exists, it will be overwritten"(예외는 대상이 디렉토리일 때뿐 · 플랫폼 한정 없음) ② **windows CI 실측**(run 34617863406 · WIP `e4bbf43`(SCOPE 해시 = 리뷰 트리 `9789845`) · node 20.20.2) — 「prev.json 1세대 보존 — 두 번째 prev = 첫 판 · 세 번째 prev = 두 번째 판」(같은 경로를 세 번 rename 으로 교체) 통과 · 실패 후 불변·잠금·동시 수정 테스트도 통과. 사용자 승인으로 S2 테스트를 처음 windows 에서 돌려 판정했다.
+- **수렴:** R2(r2 codex + r2b agy 합산)·R3 양 엔진 HIGH 0·MED 0 2연속(같은 트리 `9789845`) → `converged`. 판정 4건 — 확인 2 · 부분 1 · 기각 1.
+- **측정 꼬리:** `verdicts.json` → `emit-loop-scorecard.sh` 발행 · `eval_status` 없음 = ok(status 파일을 먼저 확인한 뒤 발행 — S1 R3 교훈) · `alignment_score 0.625` · `regression_catch_rate 0` · `rounds 3` · `diff_lines 2499` · summary.jsonl v176-S2 1행.
+- **windows CI(S2 첫 실측):** linux·windows success · windows `# tests 342 · pass 334 · skipped 8 · fail 0` — skip 8 = S1 과 같은 4 + **S2 새 4**(프로파일·끊어진·prev 심링크 3건: 러너 심링크 권한 · `questions` 가 RUNTIME 을 조회하지 않음 1건: sh 가짜 도구). `.claude` 디렉토리 심링크 3건은 junction 으로 **실행됨**. windows 에서 파일 심링크 거부·`questions` RUNTIME 미조회는 미실측.
 - **R1 판정:** [HIGH → 부분] 심링크 검사와 `rename` 사이 TOCTOU — 실재하나 창을 쓰려면 대상 `.claude` 에 동시 쓰기 권한이 필요하고(그 권한이면 프로파일을 직접 쓸 수 있다) 바뀌는 것은 고정 이름 파일이 생기는 디렉토리뿐 · node 내장으로 `openat`+`O_NOFOLLOW` 를 이식성 있게 쓸 수 없어 **문서화**(참조 문서 7절 「남는 경합」) · [MED 확인] 동시 `answer` 의 lost update·`prev` 불일치 → 잠금 + 잠근 뒤 재독 비교(CAS) · [MED 확인] 설계서 §4 ④ 본문이 옛 규칙("② 가 `none` 이 아니면 `ladder`")으로 남아 있었다 — 결정 표만 추가하고 본문을 고치지 않은 **내 누락** → 본문 정정.
 
 ## 다음 단계 참조
