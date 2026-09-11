@@ -11,6 +11,9 @@
 // 규약: stdout = 계약 줄만(`KEY: value`, `\n`). 사람용 진단은 stderr — check-review-tools.sh 는 진단도 stdout 이라 선례가 아니다.
 // 결정성: 모든 목록은 코드포인트 오름차순(JS 기본 sort 는 UTF-16 코드유닛 순이라 BMP 밖에서 어긋난다) · readdir 결과도 정렬 후 사용.
 // 의존성: node 내장 모듈만(팩토리 스킬은 자기완결 — harness-ui 에 기댈 수 없다). node ≥18 문법.
+// RUNTIME 탐색은 `command -v` 와 **의도적으로 다르다**: PATH 의 비절대 항목(빈 항목·`.`·상대경로)은 전부 건너뛴다 —
+//   scan 의 cwd 는 보통 하네스를 만들 **대상 프로젝트 루트**라, 그 안의 `./claude` 를 --version 으로 실행하면 대상 레포 코드를 실행하게 된다.
+// 카탈로그 배제: ~/.claude/plugins/marketplaces(설치 안 된 카탈로그 클론)는 installPath·재귀·심링크 어느 경로로도 읽지 않는다(명세 §6-1).
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -172,6 +175,15 @@ function display(ctx, abs) {
   return slash(abs);
 }
 
+// 카탈로그 경계 판정용 실경로. native 를 먼저 쓴다 — JS realpathSync 는 대소문자 무시 파일시스템(macOS)에서 호출자가 준 대소문자를
+// 그대로 돌려줘(실측: .../market/sub vs native .../Market/Sub) 경로 비교가 빗나간다. native 실패(windows 일부 드라이브 등)면 JS 로.
+function realCanon(p) {
+  try { return fs.realpathSync.native(p); } catch { /* 폴백 */ }
+  try { return fs.realpathSync(p); } catch { return null; }
+}
+// base 와 같거나 그 아래인가 — path.relative 기반이라 구분자 경계를 지킨다(/x/marketplaces2 는 밖) · win32 는 대소문자·구분자 무시.
+function within(base, abs) { return path.relative(base, abs) === "" || inside(base, abs) !== null; }
+
 // *.ext 파일(1단계). 파일명이 확장자뿐인 것(`.md`)은 이름이 비므로 제외. 점 파일은 포함(harness.ts listFiles 선례 = endsWith).
 function filesWithExt(dir, ext) {
   return listDir(dir)
@@ -231,15 +243,22 @@ function readEnabled(file) {
 function pluginName(key) { const i = key.lastIndexOf("@"); return i > 0 ? key.slice(0, i) : key; }
 
 // `**/agents/*.md` — 재귀, node_modules·.git 은 건너뜀, 심링크는 따라가되 같은 실경로 디렉토리는 한 번만(순환 방지).
-function walkPluginAgents(dir, seen, out) {
+// isCat: 실경로가 marketplaces 카탈로그 안인가 — 그런 디렉토리엔 들어가지 않고, 그리로 향한 에이전트 파일(심링크)도 뺀다(§6-1 ②③).
+function walkPluginAgents(dir, seen, out, isCat) {
   let real;
   try { real = fs.realpathSync(dir); } catch (e) { diag(`플러그인 경로 건너뜀: ${dir} (${e.code || e.message})`); return; }
   if (seen.has(real)) return;
   seen.add(real);
+  if (isCat(dir)) { diag(`플러그인 경로가 marketplaces 카탈로그 안 — 들어가지 않음: ${dir}`); return; }
   for (const e of listDir(dir)) {
     if (!e.st.isDirectory() || e.name === "node_modules" || e.name === ".git") continue;
-    if (e.name === "agents") for (const f of filesWithExt(e.full, ".md")) out.push(f);
-    walkPluginAgents(e.full, seen, out);
+    if (e.name === "agents") {
+      for (const f of filesWithExt(e.full, ".md")) {
+        if (isCat(f.file)) { diag(`에이전트 파일이 marketplaces 카탈로그 안 — 제외: ${f.file}`); continue; }
+        out.push(f);
+      }
+    }
+    walkPluginAgents(e.full, seen, out, isCat);
   }
 }
 
@@ -247,11 +266,17 @@ function scanPlugins(ctx) {
   const res = { tokens: [], agents: [] }; // agents: { token, file }
   const file = path.join(ctx.home, ".claude", "plugins", "installed_plugins.json");
   // ⚠ ~/.claude/plugins/marketplaces/** 는 어떤 경우에도 읽지 않는다(설치 안 된 카탈로그 클론 — glob 하면 35개가 섞인다).
+  //   glob 을 안 쓰는 것만으로는 부족하다 — installPath 가 그 안이거나 그리로 향한 심링크면 재귀가 카탈로그를 읽는다(R1 재현).
+  //   그래서 실경로 기준으로 installPath·재귀 디렉토리·에이전트 파일 세 곳에서 막는다. marketplaces 가 없으면 검사 생략.
+  const catalog = realCanon(path.join(ctx.home, ".claude", "plugins", "marketplaces"));
+  const isCat = (p) => { if (catalog === null) return false; const r = realCanon(p); return r !== null && within(catalog, r); };
   const j = readJson(file, "installed_plugins.json");
   if (j === undefined) return res;
   if (!isObj(j) || !isObj(j.plugins)) { diag(`installed_plugins.json 에 plugins 객체 없음: ${file}`); return res; }
   let rootReal = null;
-  try { rootReal = fs.realpathSync(ctx.root); } catch { rootReal = null; }
+  // §6-4: projectPath·--root 비교는 양쪽 모두 native 실경로(realCanon) — JS realpath 는 macOS 에서 입력 대소문자를 그대로 돌려줘
+  //   대소문자만 다른 같은 디렉토리를 "비적용" 으로 봤다. 대소문자 구분 파일시스템에서는 동작 불변.
+  rootReal = realCanon(ctx.root);
   // 우선순위 local > project > user(S0 M2 실측). 최상위 installed_plugins.json.enabledPlugins 는 의미 미확인이라 쓰지 않는다.
   const layers = [
     ["local", readEnabled(path.join(ctx.root, ".claude", "settings.local.json"))],
@@ -269,7 +294,8 @@ function scanPlugins(ctx) {
       if (it.projectPath !== undefined && it.projectPath !== null) {
         // projectPath 가 있으면 scope 와 무관하게 이 프로젝트일 때만 적용. 없는 경로면 비적용(다른 프로젝트 설치는 정상이라 진단 없음).
         if (typeof it.projectPath === "string" && rootReal !== null) {
-          try { applies = fs.realpathSync(it.projectPath) === rootReal; } catch { applies = false; }
+          const pr = realCanon(it.projectPath);
+          applies = pr !== null && pr === rootReal;
         }
       } else if (it.scope === "user") {
         applies = true;
@@ -279,6 +305,11 @@ function scanPlugins(ctx) {
       if (!applies) continue;
       if (typeof it.installPath !== "string" || !path.isAbsolute(it.installPath)) {
         diag(`플러그인 ${key}: installPath 가 절대경로 문자열이 아님(건너뜀)`);
+        continue;
+      }
+      if (isCat(it.installPath)) {
+        // 적용 설치에서 뺀다 — 이 키에 다른 적용 설치가 없으면 PLUGINS 에서도 빠진다(설치 안 됨과 같음).
+        diag(`플러그인 ${key}: installPath 가 marketplaces 카탈로그 안 — 제외: ${it.installPath}`);
         continue;
       }
       installs.add(path.resolve(it.installPath));
@@ -294,7 +325,7 @@ function scanPlugins(ctx) {
     const seen = new Set();
     for (const ip of [...installs].sort(cpCompare)) {
       const found = [];
-      walkPluginAgents(ip, seen, found);
+      walkPluginAgents(ip, seen, found, isCat);
       for (const f of found) res.agents.push({ token: `${pname}:${f.name}`, file: f.file });
     }
   }
@@ -304,8 +335,11 @@ function scanPlugins(ctx) {
 // ───────────────────────── RUNTIME ─────────────────────────
 
 // PATH 를 node 로 직접 순회(`sh -c "command -v"` 금지 — windows 에 sh 보장 없음).
+// `command -v` 와 의도적으로 다름: 절대경로가 아닌 PATH 항목(빈 항목 = POSIX 의 현재 디렉토리 · `.` · `bin` 같은 상대경로)은
+// 전부 건너뛴다. cwd 는 보통 대상 프로젝트 루트이고, 그 안의 바이너리를 --version 으로 실행하지 않는다(대상 레포 코드 실행 방지).
+// 예전엔 빈 항목만 버리고 `.` 은 따라가 내부 불일치였다(R1).
 function findTool(tool) {
-  const dirs = (process.env.PATH || "").split(path.delimiter).filter((d) => d !== "");
+  const dirs = (process.env.PATH || "").split(path.delimiter).filter((d) => path.isAbsolute(d));
   const exts = WIN ? (process.env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter((x) => x !== "") : null;
   for (const dir of dirs) {
     if (WIN) {
