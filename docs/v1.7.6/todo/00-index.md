@@ -12,7 +12,7 @@
 
 | 단계 | 문서 | 내용 | 등급 | 선행 | 상태 |
 |---|---|---|---|---|---|
-| S0 | [S0-preflight.md](S0-preflight.md) | 미실측 M1·M2 실측 · `SKILL.md` 축소(단독 커밋) · PRD/설계서 정정 | 중대 | — | ⬜ 미착수 |
+| S0 | [S0-preflight.md](S0-preflight.md) | 미실측 M1·M2 실측 · `SKILL.md` 축소(단독 커밋) · PRD/설계서 정정 | 중대 | — | ✅ 완료 |
 | S1 | [S1-scan.md](S1-scan.md) | `harness-intake.mjs scan`·`selftest` · 감사 #9·#12 · CI node | 중대 | S0 | ⬜ 미착수 |
 | S2 | [S2-questions-answer.md](S2-questions-answer.md) | `questions`·`answer`·프로파일 · `references/harness-interview.md` | 중대 | S1 | ⬜ 미착수 |
 | S3 | [S3-render-verify.md](S3-render-verify.md) | `render`·`verify` · 차분 회귀(HI6) | 중대 | S2 | ⬜ 미착수 |

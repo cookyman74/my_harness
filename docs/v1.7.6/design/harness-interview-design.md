@@ -1,6 +1,6 @@
 # 설계서 — 하네스 구성 인터뷰 (`harness-intake`) v1.7.6
 
-> 상태: **초안(검토용) · 작업계획서 소스 대조 리뷰(repo-qa A~I, 2026-09-10) 반영** · 상위: `docs/v1.7.6/prd/harness-interview-prd.md`(HI1~HI13) · 작성일 2026-09-10
+> 상태: **초안(검토용) · 작업계획서 소스 대조 리뷰(repo-qa A~I, 2026-09-10) 반영 · S0 실측 반영(M1·M2 완료, 2026-09-11)** · 상위: `docs/v1.7.6/prd/harness-interview-prd.md`(HI1~HI13) · 작성일 2026-09-10
 > 이 문서가 확정하는 것(PRD 「다음 단계 참조」가 설계서로 넘긴 7항목): **런타임 중립 문항 스키마** · **항목별 "안전한 쪽"(기본값 규칙)** ·
 > **선택지 도출 규칙(결정적)** · **스캔 출력 계약** · **Phase 0.5 배선 지점** · **차분 회귀 테스트 목록** · **`CLAUDE.md` 전제 절 템플릿**.
 > 작성 원칙: **모든 설계 근거는 소스·실측이다.** 확인하지 못한 것은 추정으로 채우지 않고 **"미실측"** 으로 표기하고 착수 전 측정 항목(M#)으로 올린다.
@@ -119,7 +119,8 @@ Phase 6-7 node harness-intake.mjs verify                       → WIRED: … (�
 | `skills/myharness/scripts/selftest-harness-intake.mjs` | 신규 — 스텁 회귀 가드(§2-7) · 정책 감사 #12 가 호출 | 아니오(팩토리 감사 전용) |
 | `skills/myharness/references/harness-interview.md` | 신규 — 카탈로그·안전한 쪽·렌더링 규칙·결선표의 **단일 출처** | 아니오(인터뷰는 팩토리에서만 돈다) |
 | `skills/myharness/SKILL.md` | 변경 — Phase 0 스캔 실행화 · Phase 0.5 · 2-4 · 5-4 전제 · 6-7 · 체크리스트, **축소 선행**(§9-1) | — |
-| `skills/myharness/references/orchestrator-template.md` | 변경 — 표식 블록 4종 섹션 · Phase 0 `verify` · 재호출 지침(5-5 이관분) | — |
+| `skills/myharness/references/orchestrator-template.md` | 변경 — 표식 블록 4종 섹션 · Phase 0 `verify`  | — |
+| `skills/myharness/references/agent-design-patterns.md` | 변경 — 5-5 항목 3(에이전트 정의의 재호출 지침) 이관(S0 — Phase 3 에서 읽히는 파일) | — |
 | `skills/myharness/references/skill-writing-guide.md` | 변경 — 4-4 이관분(3단계 로딩 표·크기 규칙) | — |
 | `skills/myharness/references/runtime-adapters.md` | 변경 — "사용자 질문(객관식)" 행 신설 | — |
 | `skills/myharness/references/external-review-loop.md` | 변경 — `:213` 예시 `"중대"` → `"critical"` | — |
@@ -161,7 +162,7 @@ PROFILE:          absent | <경로> declared=3 assumed=1         ← 기존 프�
 
 | 결정 | 근거 |
 |---|---|
-| **플러그인은 glob 하지 않는다.** `installed_plugins.json` 의 각 항목 `installPath` 중 `settings.json` `enabledPlugins[key] === true` 인 것만 `**/agents/*.md` 를 읽는다. `settings.local.json`·프로젝트 `.claude/settings*.json` 의 `enabledPlugins` 가 있으면 **뒤가 앞을 덮는다** | §0-4: glob 하면 설치 안 된 카탈로그 35개가 들어온다(§0-6 b) · 병합 우선순위는 **미실측(M2)** — 실측 전까지 사용자 → 프로젝트 → 로컬 순을 가정하고 출력에 `enabled_source=` 를 남긴다 |
+| **플러그인은 glob 하지 않는다.** `installed_plugins.json` 의 각 항목 `installPath` 중 `settings.json` `enabledPlugins[key] === true` 인 것만 `**/agents/*.md` 를 읽는다. `settings.local.json`·프로젝트 `.claude/settings*.json` 의 `enabledPlugins` 가 있으면 **뒤가 앞을 덮는다** | §0-4: glob 하면 설치 안 된 카탈로그 35개가 들어온다(§0-6 b) · 병합 우선순위는 **실측 완료(M2, 2026-09-11)** — 프로젝트 `.claude/settings.local.json` > 프로젝트 `.claude/settings.json` > 사용자 `~/.claude/settings.json`(스크래치 프로젝트에서 `claude -p` 5회 + `--setting-sources` 대조 2회로 설치 플러그인 스킬 가용 여부를 관측 · **에이전트 단위 보강 실측**(개인 범위 임시 skills-dir 플러그인, 에이전트 1)에서 같은 결과 · 공식 문서 settings.md 「Settings precedence」 와 일치 · **측정 범위 `claude -p`** — 대화형은 S4 회귀 드라이런에서 확인). 출력에 `enabled_source=` 를 남긴다 |
 | 에이전트 파일 이름 중복은 **경로 전부**를 보고(`name@scope`) — 조용히 하나를 버리지 않는다 | §0-4: 카탈로그에 같은 이름 2쌍이 실재 |
 | frontmatter 목록 파싱은 `harness.ts:67-104` 의 **의미를 이식**한다(`present`/`missing`/`empty`/`array`/`invalid_scalar`, BOM 제거, dedup, `canonName`) | §0-5. 같은 규칙의 두 구현은 이 레포의 지배적 실패 계열 → **공유 벡터**(§11 T2)로 묶는다 |
 | **기준 키 집합(`UNKNOWN_FIELDS` 판정용)** = 에이전트 `name description model skills behaviors tools color effort initialPrompt` / 스킬 `name description orchestrates` | §0-4 에서 **관측된 합집합**(2026-09-10). 문서에서 추정해 넣지 않는다. 새 키는 FAIL 이 아니라 **보고** |
@@ -491,19 +492,19 @@ Phase 2 인 이유: 등급이 4-6(외부 리뷰 스킬 생성 여부)·5-6(게�
 
 ## 9. 정본 배선 — HI13
 
-### 9-1. `SKILL.md` 줄 예산 (현재 500/500)
+### 9-1. `SKILL.md` 줄 예산 (S0 전 500 → **S0 후 463**(실측) → S4 후 목표 485)
 
 | 변경 | 줄 |
 |---|---|
-| **축소** 5-5 후속 작업 지원(290-312, 23줄) → 헤딩 + 포인터 2줄. 항목 1·2 는 템플릿에 이미 있고(§0-1), 항목 3(재호출 지침 3줄)은 `orchestrator-template.md` §「description 작성 시 후속 작업 키워드」 뒤로 이관 | **−20** |
-| **축소** 4-4 Progressive Disclosure(169-192, 24줄) → 헤딩 + 포인터 2줄. 3단계 로딩 표 + 크기 관리 규칙 1 은 `skill-writing-guide.md` §5 로 이관, 규칙 2(§5 패턴 3 `:171`)·규칙 3 과 `cloud-deploy/` 트리(§5 패턴 1 `:141-152`)는 중복이라 삭제 | **−21** |
+| **축소** 5-5 후속 작업 지원(290-312, 23줄) → 헤딩 + 포인터 2줄(헤딩 뒤 빈 줄 유지). 항목 1·2 는 템플릿에 이미 있고(§0-1), 항목 3(재호출 지침)은 **`agent-design-patterns.md` 「에이전트 정의 구조」 뒤로 이관**(S0 결정 — 이 지침은 Phase 3 에서 에이전트 정의를 쓸 때 쓰이고 그때 `SKILL.md:115` 가 가리키는 파일이다. 템플릿은 Phase 5 에서야 읽힌다) | **−18** |
+| **축소** 4-4 Progressive Disclosure(169-192, 24줄) → 헤딩 + 포인터 2줄. 3단계 로딩 표 + 크기 관리 규칙 1 은 `skill-writing-guide.md` §5 로 이관 · 규칙 2(§5 패턴 3 `:171`)는 중복 삭제 · **규칙 3 은 §5 패턴 1 아래로 원문 이관**(S0 repo-qa MED-1 — 패턴 1 에는 예시뿐이라 조건문과 "프레임워크별" 축이 없었다) · `cloud-deploy/` 트리는 괄호 예시로 축약 | **−19** |
 | Phase 0 1단계: 산문 → `node <이 스킬>/scripts/harness-intake.mjs scan` + `check-review-tools.sh` (줄 교체) | 0 |
 | `### Phase 0.5: 구성 인터뷰` 신설 — 분기별 적용 · 질문 2회 · 비대화 경로 · 포인터 | +7 |
 | `#### 2-4. 리스크 등급 기준 확정` | +4 |
 | 5-4 템플릿에 전제 블록 | +4 |
 | `#### 6-7. 결선 검증` — `verify` 실행, 비-`ok` = Phase 6 FAIL | +4 |
 | 산출물 체크리스트 2줄 · 참고 1줄(`references/harness-interview.md` 링크 — 감사 #3 대상) | +3 |
-| **합계** | **500 − 41 + 22 = 481**(빈 줄을 유지하면 축소가 37~41줄 → 481~485) |
+| **합계** | **500 − 37 + 22 = 485**(S0 실측: 5-5 −18 · 4-4 −19 — 헤딩 뒤 빈 줄 유지) |
 
 **축소는 별도 커밋으로 먼저 한다**(§13 S0): 내용 이동만 있고 동작이 같아야 하므로, 인터뷰 변경과 섞으면 리뷰가 둘을 구분하지 못한다.
 
@@ -538,7 +539,7 @@ Phase 2 인 이유: 등급이 4-6(외부 리뷰 스킬 생성 여부)·5-6(게�
 
 - 템플릿 A~D 공통으로 `## 완료 기준` · `## 리스크 등급` · `## 승인 관문` · `## 기존 자산` 네 섹션을 **표식 블록 자리**로 둔다.
 - Phase 0 컨텍스트 확인(45행)에 3단계 추가: `node .claude/skills/{오케스트레이터}/scripts/harness-intake.mjs verify`(듀얼은 `.agents/skills/{오케스트레이터}/scripts/…` · `scripts/harness-intake.mjs` 단독 표기 금지 — 생성 하네스 cwd 는 프로젝트 루트다, §10) → `WIRED` 비-`ok` 면 멈추고 보고, `DECLARED`·`ASSUMED` 를 사용자에게 보여준다(HI8③).
-- 5-5 에서 이관한 "에이전트 정의의 재호출 지침" 3줄.
+- (5-5 항목 3 은 S0 에서 `agent-design-patterns.md` 로 이관했다 — 템플릿에는 넣지 않는다)
 
 ---
 
@@ -552,8 +553,8 @@ Phase 2 인 이유: 등급이 4-6(외부 리뷰 스킬 생성 여부)·5-6(게�
 
 설계: 정본은 `node <이 스킬의 디렉토리>/scripts/harness-intake.mjs` 로 쓴다. 스크립트는 `import.meta.url` 로 자기 위치를 알고, 대상은 `--root`/cwd 다.
 
-**M1(미실측, 착수 전 필수):** 설치 플러그인으로 실행될 때 모델이 "이 스킬의 디렉토리"를 **무엇으로** 아는지 확인하지 않았다.
-확인 전까지의 폴백 절차: `installed_plugins.json` 에서 `myharness@*` 의 `installPath` 를 읽어 `…/skills/myharness/scripts/` 를 조립한다(파일 존재 실측됨).
+**M1 — 실측 완료(2026-09-11, S0):** 설치 플러그인 스킬이 호출되면 Claude Code 가 `isMeta` user 메시지로 `Base directory for this skill: ~/.claude/plugins/cache/myharness-marketplace/myharness/1.5.5/skills/myharness` 를 주입한다 — 실제 대화형 세션 트랜스크립트 5개에서 21회 관측(예: `~/.claude/projects/-Users-junghojang-Downloads-2026KDT/bdcae957-….jsonl`, 2026-08-12). 프로젝트 스킬도 같은 형식이다. 따라서 모델은 **버전이 든 설치 경로**를 받고, 정본 표기 `node <이 스킬의 디렉토리>/scripts/harness-intake.mjs` 가 성립한다. 경로에 버전이 있으므로 하드코딩은 여전히 금지. **확인 범위는 경로 채널이다**(설치 1.5.5 기준 · 버전 무관 채널) — v1.7.6 설치본에서 `harness-intake.mjs` 가 실제로 실행되는지는 S4 이후 회귀 드라이런에서 확인한다.
+예비 폴백(모델이 경로를 받지 못하는 런타임용): `installed_plugins.json` 에서 `myharness@*` 의 `installPath` 를 읽어 `…/skills/myharness/scripts/` 를 조립한다(파일 존재 실측됨).
 `:204` 류 기존 경로의 정리는 이 릴리스 범위 밖이다 — 같은 결함을 **새 스크립트에 복제하지 않는 것**까지만 한다.
 
 ---
@@ -613,8 +614,8 @@ T11 은 감사 #9 를 구현하는 S1 에 둔다(TDD — 구현과 그 테스트
 
 | 항목 | 내용 | 대응 |
 |---|---|---|
-| **M1** 경로 해석 | 설치 플러그인에서 스킬 디렉토리를 모델이 어떻게 아는지 미실측 | S0 에서 실측. 폴백 = `installed_plugins.json` |
-| **M2** `enabledPlugins` 병합 | 설정 계층 간 우선순위 미실측 | S0 에서 실측. 그 전까지 출력에 `enabled_source=` |
+| **M1** 경로 해석 | **실측 완료(2026-09-11)** — Skill 결과에 `Base directory for this skill: <installPath>/skills/myharness` 주입(§10) | 폴백은 예비로만 |
+| **M2** `enabledPlugins` 병합 | **실측 완료(2026-09-11)** — local > project > user(§2-2) · `claude -p` 기준 — 대화형은 S4 회귀 드라이런에서 확인 | 출력에 `enabled_source=` 유지 |
 | 모델이 블록을 손으로 고침 | `verify` drift → Phase 6 FAIL | 의도된 fail-loud. 답을 바꾸고 재렌더 |
 | 카탈로그가 도메인을 못 덮음 | "그 외" 로 들어오고 매핑 불가 | `options_incomplete` 기록 · ② 는 비가역으로 취급 · 반복 시 Phase 7 신호로 카탈로그 확장 |
 | 파서 이중 구현 | harness-ui(TS)와 스캐너(mjs) 가 갈라짐 | T2 공유 벡터. harness-ui 쪽 테스트 연결은 별도 승인 |

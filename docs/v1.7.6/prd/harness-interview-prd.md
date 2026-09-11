@@ -1,6 +1,6 @@
 # PRD — 하네스 구성 인터뷰(Harness Composition Interview) v1.7.6
 
-작성일: 2026-09-10 · 상태: **초안(검토용)** · 선행: v1.7.5 릴리스
+작성일: 2026-09-10 · 상태: **초안(검토용)** · 선행: v1.7.5 릴리스 · **S0 정정 반영(2026-09-11 — 설계서 §0-6 a·b·d·e·f · HI13 · HI10 순서)**
 요청: *"하네스는 작업의 첫 시작이고 기반이기 때문에 어떤 작업보다도 정교해야 한다.
 프로젝트를 성공시키기 위해 필요한 사전질문이 꼭 필요할 것 같다."*(사용자, 2026-09-10)
 
@@ -159,7 +159,7 @@ gemini CLI 가 `IneligibleTierError` 를 낸 것이 "안다고 생각한 게 틀
 #### HI1-2. 표기 형식을 고정한다
 표기가 세션마다 흔들리면 답 파싱이 깨진다.
 
-- 답은 **번호로 받는다.** 텍스트 매칭은 오타·표기 차이에 깨진다
+- 화면에서는 **번호로 받고**, 저장·env 는 **안정 키**로 바꿔 기록한다(설계서 §0-6 d). 텍스트 매칭은 오타·표기 차이에 깨진다
 - 각 선택지에 `← 기본` / `← 추천` 마커. 없으면 없다
 - 문항마다 **근거 한 줄** 필수 — 왜 그것을 추천하는지. Astra 가이드의 "지시 우선순위 명시"와 같은 취지
 - 문항 머리에 **답변 방식**(단일/복수 · 엔터=기본)을 명시
@@ -217,7 +217,7 @@ gemini CLI 가 `IneligibleTierError` 를 낸 것이 "안다고 생각한 게 틀
 팩토리는 자동·CI 경로에서도 호출된다. 인터뷰가 응답을 기다리면 거기서 멈춘다.
 
 **수용 기준:** ① 무응답이면 **기본값**(HI1-1 — 안전한 쪽, *추천값이 아니다*)으로 진행한다
-② 환경변수로도 답을 줄 수 있다 — 객관식이므로 **번호로 받는다**
+② 환경변수로도 답을 줄 수 있다 — 값은 **안정 키**로 받는다(위치 번호는 선택지 세트가 바뀌면 조용히 다른 답이 된다 — 설계서 §0-6 d · 숫자만 오면 rc=2)
 (`run-benchmark.sh` 의 `BENCH_ALLOW_EXEC` 선례) ③ **가정으로 진행했다는 사실이 산출물에 남는다** —
 조용히 기본값을 쓰면 그것이 이 레포의 지배적 실패 계열이다.
 
@@ -251,15 +251,17 @@ gemini CLI 가 `IneligibleTierError` 를 낸 것이 "안다고 생각한 게 틀
 **기본값으로만 생성한 하네스와 추천값으로 생성한 하네스도 비교 대상**이다 — 둘이 같으면
 기본·추천 분리(HI1-1)가 실효 없다는 뜻이다.
 
-### HI7. 출처 구분 기록 — `scanned` 와 `declared` 는 섞으면 안 된다
+### HI7. 출처 구분 기록 — `scanned`·`declared`·`assumed` 는 섞으면 안 된다
 화면에서는 하나로 합치되(§3-1), 프로파일에는 출처를 남긴다.
 
 ```
 assets.agents      { value: [doc-syncer, ...], source: scanned,  at: 2026-09-10 }
 policy.irreversible{ value: [release, publish], source: declared, at: 2026-09-10 }
+policy.cost        { value: [error-worse], source: assumed,  at: 2026-09-10 }
 ```
 
 **재검증 가능성이 다르다.** `scanned` 는 다시 돌리면 자동 갱신된다.
+`assumed` 는 무응답·비대화로 기본값을 쓴 항목이다(HI4③ — 설계서 §0-6 e). 기계로 재검증할 수 없는 점은 `declared` 와 같지만 **사람이 확인한 적이 없다** — `verify` 가 `ASSUMED:` 로 따로 보고한다.
 `declared` 는 **기계가 재검증할 방법이 없다** — 조직의 정책이 바뀌었는지 스캔으로 알 수 없다.
 
 섞어두면 부패 감사가 `declared` 항목까지 "검증했다"고 통과시킨다. 그것이 곧
@@ -293,12 +295,12 @@ HI2 ⑤(기존 자산)의 초안은 스캔이 만든다. 그런데 지금 `SKILL
 |---|---|---|
 | `.claude/agents/` (프로젝트) | 6 | 읽음 |
 | `~/.claude/agents/` (전역) | 1 | **안 읽음** |
-| `~/.claude/plugins/**/agents/` | **35** | **안 읽음** |
+| `~/.claude/plugins/marketplaces/**/agents/`(카탈로그 클론) | 35 — **설치 안 된 플러그인** | 스캔 대상 아님 — 설치·활성 플러그인(`installed_plugins.json` × `enabledPlugins`)이 기여하는 에이전트는 **0개**(설계서 §0-6 b) |
 | Claude 빌트인(`general-purpose`·`Explore`·`Plan` …) | 6 | **파일이 없어 읽을 수 없음** — 조회 명령도 없다 |
 | `.codex/agents/*.toml` · `.agents/skills/` (듀얼 런타임) | 0 · 0 (이 레포) | `SKILL.md:35` 가 **읽으라고 이미 지시** — 스캔 계약이 덮어야 한다 |
 | Codex 내장(`default`·`worker`·`explorer`) | 3 | `runtime-adapters.md:22` 기록. 파일 없음·버전 종속 |
 
-(수치는 2026-09-10 이 머신 실측. 플러그인 35 는 앞선 검토에서 "5+"로 **과소 집계**했던 것을 정정한 값이다.)
+(수치는 2026-09-10 이 머신 실측. 플러그인 35 는 설치 안 된 **마켓플레이스 카탈로그 클론**이다 — 활성 플러그인 에이전트는 0개(2026-09-10 설계 착수 중 확인 · 설계서 §0-6 b).)
 
 **구현 언어: bash 가 아니라 Node(`.mjs`).**
 
@@ -313,8 +315,8 @@ HI2 ⑤(기존 자산)의 초안은 스캔이 만든다. 그런데 지금 `SKILL
 > `stat -c` vs `stat -f` 플랫폼 차이가 **v1.7.5 R20 에서 HIGH 로 잡혔고**(GNU 는 `-f` 를 파일시스템 정보로
 > rc 0 반환 → 폴백이 Linux 에서 영영 안 걸림), codex argv 다중행이 Windows/Git Bash 에서 첫 줄만 도달(PR #6),
 > cp949/cp932 인코딩 오탐(PR #6). 파일시스템 탐색 + frontmatter 파싱은 이 비용이 가장 크게 드는 작업이다.
-> **선례도 있다** — `harness-scorecard.md:39` 가 같은 이유로 `node scripts/harness-scorecard.mjs` 를
-> *"portable 실행"* 이라 부르며 채택했고, "팩토리가 하네스 생성 시 타겟 `scripts/` 에 복사"까지 배선돼 있다.
+> **선례는 형식뿐이다** — `harness-scorecard.md:39` 가 같은 이유로 `node scripts/harness-scorecard.mjs` 를
+> *"portable 실행"* 이라 부르지만, "팩토리가 하네스 생성 시 타겟 `scripts/` 에 복사" 는 **산문뿐이고 배선은 없다**(파일은 `harness-ui/scripts/` 에만 있고 `MANAGED_RELS`·설치 캐시에 없다 — 설계서 §0-6 a). 이 릴리스가 팩토리 최초의 `.mjs` 전파다.
 
 **출력 계약**(`check-review-tools.sh` 의 `REVIEWERS:`·`SHADOWED:` 선례 — "없음"과 "있는데 못 씀"을 구분):
 
@@ -378,7 +380,7 @@ nvm 다른 node 버전에 설치된 codex 가 **조용히 리뷰어에서 탈락
 | 탈출구 필수 | 모든 문항에 **"그 외(직접 입력)"** 가 있다. 예외 없다 |
 | 불완전 기록 | 탈출구가 선택되면 프로파일에 **`options_incomplete: true`** 와 입력값을 남긴다 |
 | 진화 신호 | 같은 항목에서 탈출구가 반복 선택되면 **선택지 세트 개선 신호**로 Phase 7 이 집는다 |
-| 선택지 생성 결정성 | 선택지는 **요청 + 스캔에서 도출**된다(고정 목록이 아니다). 같은 입력에 **같은 선택지**가 나와야 HI6 회귀가 성립한다 |
+| 선택지 생성 결정성 | 선택지는 **고정 카탈로그 × 스캔 신호**로 스크립트가 만든다(모델이 요청에서 도출하면 결정적일 수 없다 — 설계서 §0-6 f). 모델은 **추천만** 찍는다. 같은 입력에 **같은 선택지**가 나와야 HI6 회귀가 성립한다 |
 
 **수용 기준:** ① 탈출구 없는 문항이 생성되면 **생성 자체가 실패**한다(fail-loud)
 ② 탈출구 선택이 산출물에 기록된다 ③ 같은 요청·같은 작업트리에서 두 번 물으면 **같은 선택지**가 나온다.
@@ -407,7 +409,7 @@ Claude Code 에는 객관식 질문 도구(`AskUserQuestion`)가 있지만 **cod
 
 > **stdin 폴백은 쓰지 않는다.** PR #6 실측 — **agy 는 stdin 을 무시한다(argv 필수)**. 폴백은 "출력 후 다음 턴 수신"이어야
 > 하고, 비대화 모드는 애초에 다음 턴이 없으므로 HI4 로 간다.
-> **`claude -p` 에서 `AskUserQuestion` 이 어떻게 동작하는지는 미실측** — 설계서 착수 전 실측 항목이다.
+> **`claude -p` 에서 `AskUserQuestion` 동작 — 실측 완료(2026-09-10):** 비대화 `claude -p` 에는 이 도구가 **없다**. 비대화 경로는 "질문 도구 부재 → env/기본값" 이다(설계서 §0-3 · §0-6 c · §5-3).
 
 **수용 기준:** ① 스키마에 런타임 고유 필드가 없다 ② 폴백 렌더러로도 같은 답을 받을 수 있다
 ③ `runtime-adapters.md` 에 질문 기구 행이 추가되고 런타임별 가용성이 기록된다
@@ -418,10 +420,10 @@ Claude Code 에는 객관식 질문 도구(`AskUserQuestion`)가 있지만 **cod
 
 | # | 제약(실측) | 의미 | 대응 |
 |---|---|---|---|
-| 1 | **`SKILL.md` 가 정확히 500/500 줄** — 정책 감사 #1 이 `≤500줄` 을 FAIL 로 강제 | Phase 0.5 를 **한 줄도 못 넣는다** | 본문은 `references/harness-interview.md` 로 · SKILL.md 에는 포인터 1~2줄 · **그래도 넘치므로 기존 본문 축소가 선행 과제** · 새 reference 는 감사 #3(링크 정합)에 걸리므로 SKILL.md 에서 링크 필수 |
+| 1 | **`SKILL.md` 가 정확히 500/500 줄** — 정책 감사 #1 이 `≤500줄` 을 FAIL 로 강제 | Phase 0.5 를 **한 줄도 못 넣는다** | 본문은 `references/harness-interview.md` 로 · SKILL.md 에는 포인터 1~2줄 · **그래도 넘치므로 기존 본문 축소가 선행 과제** · 새 reference 는 SKILL.md 에서 링크해야 읽힌다 — 감사 #3 은 **링크된 파일의 실재만** 검사하고 고아(링크 안 된 reference)는 잡지 못하므로(`run-policy-audit.sh:24-29`) 링크는 배선 단계(S4)에서 명시적으로 건다 |
 | 2 | **`harness-update.sh` `MANAGED_RELS` 화이트리스트** — 등재 안 된 파일은 생성 하네스에 **영영 미전파** | 스캔 `.mjs` 를 만들어도 기존 하네스는 못 받는다 | `MANAGED_RELS` 등재. 전례: `emit-loop-scorecard.sh` 가 번들 목록엔 있고 화이트리스트엔 없어 미갱신(`docs/harness-history.md` 2026-08-07) |
 | 3 | **정책 감사 #9 는 `scripts/*.sh` 만 `bash -n`** | `.mjs` 는 문법 검사에서 **빠진다** | `node --check scripts/*.mjs` 를 #9 에 추가 |
-| 4 | **`factory-ci.yml` 은 `run-policy-audit.sh` + `tests/test-harness-update.sh` 만 실행** | 새 테스트를 써도 CI 가 안 돌린다 | 스캔·인터뷰 테스트를 CI 스텝에 **명시 배선** |
+| 4 | **`factory-ci.yml` 은 `run-policy-audit.sh` + `tests/test-harness-update.sh` + `tests/test-selftest-review-tools.sh` 만 실행(마지막 것은 2026-09-10 stubguard 에서 추가)** | 새 테스트를 써도 CI 가 안 돌린다 | 스캔·인터뷰 테스트를 CI 스텝에 **명시 배선** |
 
 > **부수 발견(범위 밖, 보고):** 제약 4 때문에 v1.7.5 의 `tests/test-run-benchmark.sh`(138)·`test-run-review.sh`(34)·
 > `test-case-coverage.sh`·`test-check-behaviors.sh` 도 **현재 CI 에서 실행되지 않는다.** 로컬에서만 돌고 있었다.
@@ -487,7 +489,7 @@ Phase 5-4  CLAUDE.md      ← HI8 "이 하네스가 서 있는 전제" 기록
 | 초안 제시 → 승인 패턴 | harness-eval M-y 검토 큐 · F10 폼 AI 초안 |
 | "없음"과 "못 씀" 구분 | `check-review-tools.sh` 의 `REVIEWERS:`·`SHADOWED:` — **⚠ v1.7.5 릴리스본은 5줄 스텁이었다.** 2026-09-10 복원(§8) |
 | 3줄 출력 계약 | 같은 스크립트의 선례 |
-| portable 실행(`.mjs`) | `harness-scorecard.mjs` — 생성 하네스 복사까지 배선됨 |
+| portable 실행(`.mjs`) | `harness-scorecard.mjs` — **harness-ui 번들이고 생성 하네스 복사 배선은 없다**(설계서 §0-6 a). 선례는 "node 내장만" 이라는 형식뿐 |
 | before/after 실측 | `run-benchmark.sh` · `grade-trajectory.sh` · 고정 케이스 9건(v1.7.5) |
 | 리스크 등급 골격 | `SKILL.md:319-321` — **기준은 있는데 입력이 없다.** 인터뷰가 그 입력이다 |
 | 전제 기록 자리 | `CLAUDE.md` 하네스 섹션 · 변경 이력 테이블 |
@@ -514,7 +516,7 @@ Phase 5-4  CLAUDE.md      ← HI8 "이 하네스가 서 있는 전제" 기록
 | P1 | HI4 비대화 경로 | 자동·CI 경로에서 멈추면 안 된다 |
 | P1 | HI8 전제 명시 | 초기 답이 틀렸을 때의 유일한 경로 |
 | P2 | HI7 출처 구분 | 부패 감사와 함께 굳힌다 |
-| P2 | HI10 before/after 실측 | 정본 반영 전 근거 확보 |
+| P2 | HI10 before/after 실측 | S4(정본 배선) 뒤 · 릴리스 전 근거 확보(효과 미확인 항목은 릴리스 전 제거 — 설계서 §12 순서 결정) |
 | — | 모델 질문 2개 | **v1.7.7**(소비처가 그때 생긴다) |
 
 ---
@@ -548,7 +550,7 @@ Phase 5-4  CLAUDE.md      ← HI8 "이 하네스가 서 있는 전제" 기록
 - 팩토리 정본 실측 — `skills/myharness/SKILL.md`(35·56·98·138·278·319-321·332-343행), `references/agent-design-patterns.md:226`
 - 결함 이력 — `docs/harness-history.md`(2026-07-10 측정 꼬리 누락 · 2026-07-26 `SHADOWED:` · 2026-09-03 `REVIEWERS_OVERRIDE`)
 - 실측 도구 — `docs/v1.7.5/working_history/B3-pre-benchmark-runner.md`(R20 `stat` 이식성 HIGH 포함), `B3-lite-probe.md`
-- 스캔 대상 실측 — 이 개발 머신(2026-09-10): 프로젝트 6 · 전역 1 · 플러그인 **35** · codex 0 · Claude 빌트인 조회 명령 부재 · `claude --version` = `2.1.267 (Claude Code)`
+- 스캔 대상 실측 — 이 개발 머신(2026-09-10): 프로젝트 6 · 전역 1 · 플러그인 카탈로그 35(설치·활성 0) · codex 0 · Claude 빌트인 조회 명령 부재 · `claude --version` = `2.1.267 (Claude Code)`
 - 정본 하드 제약 실측 — `SKILL.md` 500/500줄 · `run-policy-audit.sh` #1(≤500)·#3(링크)·#7(듀얼 parity)·#9(`*.sh` only) · `harness-update.sh:48` `MANAGED_RELS` · `factory-ci.yml:68-70·96-99`
 - 스텁 발견 — `check-review-tools.sh` v1.7.5 = 5줄(`git show v1.7.5:…`), 원본 88ff440 = 109줄, 파손 커밋 d33d304(+4/−108)
 - `AskUserQuestion` 제약 실측 — 호출당 문항 1~4 · 문항당 선택지 2~4 · `multiSelect` 지원 · "그 외" 자동 제공 · 헤더 12자
@@ -559,7 +561,7 @@ Phase 5-4  CLAUDE.md      ← HI8 "이 하네스가 서 있는 전제" 기록
 ## 다음 단계 참조
 
 - **착수 전 선행 두 가지:** ① `SKILL.md` 축소 — 500/500 이라 포인터 한 줄도 못 넣는다(HI13-1) ② `claude -p` 에서
-  `AskUserQuestion` 동작 실측(HI12). 둘 다 설계서가 아니라 **실측·정리 작업**이다.
+  `AskUserQuestion` 동작 실측(HI12 — 2026-09-10 완료: `claude -p` 에는 도구 없음, 설계서 §0-3). 둘 다 설계서가 아니라 **실측·정리 작업**이다.
 - **P0 부터 착수한다** — HI9 스캔 → HI2 다섯 항목 → HI5 결선표 → **등급 판정 단계 신설**. 이 넷이 릴리스의 뼈대다.
 - **스캔 스크립트에 스텁 가드를 처음부터 넣는다.** `check-review-tools.sh` 가 스텁으로 릴리스된 것을 정책 감사가 3개월간
   못 잡았다(2026-06→09). 스캔이 고정 출력을 내면 감사가 FAIL 하도록, 정책 감사 #11 과 같은 가드를 착수 시점에 건다.
@@ -572,7 +574,7 @@ Phase 5-4  CLAUDE.md      ← HI8 "이 하네스가 서 있는 전제" 기록
   무응답이 어디로 흐르는지 아무도 모르는 상태가 된다 — 그것이 HI4 를 무력화한다.
 - `runtime-adapters.md` 에 **사용자 질문 기구 행을 신설**한다(현재 없음). Claude Code `AskUserQuestion` /
   codex·agy 폴백 / 비대화 경로를 한 표에서 관리한다.
-- **HI10 실측은 정본 반영 전에 한다.** 효과가 확인되지 않은 항목은 넣지 않는다 —
+- **HI10 실측은 S4(정본 배선) 뒤 · 릴리스 전에 한다**(after arm 이 S4 `SKILL.md` 여야 측정할 수 있다 — 작업계획서 S5 순서 결정 · 설계서 §12). 효과가 확인되지 않은 항목은 **릴리스 전에 뺀다**(조건부 S5b) —
   근거 없는 규칙 추가는 Fable 5 가이드가 정면으로 반대하는 것이기도 하다.
 - 정본 변경이므로 **stabilizer 게이트** 통과 후 배포한다.
 - **v1.7.7(모델 배치)은 이 릴리스의 산출물을 입력으로 받는다** — "실패 비용" 답이 티어 배분 비율이 되고,
