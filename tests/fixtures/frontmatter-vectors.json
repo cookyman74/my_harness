@@ -1,0 +1,133 @@
+{
+  "source": "harness-ui/test/scorecard.parser.test.ts (10건) · 기대값 = harness-ui/node_modules/.bin/tsx _workspace/repo-maintainer/v176-S1/vec.ts 실행 결과(2026-09-11)",
+  "vectors": [
+    {
+      "id": "yaml-inline",
+      "note": "YAML 인라인 배열",
+      "text": "---\nname: a\nskills: [foo, bar]\n---\n본문",
+      "key": "skills",
+      "expected": {
+        "present": true,
+        "items": [
+          "foo",
+          "bar"
+        ],
+        "syntax": "array"
+      }
+    },
+    {
+      "id": "yaml-block",
+      "note": "YAML 블록 리스트",
+      "text": "---\nname: a\nskills:\n  - foo\n  - bar\n---\n본문",
+      "key": "skills",
+      "expected": {
+        "present": true,
+        "items": [
+          "foo",
+          "bar"
+        ],
+        "syntax": "array"
+      }
+    },
+    {
+      "id": "yaml-empty",
+      "note": "빈 배열 = empty",
+      "text": "---\nname: a\nskills: []\n---\n본문",
+      "key": "skills",
+      "expected": {
+        "present": true,
+        "items": [],
+        "syntax": "empty"
+      }
+    },
+    {
+      "id": "yaml-missing",
+      "note": "키 부재 = missing",
+      "text": "---\nname: a\ndescription: x\n---\n본문",
+      "key": "skills",
+      "expected": {
+        "present": false,
+        "items": [],
+        "syntax": "missing"
+      }
+    },
+    {
+      "id": "yaml-scalar",
+      "note": "scalar = invalid_scalar",
+      "text": "---\nname: a\nskills: foo\n---\n본문",
+      "key": "skills",
+      "expected": {
+        "present": true,
+        "items": [],
+        "syntax": "invalid_scalar"
+      }
+    },
+    {
+      "id": "yaml-bom-quotes",
+      "note": "BOM·따옴표 안전 (원 테스트는 items 만 단정 — 나머지는 tsx 실행값)",
+      "text": "﻿---\nskills: [\"foo\", \"bar\"]\n---\n본문",
+      "key": "skills",
+      "expected": {
+        "present": true,
+        "items": [
+          "foo",
+          "bar"
+        ],
+        "syntax": "array"
+      }
+    },
+    {
+      "id": "yaml-canonical",
+      "note": "name canonical (원 테스트는 items 만 단정 — 나머지는 tsx 실행값)",
+      "text": "---\nskills: [a/b/foo.md, bar.md]\n---\n본문",
+      "key": "skills",
+      "expected": {
+        "present": true,
+        "items": [
+          "foo",
+          "bar"
+        ],
+        "syntax": "array"
+      }
+    },
+    {
+      "id": "toml-inline",
+      "note": "TOML 단일행 배열",
+      "text": "name = \"cx\"\nskills = [\"foo\", \"bar\"]\n",
+      "key": "skills",
+      "expected": {
+        "present": true,
+        "items": [
+          "foo",
+          "bar"
+        ],
+        "syntax": "array"
+      }
+    },
+    {
+      "id": "toml-multiline",
+      "note": "TOML 다중행 배열",
+      "text": "name = \"cx\"\nskills = [\n  \"foo\",\n  \"bar\",\n]\n",
+      "key": "skills",
+      "expected": {
+        "present": true,
+        "items": [
+          "foo",
+          "bar"
+        ],
+        "syntax": "array"
+      }
+    },
+    {
+      "id": "toml-missing",
+      "note": "TOML 키 부재 (원 테스트는 present 만 단정 — 나머지는 tsx 실행값)",
+      "text": "name = \"cx\"\ntools = [\"Read\"]\n",
+      "key": "skills",
+      "expected": {
+        "present": false,
+        "items": [],
+        "syntax": "missing"
+      }
+    }
+  ]
+}

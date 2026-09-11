@@ -1,6 +1,6 @@
 # 설계서 — 하네스 구성 인터뷰 (`harness-intake`) v1.7.6
 
-> 상태: **초안(검토용) · 작업계획서 소스 대조 리뷰(repo-qa A~I, 2026-09-10) 반영 · S0 실측 반영(M1·M2 완료, 2026-09-11)** · 상위: `docs/v1.7.6/prd/harness-interview-prd.md`(HI1~HI13) · 작성일 2026-09-10
+> 상태: **초안(검토용) · 작업계획서 소스 대조 리뷰(repo-qa A~I, 2026-09-10) 반영 · S0 실측 반영(M1·M2 완료, 2026-09-11) · S1 구현 결정(§2-2, 2026-09-11)** · 상위: `docs/v1.7.6/prd/harness-interview-prd.md`(HI1~HI13) · 작성일 2026-09-10
 > 이 문서가 확정하는 것(PRD 「다음 단계 참조」가 설계서로 넘긴 7항목): **런타임 중립 문항 스키마** · **항목별 "안전한 쪽"(기본값 규칙)** ·
 > **선택지 도출 규칙(결정적)** · **스캔 출력 계약** · **Phase 0.5 배선 지점** · **차분 회귀 테스트 목록** · **`CLAUDE.md` 전제 절 템플릿**.
 > 작성 원칙: **모든 설계 근거는 소스·실측이다.** 확인하지 못한 것은 추정으로 채우지 않고 **"미실측"** 으로 표기하고 착수 전 측정 항목(M#)으로 올린다.
@@ -55,7 +55,7 @@
 | `~/.claude/plugins/marketplaces/**/agents/` | 35개 — 전부 `marketplaces/claude-plugins-official/plugins/*` **카탈로그 클론**. 설치되지 않은 플러그인이다. 고유 파일명 33(`code-reviewer`·`code-simplifier` 가 서로 다른 카탈로그 플러그인에 중복) |
 | 카탈로그 에이전트 frontmatter 키 | `name`·`description`(32) · `model`(24) · `tools`(23) · `color`(20) · `effort`(8) · `initialPrompt`(1) |
 | 스킬 `SKILL.md` frontmatter 키 | `name`·`description`(7) · `orchestrates`(1) |
-| `.codex/agents/*.toml` · `.agents/skills/` | 0 · 0 (이 레포) |
+| `.codex/agents/*.toml` · `.agents/skills/` | 0 · **1**(이 레포 — `.agents/skills/myharness` 는 `install.sh:25` 가 만든 **심링크** → `skills/myharness`. 2026-09-11 S1 선검증에서 정정: 이전 판의 "0" 은 틀렸다) |
 
 ### 0-5. 재사용할 기존 구현
 
@@ -159,6 +159,23 @@ UNKNOWN_FIELDS:   none                                          ← 기준 집�
 SIGNALS:          ci tests changelog plugin-manifest            ← §4 선택지 도출 입력
 PROFILE:          absent | <경로> declared=3 assumed=1         ← 기존 프로파일이 있으면 요약
 ```
+
+> **S1 구현 계약(2026-09-11 확정 — 위 블록은 개념도).** 실제 출력은 `KEY: value`(콜론 뒤 공백 1개, 정렬 공백 없음) **15줄 고정 순서**다:
+> `RUNTIME` · `AGENTS_PROJECT` · `AGENTS_GLOBAL` · **`PLUGINS`** · `AGENTS_PLUGIN` · `AGENTS_CODEX` · `AGENTS_BUILTIN` · **`AGENTS_DUPLICATE`** · `SKILLS_PROJECT` · `SKILLS_AGENTS` · `MODEL` · `LINKS_INVALID` · `UNKNOWN_FIELDS` · `SIGNALS` · `PROFILE`.
+> 상세 규칙의 단일 출처는 스크립트 헤더 주석과 테스트다(`skills/myharness/scripts/harness-intake.mjs` · `tests/harness-intake/`). 아래 표는 **설계를 실측으로 보완한 결정**만 적는다.
+
+| S1 결정 | 근거(실측) |
+|---|---|
+| `PLUGINS: <키>=on\|off,enabled_source=<local\|project\|user\|none>` 줄 신설 — 판정 근거를 출력에 남긴다 | 위 표 "`enabled_source=` 를 남긴다" 의 구체형 |
+| `installed_plugins.json` 은 **키마다 배열**이고 항목에 `scope`(`user`·`local`)·`projectPath` 가 있다 → `projectPath` 가 있으면 `realpath` 가 `--root` 와 같을 때만, 없으면 `scope: "user"` 만 적용 | 이 머신 원장 실측(2026-09-11) — local 항목 1건이 다른 프로젝트 경로를 가리킨다 |
+| `installed_plugins.json` **최상위** `enabledPlugins` 는 쓰지 않는다 | 실재하나(값 1키) 의미 미확인 — 활성 판정은 settings 3계층만(S0 M2) |
+| 플러그인 에이전트 토큰 = `<키의 @ 앞>:<파일명>` | S0 M2 실측: 키 `m2probe@skills-dir` 의 에이전트가 `m2probe:m2probe-agent` 로 노출 |
+| 에이전트 이름 = **파일명**(frontmatter `name` 아님) | `~/.claude/agents/smoke-agent.md` 는 frontmatter 가 없다 · `harness.ts` `canonName` 도 basename |
+| `AGENTS_DUPLICATE: <이름>=<경로>\|<경로>` — 프로젝트·전역 같은 이름, 한 플러그인 안 같은 토큰 | 위 표 "경로 전부 보고" 의 구체형 |
+| `MODEL`·`LINKS_INVALID`·`UNKNOWN_FIELDS` 의 정의 식별자 = 프로젝트 `<이름>` · 전역 `user:<이름>` · 플러그인 `<플러그인>:<에이전트>` · codex `codex:<이름>` · 스킬 `skill:<디렉토리>` · `agents-skill:<디렉토리>` | 같은 이름이 여러 원천에 있을 수 있어 키 충돌을 막는다 |
+| 심링크는 따라간다 | `.agents/skills/myharness` 가 심링크(§0-4 정정) |
+| `ci`·`release-cmd` 신호는 `*.yml` 과 `*.yaml` 워크플로 모두 | GitHub Actions 는 두 확장자를 모두 워크플로로 읽는다(§4 표는 `*.yml` 만 적었다) |
+| RUNTIME 은 자체 5초 마감(자식 kill · 스트림 destroy · unref) | execFile `timeout` 만으로는 windows `cmd.exe` 손자가 파이프를 쥐면 콜백이 늦는다(계획서 S1 — CI windows 실측 대상) |
 
 | 결정 | 근거 |
 |---|---|

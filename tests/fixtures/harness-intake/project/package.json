@@ -1,0 +1,7 @@
+{
+  "name": "fixture-root",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}

@@ -1,0 +1,15 @@
+RUNTIME: claude=2.1.267 codex=0.153.4 agy=1.2.0
+AGENTS_PROJECT: alpha bravo charlie delta echo foxtrot golf
+AGENTS_GLOBAL: alpha gamma smoke
+PLUGINS: plugfive@mkt=on,enabled_source=project plugfour@mkt=on,enabled_source=local plugone@mkt=on,enabled_source=user plugtwo@mkt=off,enabled_source=none
+AGENTS_PLUGIN: plugfive:p5-agent plugfour:p4-agent plugone:p1-agent plugone:p1-deep plugone:p1-new
+AGENTS_CODEX: cx cy
+AGENTS_BUILTIN: claude=unknown codex=default,worker,explorer(doc)
+AGENTS_DUPLICATE: alpha=.claude/agents/alpha.md|~/.claude/agents/alpha.md plugone:p1-agent=~/.claude/plugins/cache/mkt/plugone/1.0.0/agents/p1-agent.md|~/.claude/plugins/cache/mkt/plugone/1.1.0/agents/p1-agent.md
+SKILLS_PROJECT: orch skill-a skill-b
+SKILLS_AGENTS: x
+MODEL: alpha=opus bravo=none charlie=sonnet codex:cx=gpt-5 codex:cy=none delta=opus echo=my_model_x foxtrot=empty golf=haiku plugfive:p5-agent=haiku plugfour:p4-agent=sonnet plugone:p1-agent=opus plugone:p1-deep=none plugone:p1-new=inherit user:alpha=haiku user:gamma=sonnet user:smoke=none
+LINKS_INVALID: delta:skills echo:behaviors plugone:p1-deep:skills skill:orch:orchestrates
+UNKNOWN_FIELDS: agents-skill:x:extra charlie:newField plugfive:p5-agent:hooks skill:skill-b:version user:gamma:weird
+SIGNALS: changelog ci migrations plugin-manifest publishable release-cmd tests
+PROFILE: .claude/skills/orch/harness-profile.json declared=3 assumed=1 scanned=1; .claude/skills/skill-b/harness-profile.json unreadable

@@ -1,0 +1,43 @@
+{
+  "schema": "harness-profile/1",
+  "answers": {
+    "completion": {
+      "value": [
+        "tests-pass"
+      ],
+      "source": "declared"
+    },
+    "irreversible": {
+      "value": [
+        "release-publish"
+      ],
+      "source": "declared"
+    },
+    "cost": {
+      "value": [
+        "error-worse"
+      ],
+      "source": "assumed"
+    },
+    "approval": {
+      "value": [
+        "ladder"
+      ],
+      "source": "scanned"
+    },
+    "assets": {
+      "value": [
+        "reuse"
+      ],
+      "source": "declared",
+      "scanned": {
+        "agents": [
+          "alpha"
+        ],
+        "skills": [
+          "skill-a"
+        ]
+      }
+    }
+  }
+}

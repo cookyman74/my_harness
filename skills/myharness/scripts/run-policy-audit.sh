@@ -89,8 +89,18 @@ for j in .claude-plugin/plugin.json .claude-plugin/marketplace.json; do
   fi
 done
 
-# 9) scripts 문법
+# 9) scripts 문법 — .sh 는 bash -n, .mjs 는 node --check.
 for s in "$SK"/scripts/*.sh; do bash -n "$s" 2>/dev/null && ok "bash -n: $(basename "$s")" || no "스크립트 문법 오류: $s"; done
+# node 는 필수다(v1.7.6 — harness-intake.mjs). 없으면 warn 이 아니라 FAIL: 도구가 없을 때 검사가 ok 도 fail 도 없이
+# 증발한 전례(PR #6 — python3 부재 시 JSON 검사 소실)를 되풀이하지 않는다.
+mjs=("$SK"/scripts/*.mjs)
+if [ ! -e "${mjs[0]}" ]; then
+  ok "scripts/*.mjs 없음 — node --check 대상 0"
+elif ! command -v node >/dev/null 2>&1; then
+  no "node 없음 — scripts/*.mjs ${#mjs[@]}개 문법 검사(node --check) 불가 (팩토리는 v1.7.6 부터 node 필수)"
+else
+  for s in "${mjs[@]}"; do node --check "$s" 2>/dev/null && ok "node --check: $(basename "$s")" || no "스크립트 문법 오류(node --check): $s"; done
+fi
 
 # 10) BEHAVIOR 스펙 구조 검사(ADR-001 D3·B1)
 # 만들어도 부르지 않으면 소용없다(R5 양 엔진) — 수동 실행에만 의존하면 끊긴 참조·고아를
@@ -124,6 +134,23 @@ case "$st_rc" in
   0) ok "check-review-tools.sh 행동 자기검증(격리 PATH/HOME 8케이스·무작위 도구/경로)" ;;
   2) no "check-review-tools.sh 자기검증을 **실행하지 못했다**(rc=2: 파일 없음·mktemp 실패) — 검사 부재를 통과로 세지 않는다"; st_detail ;;
   *) no "check-review-tools.sh 가 환경에 반응하지 않는다(rc=$st_rc, 스텁 의심) — 실패 케이스:"; st_detail ;;
+esac
+
+# 12) 스캐너 스텁 회귀 가드 — harness-intake.mjs 가 실제로 환경에 반응하는지 **별도 파일**(selftest-harness-intake.mjs)이
+#     대상을 자식 프로세스로 실행해 본다(설계서 §2-7 · §9-3). v1.7.5 사고는 파일 전체 덮어쓰기였으므로 가드가 대상과 같은
+#     파일에 있으면 함께 사라진다(#11 selftest-review-tools.sh 선례). node 가 없으면 셸이 rc=127 을 낸다 — 통과로 세지 않는다.
+# 파일 존재를 먼저 본다 — `node <없는 파일>` 은 rc=1 을 내서 "실행하지 못했다" 가 아니라 "스텁 의심" 으로 오분류된다
+# (S1 repo-qa Q7 · 임시 복사본 실측). selftest 파일이 통째로 사라진 것은 검사 부재다.
+if [ ! -f "$SK/scripts/selftest-harness-intake.mjs" ]; then
+  hi_out="SELFTEST: ERROR — 파일 없음: $SK/scripts/selftest-harness-intake.mjs"; hi_rc=2
+else
+  hi_out="$(node "$SK/scripts/selftest-harness-intake.mjs" "$SK/scripts/harness-intake.mjs" 2>&1)"; hi_rc=$?
+fi
+hi_detail(){ printf '%s\n' "$hi_out" | grep -E '✗|SELFTEST' | sed 's/^/    /' || true; }
+case "$hi_rc" in
+  0) ok "harness-intake.mjs 행동 자기검증(격리 HOME/PATH · 무작위 이름/값)" ;;
+  2|127) no "harness-intake.mjs 자기검증을 **실행하지 못했다**(rc=$hi_rc: 파일 없음·임시 디렉토리 실패·node 없음) — 검사 부재를 통과로 세지 않는다"; hi_detail ;;
+  *) no "harness-intake.mjs 스캐너가 환경에 반응하지 않는다(rc=$hi_rc, 스텁 의심) — 실패 케이스:"; hi_detail ;;
 esac
 
 echo "=== POLICY AUDIT: $([ $fail -eq 0 ] && echo PASS || echo FAIL) (fail $fail, warn $warn) ==="

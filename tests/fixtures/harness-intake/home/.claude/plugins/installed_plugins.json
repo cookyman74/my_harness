@@ -1,0 +1,49 @@
+{
+  "version": 2,
+  "plugins": {
+    "plugone@mkt": [
+      {
+        "scope": "user",
+        "installPath": "__HOME__/.claude/plugins/cache/mkt/plugone/1.0.0",
+        "version": "1.0.0"
+      },
+      {
+        "scope": "local",
+        "installPath": "__HOME__/.claude/plugins/cache/mkt/plugone/1.1.0",
+        "version": "1.1.0",
+        "projectPath": "__ROOT__"
+      }
+    ],
+    "plugtwo@mkt": [
+      {
+        "scope": "user",
+        "installPath": "__HOME__/.claude/plugins/cache/mkt/plugtwo/2.0.0",
+        "version": "2.0.0"
+      }
+    ],
+    "plugthree@mkt": [
+      {
+        "scope": "local",
+        "installPath": "__HOME__/.claude/plugins/cache/mkt/plugthree/3.0.0",
+        "version": "3.0.0",
+        "projectPath": "__HOME__"
+      }
+    ],
+    "plugfour@mkt": [
+      {
+        "scope": "local",
+        "installPath": "__HOME__/.claude/plugins/cache/mkt/plugfour/4.0.0",
+        "version": "4.0.0",
+        "projectPath": "__ROOT__"
+      }
+    ],
+    "plugfive@mkt": {
+      "scope": "user",
+      "installPath": "__HOME__/.claude/plugins/cache/mkt/plugfive/5.0.0",
+      "version": "5.0.0"
+    }
+  },
+  "enabledPlugins": {
+    "plugtwo@mkt": true
+  }
+}

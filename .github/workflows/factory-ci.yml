@@ -62,6 +62,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # 감사 #9(node --check)·#12(harness-intake selftest)와 node --test 가 node 를 요구한다(v1.7.6).
+      # 러너 이미지 기본 node 에 기대지 않고 버전을 명시한다 — node --test 가용이 버전으로 보장된다.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
       - name: Install test dependency
         run: sudo apt-get update && sudo apt-get install -y jq
       - name: Policy audit
@@ -70,11 +75,19 @@ jobs:
         run: bash tests/test-harness-update.sh
       - name: Review-tools selftest regression
         run: bash tests/test-selftest-review-tools.sh
+      # 비인용 셸 글롭이어야 한다 — 디렉토리 인자는 node 22·24, 따옴표 글롭은 node 20 에서 rc=1(2026-09-11 실측).
+      - name: harness-intake tests
+        run: node --test tests/harness-intake/*.test.mjs
 
   windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      # 감사 #9(node --check)·#12(harness-intake selftest)와 node --test 가 node 를 요구한다(v1.7.6).
+      # 러너 이미지 기본 node 에 기대지 않고 버전을 명시한다 — node --test 가용이 버전으로 보장된다.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
       # jq 는 harness-update.sh 와 test-harness-update.sh 의 필수 의존이다(폴백 없음).
       - name: Ensure jq
         shell: pwsh
@@ -82,11 +95,11 @@ jobs:
           if (-not (Get-Command jq -ErrorAction SilentlyContinue)) {
             choco install jq -y --no-progress
           }
-      # 셸 스크립트에 CRLF 가 섞이면 Git Bash 실행이 깨진다. 현재 전건 LF 이므로 회귀만 막는다.
+      # 셸·node 스크립트에 CRLF 가 섞이면 실행이 깨진다(shebang 줄 CR → `env: node\r`). 현재 전건 LF 이므로 회귀만 막는다.
       - name: Verify shell script line endings
         shell: pwsh
         run: |
-          $bad = git ls-files --eol -- '*.sh' | Where-Object {
+          $bad = git ls-files --eol -- '*.sh' '*.mjs' | Where-Object {
             $_ -match 'w/(crlf|mixed)'
           }
           if ($bad) {
@@ -102,3 +115,6 @@ jobs:
       - name: Review-tools selftest regression
         shell: bash
         run: bash tests/test-selftest-review-tools.sh
+      - name: harness-intake tests
+        shell: bash
+        run: node --test tests/harness-intake/*.test.mjs
