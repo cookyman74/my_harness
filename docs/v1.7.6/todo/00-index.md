@@ -14,7 +14,7 @@
 |---|---|---|---|---|---|
 | S0 | [S0-preflight.md](S0-preflight.md) | 미실측 M1·M2 실측 · `SKILL.md` 축소(단독 커밋) · PRD/설계서 정정 | 중대 | — | ✅ 완료 |
 | S1 | [S1-scan.md](S1-scan.md) | `harness-intake.mjs scan`·`selftest` · 감사 #9·#12 · CI node | 중대 | S0 | ✅ 완료 |
-| S2 | [S2-questions-answer.md](S2-questions-answer.md) | `questions`·`answer`·프로파일 · `references/harness-interview.md` | 중대 | S1 | ⬜ 미착수 |
+| S2 | [S2-questions-answer.md](S2-questions-answer.md) | `questions`·`answer`·프로파일 · `references/harness-interview.md` | 중대 | S1 | 🔨 구현중 |
 | S3 | [S3-render-verify.md](S3-render-verify.md) | `render`·`verify` · 차분 회귀(HI6) | 중대 | S2 | ⬜ 미착수 |
 | S4 | [S4-canon-wiring.md](S4-canon-wiring.md) | 정본 배선(`SKILL.md`·템플릿·`runtime-adapters`·`MANAGED_RELS`) | 중대 | S3 | ⬜ 미착수 |
 | S5 | [S5-measurement.md](S5-measurement.md) | HI10 before/after 실측 — **비용 승인 후** | 표준 | S4 | ⬜ 미착수 |

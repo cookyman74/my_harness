@@ -1,0 +1,107 @@
+{
+  "schema": "harness-profile/1",
+  "factory_version": "0.0.1",
+  "mode": "new",
+  "at": "2026-01-01T00:00:00Z",
+  "scan": {
+    "runtime": {
+      "claude": "2.1.267",
+      "codex": "0.153.4",
+      "agy": "1.2.0"
+    },
+    "signals": [
+      "changelog",
+      "ci",
+      "plugin-manifest",
+      "tests"
+    ],
+    "at": "2026-01-01T00:00:00Z"
+  },
+  "answers": {
+    "completion": {
+      "value": [
+        "tests-pass",
+        "ci-green"
+      ],
+      "source": "declared",
+      "at": "2026-01-02T00:00:00Z",
+      "default": [
+        "tests-pass",
+        "ci-green",
+        "artifacts-present"
+      ],
+      "recommended": [],
+      "why": null,
+      "options_incomplete": false,
+      "other": null
+    },
+    "irreversible": {
+      "value": [
+        "release-publish"
+      ],
+      "source": "declared",
+      "at": "2026-01-03T00:00:00Z",
+      "default": [
+        "release-publish",
+        "unknown"
+      ],
+      "recommended": [],
+      "why": null,
+      "options_incomplete": false,
+      "other": null
+    },
+    "cost": {
+      "value": [
+        "error-worse"
+      ],
+      "source": "assumed",
+      "at": "2026-01-04T00:00:00Z",
+      "default": [
+        "error-worse"
+      ],
+      "recommended": [],
+      "why": null,
+      "options_incomplete": false,
+      "other": null
+    },
+    "approval": {
+      "value": [
+        "before:release-publish",
+        "ladder"
+      ],
+      "source": "declared",
+      "at": "2026-01-05T00:00:00Z",
+      "default": [
+        "before:release-publish",
+        "ladder"
+      ],
+      "recommended": [],
+      "why": null,
+      "options_incomplete": false,
+      "other": null
+    },
+    "assets": {
+      "value": [
+        "reuse"
+      ],
+      "source": "declared",
+      "at": "2026-01-06T00:00:00Z",
+      "default": [
+        "reuse"
+      ],
+      "recommended": [],
+      "why": null,
+      "options_incomplete": false,
+      "other": null,
+      "scanned": {
+        "agents": [
+          "reviewer",
+          "writer"
+        ],
+        "skills": [
+          "lint-skill"
+        ]
+      }
+    }
+  }
+}

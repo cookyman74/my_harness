@@ -1,12 +1,16 @@
 #!/usr/bin/env node
-// harness-intake.mjs — 하네스 구성 인터뷰 스캐너(v1.7.6 S1: `scan` · `selftest`).
-// 계약 단일 출처: docs/v1.7.6/design/harness-interview-design.md §2(구현 명세 v176-S1 §2·§3 이 정정분).
-// 결정은 스크립트가, 추천과 질문은 모델이 — 이 파일은 관측만 한다(파일 쓰기 없음).
+// harness-intake.mjs — 하네스 구성 인터뷰(v1.7.6 S1: `scan` · `selftest` / S2: `questions` · `answer`).
+// 계약 단일 출처: scan = docs/v1.7.6/design/harness-interview-design.md §2(구현 명세 v176-S1 §2·§3 이 정정분) ·
+//   questions·answer·프로파일 = skills/myharness/references/harness-interview.md(카탈로그·기본값·답 문법·검증표·`at` 규칙).
+// 결정은 스크립트가, 추천과 질문은 모델이 — scan·questions 는 관측만 하고, 파일을 쓰는 것은 answer(프로파일 1개 + prev) 뿐이다.
 //
-// 사용: node harness-intake.mjs <scan|selftest> [--root <dir>] [--now <ISO>]
+// 사용: node harness-intake.mjs <scan|questions|answer|selftest> [--root <dir>] [--now <ISO>] …
 //   scan              대상 루트(--root, 기본 cwd)의 에이전트·스킬·플러그인·신호·런타임을 15줄 계약으로 stdout 에
+//   questions         --mode <new|extend|maintain|update> [--orchestrator <이름>] [--after irreversible=<토큰,…>] → 문항 JSON 배열
+//   answer            --orchestrator <이름> (--set … | --from-env | --from-file <f>) [--defaults] [--recommended …] [--why …] [--mode new|extend]
+//                     → <root>/.claude/skills/<이름>/harness-profile.json 원자적 쓰기 · stdout `PROFILE:`·`SOURCES:` 두 줄
 //   selftest [대상]   selftest-harness-intake.mjs 로 얇게 위임(가드는 별도 파일 — 이 파일이 통째로 스텁으로 덮여도 살아남게)
-//   그 밖             rc=2 `not implemented in this version: <sub>`(questions·answer·render·verify 는 S2 이후)
+//   그 밖             rc=2 `not implemented in this version: <sub>`(render·verify 는 S3)
 // 종료코드: 0 정상 · 1 내용 검증 실패(scan 에는 없음) · 2 사용·환경 오류.
 // 규약: stdout = 계약 줄만(`KEY: value`, `\n`). 사람용 진단은 stderr — check-review-tools.sh 는 진단도 stdout 이라 선례가 아니다.
 // 결정성: 모든 목록은 코드포인트 오름차순(JS 기본 sort 는 UTF-16 코드유닛 순이라 BMP 밖에서 어긋난다) · readdir 결과도 정렬 후 사용.
@@ -17,6 +21,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import crypto from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -432,13 +437,18 @@ function probeVersion(file, re) {
   });
 }
 
-async function scanRuntime() {
+// [도구, 값] 3쌍(값은 tok 정규화). scan 의 RUNTIME 줄과 answer 의 프로파일 scan.runtime 이 같은 값을 쓴다.
+async function runtimeValues() {
   const tools = ["claude", "codex", "agy"];
   const vals = await Promise.all(tools.map((t) => {
     const f = findTool(t);
     return f === null ? Promise.resolve("absent") : probeVersion(f, VERSION_RE[t]);
   }));
-  return tools.map((t, i) => `${t}=${tok(vals[i])}`).join(" ");
+  return tools.map((t, i) => [t, tok(vals[i])]);
+}
+
+async function scanRuntime() {
+  return (await runtimeValues()).map(([t, v]) => `${t}=${v}`).join(" ");
 }
 
 // ───────────────────────── SIGNALS · PROFILE ─────────────────────────
@@ -503,6 +513,11 @@ function scanProfile(ctx) {
 
 // ───────────────────────── scan ─────────────────────────
 
+// 스킬 — <d>/SKILL.md 가 있는 디렉토리(심링크 따라감). scan 과 questions·answer(⑤ 수·scanned)가 같은 판정을 쓴다.
+function skillDirs(base) {
+  return listDir(base).filter((e) => e.st.isDirectory()).map((e) => ({ name: e.name, md: child(e.full, "SKILL.md", "file") })).filter((x) => x.md);
+}
+
 async function scan(ctx) {
   const runtimeP = scanRuntime(); // 파일 스캔과 병렬
   const acc = { model: [], links: [], unknown: [] };
@@ -530,8 +545,6 @@ async function scan(ctx) {
   const codex = filesWithExt(path.join(ctx.root, ".codex", "agents"), ".toml");
   for (const a of codex) analyzeToml(acc, `codex:${a.name}`, a.file);
 
-  // 스킬 — <d>/SKILL.md 가 있는 디렉토리(심링크 따라감).
-  const skillDirs = (base) => listDir(base).filter((e) => e.st.isDirectory()).map((e) => ({ name: e.name, md: child(e.full, "SKILL.md", "file") })).filter((x) => x.md);
   const sp = skillDirs(path.join(ctx.root, ".claude", "skills"));
   const sa = skillDirs(path.join(ctx.root, ".agents", "skills"));
   for (const s of sp) analyzeMd(acc, `skill:${s.name}`, s.md, "skill");
@@ -560,9 +573,669 @@ async function scan(ctx) {
   return lines.map(([k, v]) => `${k}: ${v}\n`).join("");
 }
 
+// ═════════════════════════ S2 — questions · answer · 프로파일 ═════════════════════════
+// 계약 단일 출처: skills/myharness/references/harness-interview.md(이하 "참조 문서"). 절 번호는 그 문서 기준.
+
+function deepFreeze(o) {
+  if (o !== null && typeof o === "object") { Object.freeze(o); for (const v of Object.values(o)) deepFreeze(v); }
+  return o;
+}
+
+// 참조 문서 2절 ```json harness-interview-catalog 블록과 **deepEqual** 이어야 한다(테스트가 문서 블록을 파싱해 비교).
+// 이 상수를 고치면 문서 블록과 catalog_version 을 함께 고친다 — 같은 규칙의 두 구현이 조용히 갈라지지 않게.
+export const CATALOG = deepFreeze({
+  catalog_version: 1,
+  items: [
+    {
+      id: "completion", no: "①", header: "완료 기준", select: "multi",
+      prompt: "무엇이 되면 이 하네스의 작업이 끝났다고 보나?",
+      options: [
+        { key: "tests-pass", label: "테스트 게이트 통과", expose: [["tests"]], machine: true },
+        { key: "ci-green", label: "CI green", expose: [["ci"]], machine: true },
+        { key: "artifacts-present", label: "산출물 경로 존재", expose: [], machine: true },
+        { key: "human-signoff", label: "사람의 최종 확인", expose: [], machine: false },
+      ],
+      default_why: "안전한 쪽: 기계로 검증되는 기준 전부 — 사람 확인을 기본에 넣으면 비대화 경로가 끝나지 않는다",
+    },
+    {
+      id: "irreversible", no: "②", header: "비가역", select: "multi",
+      prompt: "이 작업에서 되돌릴 수 없는 것은?",
+      options: [
+        { key: "release-publish", label: "릴리스·태그 발행", expose: [["release-cmd"], ["changelog", "plugin-manifest"]], signal_based: true },
+        { key: "package-publish", label: "패키지 레지스트리 배포(npm publish 등)", expose: [["publishable"]], signal_based: true },
+        { key: "db-migration", label: "DB 마이그레이션 적용", expose: [["migrations"]], signal_based: true },
+        { key: "force-push", label: "보호 브랜치 강제 push", expose: [], signal_based: false },
+        { key: "external-send", label: "외부 발송(메일·메시지·웹훅)", expose: [], signal_based: false },
+        { key: "unknown", label: "모름 — 비가역으로 취급", expose: [], signal_based: false },
+        { key: "none", label: "없음 — 전부 되돌릴 수 있다", expose: [], signal_based: false, exclusive: true },
+      ],
+      default_why: "안전한 쪽: 비가역을 모르면 있다고 본다(→ 중대)",
+    },
+    {
+      id: "cost", no: "③", header: "실패 비용", select: "single",
+      prompt: "실패했을 때 무엇이 더 아픈가?",
+      options: [
+        { key: "error-worse", label: "오류가 더 아프다 — 늦더라도 정확하게", expose: [] },
+        { key: "delay-worse", label: "지연이 더 아프다 — 빨리 내고 고친다", expose: [] },
+        { key: "balanced", label: "둘 다 비슷하다", expose: [] },
+      ],
+      default_why: "안전한 쪽: 오류를 더 아프게 본다 — 게이트를 약하게 둔 채 틀리는 것보다 느리게 맞는 쪽",
+    },
+    {
+      id: "approval", no: "④", header: "승인 지점", select: "multi",
+      prompt: "사람이 반드시 확인해야 하는 지점은?",
+      before_label: "「{label}」 직전 승인",
+      options: [
+        { key: "ladder", label: "중대 단계 승인 사다리(PRD→계획서→실행)", expose: [] },
+        { key: "autonomous", label: "자율 노브 허용(_workspace/.autonomous)", expose: [] },
+      ],
+      default_why: "안전한 쪽: 비가역 직전마다 사람이 보고, 중대 단계는 사다리를 탄다 — 자율 노브는 기본에서 뺀다",
+    },
+    {
+      id: "assets", no: "⑤", header: "기존 자산", select: "single",
+      prompt: "이미 있는 에이전트·스킬을 어떻게 다룰까?",
+      options: [
+        { key: "reuse", label: "재사용 우선 — 에이전트 {agents}·스킬 {skills}", expose: [] },
+        { key: "reference-only", label: "참고만 — 새로 만든다", expose: [] },
+        { key: "ignore", label: "무시 — 기존 정의를 보지 않는다", expose: [] },
+      ],
+      default_why: "안전한 쪽: 재사용을 먼저 검토한다 — 역할이 겹치는 정의가 다른 이름으로 누적되는 것을 막는다",
+    },
+  ],
+});
+
+const ITEM_IDS = CATALOG.items.map((i) => i.id); // 카탈로그 순서 = SOURCES·answers 순서
+const ITEM = Object.fromEntries(CATALOG.items.map((i) => [i.id, i]));
+const OTHER_BEFORE_LABEL = "그 외 비가역"; // before:other 라벨의 {label}(참조 문서 4절)
+const PROFILE_SCHEMA = "harness-profile/1";
+const ORCH_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+// 내용·사용 오류를 한 곳에서 종료코드로 바꾼다. usage=true 면 USAGE 를 덧붙인다(인자 형식 오류).
+class IntakeError extends Error {
+  constructor(rc, msg, usage = false) { super(msg); this.rc = rc; this.usage = usage; }
+}
+const fail2 = (m) => { throw new IntakeError(2, m); };
+const fail1 = (m) => { throw new IntakeError(1, m); };
+const failUsage = (m) => { throw new IntakeError(2, m, true); };
+
+// 앞뒤 ASCII 공백만 제거(참조 문서 6절 "앞뒤 공백 무시"). NBSP·전각 공백 같은 유니코드 공백은 **남긴다** —
+// "유니코드 변형은 그대로 비교(정규화하지 않는다)" 와 같은 방향: 보이지 않는 변형을 조용히 같은 키로 만들지 않는다.
+const trimWs = (s) => s.replace(/^[ \t\r\n\f\v]+|[ \t\r\n\f\v]+$/g, "");
+
+// 비교 전용 정규 직렬화(키 코드포인트 정렬). 참조 문서 8절 정규 JSON 과 같은 규칙이지만 S2 는 **동등 비교에만** 쓴다(해시는 S3).
+function canon(v) {
+  if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
+  if (isObj(v)) return "{" + Object.keys(v).sort(cpCompare).map((k) => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}";
+  return JSON.stringify(v === undefined ? null : v);
+}
+
+const uniqSorted = (arr) => [...new Set(arr)].sort(cpCompare);
+
+// `--now` → Date. 없으면 현재 시각. Date 로 못 읽으면 rc=2. 저장 형식 YYYY-MM-DDTHH:MM:SSZ(UTC · 초 단위).
+function parseNow(v) {
+  const d = v === undefined ? new Date() : new Date(v);
+  if (Number.isNaN(d.getTime())) failUsage(`--now 를 시각으로 읽을 수 없다: ${v}`);
+  const s = d.toISOString().slice(0, 19) + "Z";
+  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(s)) failUsage(`--now 가 4자리 연도 범위를 벗어난다: ${v}`);
+  return s;
+}
+
+// 내부 재스캔(명세 §2-2) — 입력으로 스캔을 받지 않는다(위변조 경로 없음). RUNTIME 은 여기서 부르지 않는다.
+// ⑤ 수·scanned = scan 의 AGENTS_PROJECT·SKILLS_PROJECT 와 같은 판정(filesWithExt·skillDirs). 이름은 원문(tok 변환 없음) · 코드포인트 정렬.
+function scanForIntake(ctx) {
+  return {
+    sig: new Set(scanSignals(ctx)),
+    agents: uniqSorted(filesWithExt(path.join(ctx.root, ".claude", "agents"), ".md").map((a) => a.name)),
+    skills: uniqSorted(skillDirs(path.join(ctx.root, ".claude", "skills")).map((s) => s.name)),
+  };
+}
+
+// 노출 판정(참조 문서 2절): expose = OR 목록, 원소 = AND. [] = 항상(signal null). signal = 첫 번째 참인 조건을 `+` 로.
+function exposeOf(opt, sig) {
+  if (opt.expose.length === 0) return { on: true, signal: null };
+  for (const cond of opt.expose) if (cond.every((k) => sig.has(k))) return { on: true, signal: cond.join("+") };
+  return { on: false, signal: null };
+}
+
+// ④ 의 before:* 정렬 순위: ② 카탈로그 순서(none 제외) → before:other → ladder → autonomous.
+const APPROVAL_ORDER = [
+  ...ITEM.irreversible.options.filter((o) => o.key !== "none").map((o) => `before:${o.key}`),
+  "before:other",
+  ...ITEM.approval.options.map((o) => o.key),
+];
+
+// 도출된 선택지(내부형 — 카탈로그 필드 유지). irr = ② 답 { value: [키…], other: 문장|null } — ④ 에서만 쓴다.
+function deriveOptions(item, sc, irr) {
+  if (item.id === "approval") {
+    const out = [];
+    for (const o of ITEM.irreversible.options) {
+      if (o.key !== "none" && irr.value.includes(o.key)) {
+        out.push({ key: `before:${o.key}`, label: item.before_label.replace("{label}", () => o.label), signal: null });
+      }
+    }
+    if (irr.other !== null) out.push({ key: "before:other", label: item.before_label.replace("{label}", () => OTHER_BEFORE_LABEL), signal: null });
+    for (const o of item.options) out.push({ ...o, signal: null });
+    return out;
+  }
+  const out = [];
+  for (const o of item.options) {
+    const e = exposeOf(o, sc.sig);
+    if (!e.on) continue;
+    let label = o.label;
+    if (item.id === "assets" && o.key === "reuse") {
+      label = label.replace("{agents}", () => String(sc.agents.length)).replace("{skills}", () => String(sc.skills.length));
+    }
+    out.push({ ...o, label, signal: e.signal });
+  }
+  return out;
+}
+
+// 기본값 — 참조 문서 3절 표("안전한 쪽"). opts = deriveOptions 결과(노출된 것만).
+function defaultOf(item, opts) {
+  switch (item.id) {
+    case "completion": return opts.filter((o) => o.machine === true).map((o) => o.key);
+    case "irreversible": return opts.filter((o) => o.signal_based === true || o.key === "unknown").map((o) => o.key);
+    case "cost": return ["error-worse"];
+    case "approval": return [...opts.filter((o) => o.key.startsWith("before:")).map((o) => o.key), "ladder"]; // ② 가 none 이어도 ladder
+    case "assets": return ["reuse"];
+    default: return [];
+  }
+}
+
+// 쪽 수(참조 문서 4절): n>4 면 ⌈n/4⌉ — 쪽 크기(균등·앞쪽부터 1개씩 더함)는 렌더러가 같은 규칙으로 나눈다.
+const pagesOf = (n) => (n > 4 ? Math.ceil(n / 4) : 1);
+
+// 문항 객체(키 순서 고정: 명세 §2-3).
+function buildQuestion(item, sc, irr) {
+  const opts = deriveOptions(item, sc, irr);
+  const def = defaultOf(item, opts);
+  const rest = opts.filter((o) => o.key !== "none");
+  let confirm = rest.length === 1 && def.length === 1 && def[0] === rest[0].key;
+  if (item.id === "assets" && sc.agents.length === 0 && sc.skills.length === 0) confirm = true; // 재사용할 것이 없다
+  return {
+    id: item.id, no: item.no, header: item.header, prompt: item.prompt, select: item.select,
+    options: opts.map((o) => (o.exclusive === true ? { key: o.key, label: o.label, signal: o.signal, exclusive: true } : { key: o.key, label: o.label, signal: o.signal })),
+    default: def, default_why: item.default_why, recommended: [], confirm_only: confirm, other: true,
+    pages: pagesOf(opts.length), carried: false,
+  };
+}
+
+// ── 답 문법(참조 문서 6절): 항목=토큰[,토큰…][;항목=…] · 토큰 = 선택지 키 | other:<문장> ──
+// 판정 순서 ③ 문법 — `=` 없는 조각·빈 값·빈 토큰·숫자 토큰·같은 항목 두 번·같은 토큰 두 번은 모두 rc=2.
+// other:<문장> 은 문장이 달라도 **한 항목에 하나** — 프로파일 other 필드가 문장 1개라 둘째를 담을 곳이 없다(담지 못하면 조용한 누락).
+function parseGrammar(text, acc, what) {
+  for (const raw of text.split(";")) {
+    const piece = trimWs(raw);
+    const eq = piece.indexOf("=");
+    if (eq < 0) fail2(`${what}: '=' 없는 조각: ${JSON.stringify(raw)}`);
+    const id = trimWs(piece.slice(0, eq));
+    const val = trimWs(piece.slice(eq + 1));
+    if (val === "") fail2(`${what}: 빈 값: ${JSON.stringify(id)}=`);
+    if (acc.has(id)) fail2(`${what}: 같은 항목 두 번: ${JSON.stringify(id)}`);
+    const toks = val.split(",").map(trimWs);
+    const seen = new Set();
+    for (const t of toks) {
+      if (t === "") fail2(`${what}: 빈 토큰: ${JSON.stringify(id)}=${JSON.stringify(val)}`);
+      if (/^[0-9]+$/.test(t)) fail2(`${what}: 숫자만인 토큰(위치 번호는 받지 않는다 — 안정 키로): ${JSON.stringify(id)}=${t}`);
+      const isOther = t.startsWith("other:");
+      if (isOther && trimWs(t.slice(6)) === "") fail2(`${what}: other: 뒤 문장이 비었다: ${JSON.stringify(id)}`);
+      const ident = isOther ? "other:" : t;
+      if (seen.has(ident)) fail2(`${what}: 한 항목 안 같은 토큰 두 번: ${JSON.stringify(id)}=${isOther ? "other:…" : t}`);
+      seen.add(ident);
+    }
+    acc.set(id, toks);
+  }
+}
+
+// --why 항목=<문장>(문장 = 첫 `=` 뒤 전부 · 앞뒤 공백 제거). ③ 문법 단계.
+function parseWhy(list) {
+  const out = new Map();
+  for (const raw of list) {
+    const eq = raw.indexOf("=");
+    if (eq < 0) fail2(`--why: '=' 없음: ${JSON.stringify(raw)}`);
+    const id = trimWs(raw.slice(0, eq));
+    const text = trimWs(raw.slice(eq + 1));
+    if (text === "") fail2(`--why: 빈 문장: ${JSON.stringify(id)}=`);
+    if (out.has(id)) fail2(`--why: 같은 항목 두 번: ${JSON.stringify(id)}`);
+    out.set(id, text);
+  }
+  return out;
+}
+
+// ④ 판정 순서 ④ 존재·노출 — 모르는 항목·모르는 키·이번 스캔에서 미노출 키는 rc=2.
+// ④ approval: ladder·autonomous · before:other · before:<② 키>(none 제외 · 이번 스캔에서 노출된 것) 만 존재한다.
+//   ② 답에 없는 키를 가리키는지는 ⑤ 의미 단계(rc=1)가 본다.
+function resolveItem(id, toks, sc, what) {
+  if (!own(ITEM, id)) fail2(`${what}: 모르는 항목 키: ${JSON.stringify(id)}`);
+  const item = ITEM[id];
+  const keys = [];
+  let other = null;
+  for (const t of toks) {
+    if (t.startsWith("other:")) { other = trimWs(t.slice(6)); continue; }
+    if (id === "approval" && t.startsWith("before:")) {
+      const x = t.slice(7);
+      if (x === "other") { keys.push(t); continue; }
+      const o = ITEM.irreversible.options.find((p) => p.key === x);
+      if (!o || x === "none") fail2(`${what}: 모르는 선택지 키: approval=${t}`);
+      if (!exposeOf(o, sc.sig).on) fail2(`${what}: 이번 스캔에서 노출되지 않은 선택지 키: approval=${t}`);
+      keys.push(t);
+      continue;
+    }
+    const o = item.options.find((p) => p.key === t);
+    if (!o) fail2(`${what}: 모르는 선택지 키: ${id}=${t}`);
+    if (!exposeOf(o, sc.sig).on) fail2(`${what}: 이번 스캔에서 노출되지 않은 선택지 키: ${id}=${t}`);
+    keys.push(t);
+  }
+  return { id, toks, keys, other };
+}
+
+// ⑤ 의미 — none 배타 · 단일 문항 복수 · ④ before: 가 ② 답에 없는 키. 모두 rc=1. irr = null 이면 ④ 정합 검사를 건너뛴다(② 가 빠져 ⑥ 에서 rc=2).
+function checkSemantics(r, irr, what) {
+  const item = ITEM[r.id];
+  if (r.toks.length > 1) {
+    const ex = r.keys.find((k) => item.options.some((o) => o.key === k && o.exclusive === true));
+    if (ex !== undefined) fail1(`${what}: 배타 선택지 '${ex}' 와 다른 토큰을 함께 골랐다: ${r.id}`);
+  }
+  if (item.select === "single" && r.toks.length > 1) fail1(`${what}: 단일 선택 문항에 토큰 ${r.toks.length}개: ${r.id}`);
+  if (r.id === "approval" && irr !== null) {
+    for (const k of r.keys) {
+      if (!k.startsWith("before:")) continue;
+      const x = k.slice(7);
+      const ok = x === "other" ? irr.other !== null : irr.value.includes(x);
+      if (!ok) fail1(`${what}: ${k} 가 ② 답에 없는 비가역을 가리킨다`);
+    }
+  }
+}
+
+// 고른 키를 표시 순서로(① ② ③ ⑤ = 카탈로그 순서 · ④ = APPROVAL_ORDER).
+function orderKeys(id, keys) {
+  const order = id === "approval" ? APPROVAL_ORDER : ITEM[id].options.map((o) => o.key);
+  return order.filter((k) => keys.includes(k));
+}
+
+// ── 프로파일 입출력 ──
+
+function profilePaths(ctx, orch) {
+  const dir = path.join(ctx.root, ".claude", "skills", orch);
+  return { dir, file: path.join(dir, "harness-profile.json"), prev: path.join(dir, "harness-profile.prev.json") };
+}
+
+// 기존 프로파일: 없으면 null · 읽기 실패·JSON 오류·스키마 불일치면 rc=2(조용히 new 로 떨어지지 않는다 — 명세 §2-3).
+// 원본 바이트(없으면 null). 잠근 뒤 CAS 비교용 — 파싱하지 않는다.
+function readRaw(file) {
+  try { return fs.readFileSync(file); }
+  catch (e) { if (e.code === "ENOENT") return null; fail2(`프로파일 다시 읽기 실패: ${file} (${e.code || e.message})`); }
+}
+
+function readProfile(file) {
+  let buf;
+  try { buf = fs.readFileSync(file); }
+  catch (e) { if (e.code === "ENOENT") return null; fail2(`프로파일 읽기 실패: ${file} (${e.code || e.message})`); }
+  let obj;
+  try { obj = JSON.parse(buf.toString("utf8").replace(/^\uFEFF/, "")); }
+  catch (e) { fail2(`프로파일 JSON 오류: ${file} (${e.message})`); }
+  if (!isObj(obj) || obj.schema !== PROFILE_SCHEMA) fail2(`프로파일 스키마 불일치(schema !== "${PROFILE_SCHEMA}"): ${file}`);
+  return { obj, buf };
+}
+
+// extend 가 옮길 항목 — 객체가 아니면 옮길 것이 없다 → rc=2(비워서 내면 조용한 누락).
+function carriedItem(prof, id, file) {
+  const a = isObj(prof.answers) ? prof.answers[id] : undefined;
+  if (!isObj(a)) fail2(`프로파일에 이을 항목이 없다(extend 는 ${ITEM[id].no} ${id} 를 잇는다): ${file}`);
+  return a;
+}
+
+// 쓰기 경로 심링크 거부(rc=2): <root>/.claude · .claude/skills · .claude/skills/<orch> 중 존재하는 것 + 프로파일·prev.
+// 디렉토리 심링크를 따라가면 대상 밖에 프로파일이 생긴다(실측: .claude/skills/lnk → 밖 이면 rc=0 으로 밖에 생성).
+// <root> 자체는 검사하지 않는다 — --root 는 호출자가 고른 경로다(실경로가 어디든 그 안에 쓰는 것이 의도).
+function refuseSymlinks(ctx, p) {
+  const claude = path.join(ctx.root, ".claude");
+  for (const d of [claude, path.join(claude, "skills"), p.dir]) {
+    if (isSymlink(d)) fail2(`심링크 디렉토리 — 따라가 대상 밖에 쓰지 않도록 쓰지 않는다: ${d}`);
+  }
+  for (const f of [p.file, p.prev]) if (isSymlink(f)) fail2(`심링크 — 따라가 다른 파일을 덮지 않도록 쓰지 않는다: ${f}`);
+}
+
+function isSymlink(p) {
+  try { return fs.lstatSync(p).isSymbolicLink(); }
+  catch (e) { if (e.code === "ENOENT") return false; fail2(`경로 확인 실패: ${p} (${e.code || e.message})`); }
+}
+
+// 같은 디렉토리의 임시 파일(O_EXCL · `wx`)에 쓰고 rename(원자적). 실패하면 임시 파일을 지우고 rc=2.
+function writeAtomic(dest, data) {
+  const tmp = `${dest}.tmp-${process.pid}-${crypto.randomBytes(6).toString("hex")}`;
+  let fd;
+  try {
+    fd = fs.openSync(tmp, "wx");
+    fs.writeFileSync(fd, data);
+    fs.closeSync(fd);
+    fd = undefined;
+    fs.renameSync(tmp, dest);
+  } catch (e) {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* 무시 */ } }
+    try { fs.unlinkSync(tmp); } catch { /* 무시 */ }
+    fail2(`프로파일 쓰기 실패: ${dest} (${e.code || e.message})`);
+  }
+}
+
+// 팩토리 버전 = 이 스크립트 기준 ../../../.claude-plugin/plugin.json 의 version, 없으면 unknown(참조 문서 7절).
+function factoryVersion() {
+  const f = path.resolve(path.dirname(SELF), "..", "..", "..", ".claude-plugin", "plugin.json");
+  let j;
+  try { j = JSON.parse(readText(f)); } catch { return "unknown"; }
+  return isObj(j) && typeof j.version === "string" && j.version !== "" ? j.version : "unknown";
+}
+
+// 항목별 해시 필드(참조 문서 8절): value·other·source + assets 는 scanned.
+function hashFields(id, a) {
+  const h = { value: a.value, other: a.other, source: a.source };
+  if (id === "assets") h.scanned = a.scanned;
+  return h;
+}
+
+// premise 서명: irreversible 의 해시 필드 + source: assumed 항목 집합(각 해시 필드). 이게 바뀔 때만 factory_version 을 갱신한다.
+function premiseSig(answers) {
+  const ans = isObj(answers) ? answers : {};
+  const irr = isObj(ans.irreversible) ? hashFields("irreversible", ans.irreversible) : null;
+  const assumed = {};
+  for (const id of ITEM_IDS) if (isObj(ans[id]) && ans[id].source === "assumed") assumed[id] = hashFields(id, ans[id]);
+  return canon({ irreversible: irr, assumed });
+}
+
+const ITEM_KEYS = ["value", "source", "at", "default", "recommended", "why", "options_incomplete", "other", "scanned"];
+
+// 옮기는 항목: 알려진 키는 7절 순서로, 모르는 키는 원래 순서로 뒤에(값은 그대로 — `at` 보존).
+function reorderItem(a) {
+  const o = {};
+  for (const k of ITEM_KEYS) if (own(a, k)) o[k] = a[k];
+  for (const k of Object.keys(a)) if (!own(o, k)) o[k] = a[k];
+  return o;
+}
+
+function premiseLine(rel, prof) {
+  const ans = isObj(prof.answers) ? prof.answers : {};
+  const irr = isObj(ans.irreversible) ? ans.irreversible : null;
+  const irrText = irr === null ? "?" : [...(Array.isArray(irr.value) ? irr.value : []), ...(typeof irr.other === "string" ? [`other:${irr.other}`] : [])].join(",") + `(${irr.source})`;
+  const assumed = ITEM_IDS.filter((id) => isObj(ans[id]) && ans[id].source === "assumed");
+  return `harness-intake: 전제 — ${rel} · factory_version=${prof.factory_version} · irreversible=${irrText} · assumed=${assumed.length ? assumed.join(",") : "none"}\n`;
+}
+
+// ── questions ──
+
+function cmdQuestions(o, ctx) {
+  const sc = scanForIntake(ctx);
+  let qs;
+  let err = "";
+  if (o.after !== undefined) {
+    // ④ 만 — --after 는 answer 의 ② 규칙과 같은 검증(문법 → 존재·노출 → 의미).
+    const m = new Map();
+    parseGrammar(o.after, m, "--after");
+    for (const id of m.keys()) if (id !== "irreversible") fail2(`--after 는 irreversible=<토큰,…> 만 받는다: ${JSON.stringify(id)}`);
+    const r = resolveItem("irreversible", m.get("irreversible"), sc, "--after");
+    checkSemantics(r, null, "--after");
+    qs = [buildQuestion(ITEM.approval, sc, { value: orderKeys("irreversible", r.keys), other: r.other })];
+  } else if (o.mode === "new") {
+    qs = ["completion", "irreversible", "cost", "assets"].map((id) => buildQuestion(ITEM[id], sc, null));
+  } else {
+    const p = profilePaths(ctx, o.orchestrator);
+    const rel = slash(path.relative(ctx.root, p.file));
+    const prof = readProfile(p.file);
+    if (o.mode === "extend") {
+      if (prof === null) {
+        err = `harness-intake: 프로파일 없음(${rel}) — extend 를 new 와 같은 문항(①②③⑤)으로 낸다\n`;
+        qs = ["completion", "irreversible", "cost", "assets"].map((id) => buildQuestion(ITEM[id], sc, null));
+      } else {
+        // 카탈로그 순서: ① carried · ② 질문 · ③ carried · ④ carried · ⑤ 질문.
+        qs = ITEM_IDS.map((id) => {
+          if (id === "irreversible" || id === "assets") return buildQuestion(ITEM[id], sc, null);
+          const a = carriedItem(prof.obj, id, p.file);
+          const it = ITEM[id];
+          return { id, no: it.no, header: it.header, carried: true, value: a.value, source: a.source, at: a.at, other: a.other === undefined ? null : a.other };
+        });
+      }
+    } else {
+      qs = []; // maintain·update — 구조를 바꾸지 않는다(HI2-1)
+      if (prof !== null) err = premiseLine(rel, prof.obj);
+    }
+  }
+  // 자기 검사(참조 문서 3·4절): 질문 문항의 default 가 비었거나 other 가 true 가 아니면 rc=1.
+  for (const q of qs) {
+    if (q.carried) continue;
+    if (!Array.isArray(q.default) || q.default.length === 0) fail1(`문항 ${q.id} 의 기본값이 비었다(무응답이 갈 곳이 없다)`);
+    if (q.other !== true) fail1(`문항 ${q.id} 의 other 가 true 가 아니다`);
+  }
+  return { out: JSON.stringify(qs, null, 2) + "\n", err };
+}
+
+// ── answer ──
+
+function readAnswerFile(f) {
+  let text;
+  try { text = fs.readFileSync(f, "utf8"); }
+  catch (e) { fail2(`--from-file 읽기 실패: ${f} (${e.code || e.message})`); }
+  text = text.replace(/^\uFEFF/, "");
+  if (text.endsWith("\r\n")) text = text.slice(0, -2);
+  else if (text.endsWith("\n")) text = text.slice(0, -1);
+  if (/[\r\n]/.test(text)) fail2(`--from-file 내용이 한 줄이 아니다(끝 개행 1개·CRLF 의 CR·BOM 만 제거): ${f}`);
+  if (text.startsWith("HARNESS_INTAKE_ANSWERS=")) fail2(`--from-file 내용은 값만 쓴다('HARNESS_INTAKE_ANSWERS=' 접두 금지): ${f}`);
+  return text;
+}
+
+async function cmdAnswer(o, ctx, now) {
+  const p = profilePaths(ctx, o.orchestrator);
+  const rel = slash(path.relative(ctx.root, p.file));
+  let err = "";
+
+  // ② 입력 읽기 · 기존 프로파일(심링크면 쓰지 않는다 — 읽기 전에 거른다).
+  let texts = [];
+  if (o.set.length) texts = o.set;
+  else if (o.fromEnv) {
+    const v = process.env.HARNESS_INTAKE_ANSWERS;
+    if (v === undefined) fail2("--from-env 인데 HARNESS_INTAKE_ANSWERS 가 없다");
+    texts = [v];
+  } else if (o.fromFile !== undefined) texts = [readAnswerFile(o.fromFile)];
+  refuseSymlinks(ctx, p);
+  const existing = readProfile(p.file);
+  const extend = o.mode === "extend" && existing !== null;
+  if (o.mode === "extend" && existing === null) err += `harness-intake: 프로파일 없음(${rel}) — extend 를 new 와 같이 처리한다\n`;
+
+  // ③ 문법.
+  const main = new Map();
+  for (const t of texts) parseGrammar(t, main, "답");
+  const rec = new Map();
+  for (const t of o.recommended) parseGrammar(t, rec, "--recommended");
+  const why = parseWhy(o.why);
+
+  // ④ 항목·키 존재/노출.
+  const sc = scanForIntake(ctx);
+  const inherits = (id) => extend && (id === "completion" || id === "cost");
+  const resolved = new Map();
+  for (const [id, toks] of main) {
+    const r = resolveItem(id, toks, sc, "답");
+    if (inherits(id)) fail2(`extend 는 ①③ 을 잇는다 — 입력에 ${id} 를 줄 수 없다`);
+    resolved.set(id, r);
+  }
+  const recRes = new Map();
+  for (const [id, toks] of rec) {
+    const r = resolveItem(id, toks, sc, "--recommended");
+    if (inherits(id)) fail2(`extend 는 ①③ 을 잇는다 — --recommended 에 ${id} 를 줄 수 없다`);
+    recRes.set(id, r);
+  }
+  for (const id of why.keys()) {
+    if (!own(ITEM, id)) fail2(`--why: 모르는 항목 키: ${JSON.stringify(id)}`);
+    if (inherits(id)) fail2(`extend 는 ①③ 을 잇는다 — --why 에 ${id} 를 줄 수 없다`);
+  }
+  // extend 에서 ④ 를 입력하지 않으면 기존 ④ 를 그대로 옮긴다 — 옮기는 항목에 추천·근거를 새로 달 곳이 없다.
+  const carryApproval = extend && !main.has("approval");
+  if (carryApproval && (recRes.has("approval") || why.has("approval"))) fail2("extend 에서 ④ 를 옮길 때(입력에 approval 없음)는 --recommended·--why 에 approval 을 줄 수 없다");
+
+  // ⑤ 의미. 유효 ② = 입력 ② → (--defaults 면) 기본 ② → 없으면 null(⑥ 에서 rc=2).
+  const irrOpts = deriveOptions(ITEM.irreversible, sc, null);
+  let irrEff = null;
+  if (resolved.has("irreversible")) { const r = resolved.get("irreversible"); irrEff = { value: orderKeys("irreversible", r.keys), other: r.other }; }
+  else if (o.defaults) irrEff = { value: defaultOf(ITEM.irreversible, irrOpts), other: null };
+  for (const id of ITEM_IDS) if (resolved.has(id)) checkSemantics(resolved.get(id), irrEff, "답");
+  for (const id of ITEM_IDS) if (recRes.has(id)) checkSemantics(recRes.get(id), irrEff, "--recommended");
+  let carriedAnswers = null;
+  if (extend) {
+    carriedAnswers = {};
+    for (const id of ["completion", "cost", ...(carryApproval ? ["approval"] : [])]) carriedAnswers[id] = carriedItem(existing.obj, id, p.file);
+    if (carryApproval && irrEff !== null) {
+      const v = Array.isArray(carriedAnswers.approval.value) ? carriedAnswers.approval.value : [];
+      for (const k of v) {
+        if (typeof k !== "string" || !k.startsWith("before:")) continue;
+        const x = k.slice(7);
+        const ok = x === "other" ? irrEff.other !== null : irrEff.value.includes(x);
+        if (!ok) fail1(`② 가 바뀌어 ④ 를 다시 답해야 한다 — 기존 ④ 의 ${k} 가 새 ② 답에 없다(approval 을 입력에 넣는다)`);
+      }
+    }
+  }
+
+  // ⑥ 빠진 항목.
+  const need = ITEM_IDS.filter((id) => !(extend && (inherits(id) || (id === "approval" && carryApproval))));
+  const missing = need.filter((id) => !resolved.has(id));
+  if (missing.length && !o.defaults) fail2(`빠진 항목: ${missing.join(",")} — 기본값을 암묵적으로 쓰지 않는다(--defaults 로 명시)`);
+
+  // 쓰기 준비가 끝난 뒤에만 런타임을 조회한다(오류 입력에 도구를 실행하지 않는다).
+  const runtime = Object.fromEntries(await runtimeValues());
+  const signals = uniqSorted([...sc.sig]);
+  const ex = existing ? existing.obj : null;
+  const exAns = ex && isObj(ex.answers) ? ex.answers : {};
+
+  const answers = {};
+  for (const id of ITEM_IDS) {
+    if (carriedAnswers && own(carriedAnswers, id)) { answers[id] = reorderItem(carriedAnswers[id]); continue; }
+    const item = ITEM[id];
+    const def = defaultOf(item, deriveOptions(item, sc, irrEff));
+    let value, other, source;
+    if (resolved.has(id)) { const r = resolved.get(id); value = orderKeys(id, r.keys); other = r.other; source = "declared"; }
+    else { value = def; other = null; source = "assumed"; }
+    let recommended = [];
+    if (recRes.has(id)) { const r = recRes.get(id); recommended = [...orderKeys(id, r.keys), ...(r.other !== null ? [`other:${r.other}`] : [])]; }
+    const a = { value, source, at: now, default: def, recommended, why: why.has(id) ? why.get(id) : null, options_incomplete: other !== null, other };
+    if (id === "assets") a.scanned = { agents: sc.agents, skills: sc.skills };
+    const old = exAns[id];
+    if (isObj(old) && typeof old.at === "string" && canon(hashFields(id, a)) === canon(hashFields(id, old))) a.at = old.at; // 같은 값 재기록 → at 불변
+    answers[id] = a;
+  }
+
+  const oldScan = ex && isObj(ex.scan) ? ex.scan : null;
+  const scanAt = oldScan && typeof oldScan.at === "string" && canon({ runtime: oldScan.runtime, signals: oldScan.signals }) === canon({ runtime, signals }) ? oldScan.at : now;
+  const fv = ex && typeof ex.factory_version === "string" && premiseSig(ex.answers) === premiseSig(answers) ? ex.factory_version : factoryVersion();
+  const profile = {
+    schema: PROFILE_SCHEMA,
+    factory_version: fv,
+    mode: extend ? "extend" : "new",
+    at: now,
+    scan: { runtime, signals, at: scanAt },
+    answers,
+  };
+
+  refuseSymlinks(ctx, p); // mkdir -p 가 심링크 디렉토리를 따라 대상 밖에 만들기 전에(참조 문서 6·7절)
+  try { fs.mkdirSync(p.dir, { recursive: true }); }
+  catch (e) { fail2(`프로파일 디렉토리 생성 실패: ${p.dir} (${e.code || e.message})`); }
+  // 쓰기 직전 재확인(첫 확인과 쓰기 사이에 심링크로 바뀐 경우). rename 은 목적지 심링크를 따라가지 않지만 규칙상 거부한다.
+  refuseSymlinks(ctx, p);
+
+  // 동시 실행(참조 문서 7절): 잠금(O_EXCL) → 잠근 채 기존 프로파일 재읽기·바이트 비교(CAS) → prev·본문 쓰기.
+  // 시작 때 읽은 판(existing — 스캔·RUNTIME 보다 먼저 읽었다)과 다르면 다른 answer 가 그 사이 썼다 → lost update·prev 불일치를 막고 rc=2.
+  // 남의 잠금은 지우지 않고 자동으로 깨지도 않는다. 이 실행이 만든 잠금만 finally 에서 지운다(성공·실패·예외 모두).
+  const lock = path.join(p.dir, "harness-profile.lock");
+  let lfd;
+  try { lfd = fs.openSync(lock, "wx"); }
+  catch (e) {
+    if (e.code === "EEXIST") fail2(`잠금이 이미 있다 — 다른 answer 가 실행 중이거나 남은 잠금(실행 중이 아니면 지우고 다시 한다): ${lock}`);
+    fail2(`잠금 생성 실패: ${lock} (${e.code || e.message})`);
+  }
+  try {
+    try { fs.writeSync(lfd, `pid=${process.pid} at=${new Date().toISOString()}\n`); } finally { fs.closeSync(lfd); }
+    const cur = readRaw(p.file);
+    const same = existing === null ? cur === null : cur !== null && cur.equals(existing.buf);
+    if (!same) fail2(`동시 수정 — 시작 뒤 다른 실행이 프로파일을 바꿨다(아무것도 쓰지 않음 · 다시 실행): ${p.file}`);
+    if (existing !== null) writeAtomic(p.prev, existing.buf); // 1세대 보존(원본 바이트 그대로)
+    writeAtomic(p.file, JSON.stringify(profile, null, 2) + "\n");
+  } finally {
+    try { fs.unlinkSync(lock); } catch { /* 이미 없음 — 무시 */ }
+  }
+
+  const out = `PROFILE: ${rel}\nSOURCES: ${ITEM_IDS.map((id) => `${id}=${answers[id].source}`).join(" ")}\n`;
+  return { out, err };
+}
+
+// ── 인자 ──
+
+const ARG_SPEC = {
+  questions: { val: ["--root", "--now", "--orchestrator", "--mode", "--after"], rep: [], flag: [] },
+  answer: { val: ["--root", "--now", "--orchestrator", "--mode", "--from-file"], rep: ["--set", "--recommended", "--why"], flag: ["--from-env", "--defaults"] },
+};
+
+// 판정 순서 ① — 인자 형식·출처 개수·--orchestrator. 반복 가능 옵션(--set·--recommended·--why) 외에 두 번 오면 rc=2.
+function parseS2Args(sub, argv) {
+  const spec = ARG_SPEC[sub];
+  const seen = new Set();
+  const v = Object.create(null);
+  const rep = { "--set": [], "--recommended": [], "--why": [] };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (spec.flag.includes(a)) {
+      if (seen.has(a)) failUsage(`옵션이 두 번: ${a}`);
+      seen.add(a);
+    } else if (spec.val.includes(a) || spec.rep.includes(a)) {
+      if (i + 1 >= argv.length) failUsage(`${a} 에 값이 없다`);
+      const val = argv[++i];
+      if (spec.rep.includes(a)) rep[a].push(val);
+      else { if (seen.has(a)) failUsage(`옵션이 두 번: ${a}`); seen.add(a); v[a] = val; }
+    } else if (a.startsWith("-")) {
+      failUsage(`모르는 옵션(${sub}): ${a}`);
+    } else {
+      failUsage(`남는 인자: ${a}`);
+    }
+  }
+  const o = {
+    root: v["--root"], now: v["--now"], orchestrator: v["--orchestrator"], mode: v["--mode"], after: v["--after"], fromFile: v["--from-file"],
+    fromEnv: seen.has("--from-env"), defaults: seen.has("--defaults"),
+    set: rep["--set"], recommended: rep["--recommended"], why: rep["--why"],
+  };
+  if (sub === "questions") {
+    if (o.mode === undefined) failUsage("--mode 가 없다(new|extend|maintain|update)");
+    if (!["new", "extend", "maintain", "update"].includes(o.mode)) failUsage(`--mode 값이 아니다: ${o.mode}(new|extend|maintain|update)`);
+    if (o.after !== undefined && o.mode !== "new") failUsage("--after 는 --mode new 와만 쓴다");
+    if (o.mode !== "new" && o.orchestrator === undefined) failUsage(`--mode ${o.mode} 는 --orchestrator 가 필요하다(기존 프로파일 위치)`);
+  } else {
+    if (o.mode === undefined) o.mode = "new";
+    if (!["new", "extend"].includes(o.mode)) failUsage(`answer 의 --mode 는 new|extend: ${o.mode}`);
+    if (o.orchestrator === undefined) failUsage("--orchestrator 가 없다");
+    const n = (o.set.length ? 1 : 0) + (o.fromEnv ? 1 : 0) + (o.fromFile !== undefined ? 1 : 0);
+    if (n > 1) failUsage("--set·--from-env·--from-file 중 하나만 쓴다");
+  }
+  if (o.orchestrator !== undefined && !ORCH_RE.test(o.orchestrator)) failUsage(`--orchestrator 이름이 ^[a-z0-9][a-z0-9-]{0,63}$ 가 아니다: ${JSON.stringify(o.orchestrator)}`);
+  return o;
+}
+
+function rootOf(root) {
+  const rootAbs = path.resolve(root === undefined ? process.cwd() : root);
+  let isDir = false;
+  try { isDir = fs.statSync(rootAbs).isDirectory(); } catch { isDir = false; }
+  if (!isDir) failUsage(`--root 가 디렉토리가 아니다: ${rootAbs}`);
+  return rootAbs;
+}
+
+async function runS2(sub, argv) {
+  try {
+    const o = parseS2Args(sub, argv);
+    const now = parseNow(o.now);
+    const ctx = { root: rootOf(o.root), home: path.resolve(os.homedir()) };
+    const r = sub === "questions" ? cmdQuestions(o, ctx) : await cmdAnswer(o, ctx, now);
+    return exitWith(0, r.out, r.err);
+  } catch (e) {
+    if (e instanceof IntakeError) return exitWith(e.rc, "", `harness-intake: ${e.message}\n${e.usage ? USAGE + "\n" : ""}`);
+    throw e;
+  }
+}
+
 // ───────────────────────── CLI ─────────────────────────
 
-const USAGE = "사용: node harness-intake.mjs <scan|selftest> [--root <dir>] [--now <ISO>]";
+const USAGE = "사용: node harness-intake.mjs <scan|questions|answer|selftest> [--root <dir>] [--now <ISO>] …(questions·answer 옵션: references/harness-interview.md)";
 
 function exitWith(code, out, err) {
   if (err) process.stderr.write(err);
@@ -582,6 +1255,7 @@ async function main(argv) {
     const r = spawnSync(process.execPath, [st, ...argv.slice(1)], { stdio: "inherit" });
     return exitWith(typeof r.status === "number" ? r.status : 2, "", r.error ? `harness-intake: selftest 실행 실패 (${r.error.message})\n` : "");
   }
+  if (sub === "questions" || sub === "answer") return runS2(sub, argv.slice(1));
   if (sub !== "scan") return exitWith(2, "", `not implemented in this version: ${sub}\n`);
 
   let root = process.cwd();

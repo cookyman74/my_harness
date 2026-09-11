@@ -30,7 +30,7 @@
 ### B. 참고 문서
 - [ ] `orchestrator-template.md` — 템플릿 **A** 에 표식 블록 자리 4종(`## 완료 기준`·`## 리스크 등급`·`## 승인 관문`·`## 기존 자산`) 원문을 두고, B·C 는 "(Template A와 동일 — 4섹션 유지)" 한 줄, D(어댑터 조각 · frontmatter 없음)는 "오케스트레이터 본문(A/B)의 4섹션을 그대로 유지" 한 줄
 - [ ] 템플릿 A Phase 0 컨텍스트 확인(`:45-54`)에 3단계 추가 — `verify` 실행 → `WIRED` 가 하나라도 비-`ok` 면 **멈추고 보고**, `DECLARED`·`ASSUMED` 를 사용자에게 표시(설계서 §9-6 · HI8③). B 는 기존 "Template A와 동일" 로 상속(C·D 에는 Phase 0 이 없다)
-- [ ] 템플릿의 `verify` 호출 경로는 생성 하네스 실경로 — `node .claude/skills/{오케스트레이터}/scripts/harness-intake.mjs verify`(듀얼은 `.agents/skills/{오케스트레이터}/scripts/…`). `scripts/harness-intake.mjs` 단독 표기 금지 — 오케스트레이터 cwd 는 프로젝트 루트라 성립하지 않는다(`SKILL.md:204` 계열 결함 복제 금지 · 설계서 §10)
+- [ ] 템플릿의 `verify` 호출 경로는 생성 하네스 실경로 — `node .claude/skills/{오케스트레이터}/scripts/harness-intake.mjs verify`(듀얼은 `.agents/skills/{오케스트레이터}/scripts/…`). `scripts/harness-intake.mjs` 단독 표기 금지 — 오케스트레이터 cwd 는 프로젝트 루트라 성립하지 않는다(`SKILL.md:185` 계열 결함 복제 금지 · 설계서 §10)
 - [ ] `runtime-adapters.md` §1 매핑표 — "사용자 질문(객관식)" 행(설계서 §9-5)
 - [ ] `external-review-loop.md:213` 예시 `"risk_level":"중대"` → `"critical"`(설계서 §8-1)
 - [ ] `loop-self-eval.md:64` `"standard"` 가 정규 어휘와 맞는지 확인(맞으면 유지)
@@ -64,4 +64,4 @@
 ## 다음 단계 참조
 
 - S5 의 before/after arm 은 `SKILL.md` 두 판이다 — **before = S0 축소 커밋의 `SKILL.md`**, after = 이 단계 커밋의 `SKILL.md`. 두 해시를 결과서에 남긴다.
-- 기존 `SKILL.md:204` 류 레포 상대 경로 정리는 이 릴리스 범위 밖이다(설계서 §10) — 새 스크립트 호출에만 올바른 표기를 쓴다.
+- 기존 `SKILL.md:185` 류 레포 상대 경로 정리는 이 릴리스 범위 밖이다(설계서 §10) — 새 스크립트 호출에만 올바른 표기를 쓴다.

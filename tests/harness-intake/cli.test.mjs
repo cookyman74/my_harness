@@ -27,11 +27,11 @@ test('--root 가 디렉토리 아님(파일) → rc=2', () => {
   assert.equal(scan({ root: path.join(fx.root, 'CHANGELOG.md'), home: fx.home, pathDirs: [fx.bin] }).rc, 2);
 });
 
-test('미구현 서브커맨드(questions) → rc=2 · stderr "not implemented in this version: questions"', () => {
+test('미구현 서브커맨드(render) → rc=2 · stderr "not implemented in this version: render"', () => {
   requireFile(INTAKE);
-  const r = runNode(INTAKE, ['questions', '--root', fx.root], { env: env() });
+  const r = runNode(INTAKE, ['render', '--root', fx.root], { env: env() });
   assert.equal(r.rc, 2);
-  assert.ok(r.stderr.includes('not implemented in this version: questions'), r.stderr);
+  assert.ok(r.stderr.includes('not implemented in this version: render'), r.stderr);
 });
 
 test('--root 기본값 = cwd → 골든과 같다', () => {
