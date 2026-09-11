@@ -138,7 +138,21 @@ ALWAYS use pdfplumber for table extraction. NEVER use PyPDF2 for tables.
 
 ## 5. Progressive Disclosure 패턴
 
+### 3단계 로딩과 크기 관리
+
+스킬은 3단계 로딩 시스템으로 컨텍스트를 관리한다:
+
+| 단계 | 로딩 시점 | 크기 목표 |
+|------|----------|----------|
+| **Metadata** (name + description) | 항상 컨텍스트에 존재 | ~100단어 |
+| **SKILL.md 본문** | 스킬 트리거 시 | <500줄 |
+| **references/** | 필요할 때만(조건부) | 파일당 권장 300줄, 초과 시 ToC+섹션 라우팅 필수 (스크립트는 로딩 없이 실행) |
+
+SKILL.md가 500줄에 근접하면 세부 내용을 references/로 분리하고, 본문에 "언제 이 파일을 읽으라"는 포인터를 남긴다.
+
 ### 패턴 1: 도메인별 분리
+
+도메인/프레임워크별 변형이 있으면 references/ 하위에 도메인별로 분리하여, 관련 파일만 로드한다(예: `cloud-deploy/` 스킬이면 `references/aws.md`·`gcp.md`·`azure.md` 로 나누고 선택한 클라우드 파일만 로드).
 
 ```
 bigquery-skill/
