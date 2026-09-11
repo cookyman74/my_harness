@@ -1,17 +1,19 @@
 #!/usr/bin/env node
-// harness-intake.mjs — 하네스 구성 인터뷰(v1.7.6 S1: `scan` · `selftest` / S2: `questions` · `answer`).
+// harness-intake.mjs — 하네스 구성 인터뷰(v1.7.6 S1: `scan` · `selftest` / S2: `questions` · `answer` / S3: `render` · `verify`).
 // 계약 단일 출처: scan = docs/v1.7.6/design/harness-interview-design.md §2(구현 명세 v176-S1 §2·§3 이 정정분) ·
-//   questions·answer·프로파일 = skills/myharness/references/harness-interview.md(카탈로그·기본값·답 문법·검증표·`at` 규칙).
-// 결정은 스크립트가, 추천과 질문은 모델이 — scan·questions 는 관측만 하고, 파일을 쓰는 것은 answer(프로파일 1개 + prev) 뿐이다.
+//   questions·answer·프로파일·render·verify = skills/myharness/references/harness-interview.md(카탈로그·기본값·답 문법·검증표·`at` 규칙 · 8~10절 결선).
+// 결정은 스크립트가, 추천과 질문은 모델이 — scan·questions·render·verify 는 관측만 하고, 파일을 쓰는 것은 answer(프로파일 1개 + prev) 뿐이다.
 //
-// 사용: node harness-intake.mjs <scan|questions|answer|selftest> [--root <dir>] [--now <ISO>] …
+// 사용: node harness-intake.mjs <scan|questions|answer|render|verify|selftest> [--root <dir>] [--now <ISO>] …
 //   scan              대상 루트(--root, 기본 cwd)의 에이전트·스킬·플러그인·신호·런타임을 15줄 계약으로 stdout 에
 //   questions         --mode <new|extend|maintain|update> [--orchestrator <이름>] [--after irreversible=<토큰,…>] → 문항 JSON 배열
 //   answer            --orchestrator <이름> (--set … | --from-env | --from-file <f>) [--defaults] [--recommended …] [--why …] [--mode new|extend]
 //                     → <root>/.claude/skills/<이름>/harness-profile.json 원자적 쓰기 · stdout `PROFILE:`·`SOURCES:` 두 줄
 //   selftest [대상]   selftest-harness-intake.mjs 로 얇게 위임(가드는 별도 파일 — 이 파일이 통째로 스텁으로 덮여도 살아남게)
-//   그 밖             rc=2 `not implemented in this version: <sub>`(render·verify 는 S3)
-// 종료코드: 0 정상 · 1 내용 검증 실패(scan 에는 없음) · 2 사용·환경 오류.
+//   render            --orchestrator <이름> [--block <id>] → 프로파일만 읽어 표식 블록 5개(또는 1개)를 stdout 에(파일 쓰지 않음 · --now 거부)
+//   verify            --orchestrator <이름> → SKILL.md(블록 4종)·CLAUDE.md·AGENTS.md(premise) 대조 · stdout WIRED·DECLARED·ASSUMED 3줄
+//   그 밖             rc=2 `모르는 서브커맨드` + 사용법(stderr)
+// 종료코드: 0 정상 · 1 내용 검증 실패(scan·render 에는 없음 · verify 는 ok·na 아닌 판정) · 2 사용·환경 오류(프로파일 없음·손상 포함).
 // 규약: stdout = 계약 줄만(`KEY: value`, `\n`). 사람용 진단은 stderr — check-review-tools.sh 는 진단도 stdout 이라 선례가 아니다.
 // 결정성: 모든 목록은 코드포인트 오름차순(JS 기본 sort 는 UTF-16 코드유닛 순이라 BMP 밖에서 어긋난다) · readdir 결과도 정렬 후 사용.
 // 의존성: node 내장 모듈만(팩토리 스킬은 자기완결 — harness-ui 에 기댈 수 없다). node ≥18 문법.
@@ -763,6 +765,7 @@ function buildQuestion(item, sc, irr) {
 // ── 답 문법(참조 문서 6절): 항목=토큰[,토큰…][;항목=…] · 토큰 = 선택지 키 | other:<문장> ──
 // 판정 순서 ③ 문법 — `=` 없는 조각·빈 값·빈 토큰·숫자 토큰·같은 항목 두 번·같은 토큰 두 번은 모두 rc=2.
 // other:<문장> 은 문장이 달라도 **한 항목에 하나** — 프로파일 other 필드가 문장 1개라 둘째를 담을 곳이 없다(담지 못하면 조용한 누락).
+const CTRL_RE = /[\x00-\x08\x0a-\x1f\x7f]/; // 탭(\x09) 외 C0 + DEL
 function parseGrammar(text, acc, what) {
   for (const raw of text.split(";")) {
     const piece = trimWs(raw);
@@ -772,13 +775,16 @@ function parseGrammar(text, acc, what) {
     const val = trimWs(piece.slice(eq + 1));
     if (val === "") fail2(`${what}: 빈 값: ${JSON.stringify(id)}=`);
     if (acc.has(id)) fail2(`${what}: 같은 항목 두 번: ${JSON.stringify(id)}`);
-    const toks = val.split(",").map(trimWs);
+    const rawToks = raw.slice(raw.indexOf("=") + 1).split(","); // trim 전 원문 — other 문장의 제어 문자 검사용
+    const toks = rawToks.map(trimWs);
     const seen = new Set();
-    for (const t of toks) {
+    for (const [ti, t] of toks.entries()) {
       if (t === "") fail2(`${what}: 빈 토큰: ${JSON.stringify(id)}=${JSON.stringify(val)}`);
       if (/^[0-9]+$/.test(t)) fail2(`${what}: 숫자만인 토큰(위치 번호는 받지 않는다 — 안정 키로): ${JSON.stringify(id)}=${t}`);
       const isOther = t.startsWith("other:");
       if (isOther && trimWs(t.slice(6)) === "") fail2(`${what}: other: 뒤 문장이 비었다: ${JSON.stringify(id)}`);
+      // 참조 문서 6절(S3 결정): 블록은 줄 단위 — 개행은 줄 구조를 깨고 CR 은 verify 의 CRLF 정규화로 영구 drift. 탭만 허용.
+      if (isOther && CTRL_RE.test(rawToks[ti].slice(rawToks[ti].indexOf("other:") + 6))) fail2(`${what}: other: 문장에 제어 문자(개행·CR·탭 외 C0·DEL): ${JSON.stringify(id)}`);
       const ident = isOther ? "other:" : t;
       if (seen.has(ident)) fail2(`${what}: 한 항목 안 같은 토큰 두 번: ${JSON.stringify(id)}=${isOther ? "other:…" : t}`);
       seen.add(ident);
@@ -1162,11 +1168,272 @@ async function cmdAnswer(o, ctx, now) {
   return { out, err };
 }
 
+// ───────────────────────── S3: render · verify ─────────────────────────
+// 계약 단일 출처: references/harness-interview.md 8절(정규 JSON·해시 필드) · 9절(결선표) · 10절(블록 형식·규범 예시·해시 입력·판정).
+// render 는 **프로파일만** 읽는다 — 스캔·RUNTIME·실행 시각 없음(같은 프로파일 → 바이트 동일). 파일을 쓰지 않는다(모델이 넣는다).
+// verify 는 대상 파일을 읽기만 한다. 해시 = sha256(utf8(canon(입력))) — canon·hashFields 는 S2 의 것을 그대로 쓴다(같은 규칙의 두 구현 금지).
+
+const BLOCK_IDS = ["completion", "tier", "approval", "assets", "premise"]; // render 출력 순서 = WIRED 순서(10-1·10-4)
+const SECTION_OF = { completion: "## 완료 기준", tier: "## 리스크 등급", approval: "## 승인 관문", assets: "## 기존 자산" }; // 9절
+const PREMISE_SECTION = "## 하네스:"; // 이 접두로 시작하는 섹션(10-4)
+const SOURCE_VALUES = ["declared", "assumed", "scanned"]; // 7절(scanned 는 예약 — 받되 DECLARED·ASSUMED 어느 줄에도 넣지 않는다)
+const AT_RE = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/; // 7절 저장 형식
+const bt = (k) => "`" + k + "`"; // 백틱은 선택지 키를 감싸는 한 쌍뿐(10-1)
+
+const sha256hex = (s) => crypto.createHash("sha256").update(Buffer.from(s, "utf8")).digest("hex");
+
+// 선택지 키 → 라벨(카탈로그). ④ before:<②키> 는 before_label 틀 · ⑤ reuse 는 scanned 목록 길이로 채운다. 모르는 키 = null.
+function labelOf(id, key, a) {
+  if (id === "approval" && key.startsWith("before:")) {
+    const x = key.slice(7);
+    if (x === "other") return ITEM.approval.before_label.replace("{label}", () => OTHER_BEFORE_LABEL);
+    const o = ITEM.irreversible.options.find((p) => p.key === x && p.key !== "none");
+    return o ? ITEM.approval.before_label.replace("{label}", () => o.label) : null;
+  }
+  const o = ITEM[id].options.find((p) => p.key === key);
+  if (!o) return null;
+  if (id === "assets" && key === "reuse") {
+    return o.label.replace("{agents}", () => String(a.scanned.agents.length)).replace("{skills}", () => String(a.scanned.skills.length));
+  }
+  return o.label;
+}
+
+// 의미 규칙 재검사(참조 문서 10-1): answer 가 거부할 조합(모르는 키 · 단일 문항 복수 · none 배타 · ④ before:<키> 가 ② 답에 없음)이면 rc=2.
+// S2 의 resolveItem·checkSemantics 를 **그대로** 부른다(같은 규칙의 두 구현 금지). 노출(스캔 신호) 검사는 하지 않는다 —
+// 프로파일은 answer 시점 스캔 기준이고 render·verify 는 재스캔하지 않으므로, 모든 신호가 참인 가짜 sig 를 넘겨 노출 판정을 무력화한다.
+// checkSemantics 의 rc=1 은 여기서 rc=2 로 올린다(손으로 고친 프로파일 = 손상 — 사용자 답의 의미 오류가 아니다).
+const ALL_EXPOSED = { sig: { has: () => true } };
+function checkAnswerSemantics(ans, file) {
+  const what = `프로파일 ${file}`;
+  try {
+    const res = new Map();
+    for (const id of ITEM_IDS) {
+      const a = ans[id];
+      res.set(id, resolveItem(id, [...a.value, ...(a.other !== null ? [`other:${a.other}`] : [])], ALL_EXPOSED, what));
+    }
+    const irr = { value: ans.irreversible.value, other: ans.irreversible.other };
+    for (const id of ITEM_IDS) checkSemantics(res.get(id), irr, what);
+  } catch (e) {
+    if (e instanceof IntakeError) fail2(`${e.message} — answer 의 의미 규칙 위반(손으로 고친 프로파일 · answer 로 다시 기록한다)`);
+    throw e;
+  }
+}
+
+// render·verify 가 쓰는 answers — 5항목 전부 · 형식(타입·빈 답·같은 키 두 번·at·scanned)이 맞아야 한다(rc=2). 의미 규칙은 checkAnswerSemantics.
+function checkedAnswers(prof, file) {
+  const ans = prof.answers;
+  if (!isObj(ans)) fail2(`프로파일에 answers 가 없다: ${file}`);
+  for (const id of ITEM_IDS) {
+    const a = ans[id];
+    const w = `프로파일 answers.${id}`;
+    if (!isObj(a)) fail2(`${w} 가 없다(render·verify 는 5항목 전부 필요 — answer 로 채운다): ${file}`);
+    if (!Array.isArray(a.value) || a.value.some((k) => typeof k !== "string")) fail2(`${w}.value 가 문자열 배열이 아니다(손상): ${file}`);
+    if (new Set(a.value).size !== a.value.length) fail2(`${w}.value 에 같은 키가 두 번(손상): ${file}`);
+    if (!own(a, "other") || !(a.other === null || (typeof a.other === "string" && a.other !== ""))) fail2(`${w}.other 가 null 도 문장도 아니다(손상): ${file}`);
+    if (typeof a.source !== "string" || !SOURCE_VALUES.includes(a.source)) fail2(`${w}.source 가 declared|assumed|scanned 가 아니다(손상): ${file}`);
+    if (typeof a.at !== "string" || !AT_RE.test(a.at)) fail2(`${w}.at 이 YYYY-MM-DDTHH:MM:SSZ 가 아니다(손상): ${file}`);
+    if (id === "assets") {
+      const s = a.scanned;
+      const names = (v) => Array.isArray(v) && v.every((x) => typeof x === "string");
+      if (!isObj(s) || !names(s.agents) || !names(s.skills)) fail2(`${w}.scanned 가 { agents: [..], skills: [..] } 가 아니다(손상): ${file}`);
+      if ([...s.agents, ...s.skills].some((x) => CTRL_RE.test(x))) fail2(`${w}.scanned 이름에 제어 문자(탭 외 C0·DEL — 손상): ${file}`);
+    }
+    // 참조 문서 10-1: 렌더되는 문자열의 제어 문자는 rc=2 — answer 의 CTRL_RE(6절)를 그대로 쓴다(블록은 줄 단위 · CR 은 영구 drift).
+    if (typeof a.other === "string" && CTRL_RE.test(a.other)) fail2(`${w}.other 문장에 제어 문자(탭 외 C0·DEL — 손상): ${file}`);
+    if (a.value.length === 0 && a.other === null) fail2(`${w} 가 비었다(value [] · other null — 손상): ${file}`);
+  }
+  checkAnswerSemantics(ans, file);
+  // 렌더 전 방어: value 에 `other:…` 로 시작하는 키가 있으면 resolveItem 은 other 토큰으로 읽는다 — 라벨이 없는 키는 여기서 거른다.
+  for (const id of ITEM_IDS) for (const k of ans[id].value) if (labelOf(id, k, ans[id]) === null) fail2(`프로파일 answers.${id}.value 의 키가 카탈로그에 없다(손상): ${JSON.stringify(k)} — ${file}`);
+  if (typeof prof.factory_version !== "string" || prof.factory_version === "") fail2(`프로파일 factory_version 이 문자열이 아니다(손상): ${file}`);
+  if (CTRL_RE.test(prof.factory_version)) fail2(`프로파일 factory_version 에 제어 문자(탭 외 C0·DEL — 손상): ${file}`);
+  return ans;
+}
+
+// 한 줄 안의 값 목록(10-2 변형 규칙 "이음"·"other"): 값들 → (있으면) `그 외: <문장>` 을 ` · ` 로. keys=true 면 각 값 뒤에 ` (`키`)`.
+function inlineValues(id, a, keys) {
+  const parts = a.value.map((k) => (keys ? `${labelOf(id, k, a)} (${bt(k)})` : labelOf(id, k, a)));
+  if (a.other !== null) parts.push(keys ? `그 외: ${a.other} (${bt("other")})` : `그 외: ${a.other}`);
+  return parts.join(" · ");
+}
+
+// 줄 단위 블록(completion·approval)의 값 줄들 + other 줄.
+function valueLines(id, a) {
+  const out = a.value.map((k) => `- ${labelOf(id, k, a)} (${bt(k)})`);
+  if (a.other !== null) out.push(`- 그 외: ${a.other} (${bt("other")})`);
+  return out;
+}
+
+const isNoneIrr = (irr) => irr.value.includes("none"); // checkedAnswers 가 none 을 단독으로 보장한다
+
+// 블록 id → { hash, inner: [안쪽 줄] }. rel = 대상 루트 기준 프로파일 경로(`/`).
+function renderBlocks(prof, rel, file) {
+  const ans = checkedAnswers(prof, file);
+  const cv = CATALOG.catalog_version;
+  const hf = (id) => hashFields(id, ans[id]);
+  const out = new Map();
+  const put = (id, extra, inner) => out.set(id, { hash: sha256hex(canon({ block: id, catalog_version: cv, ...extra })), inner });
+
+  put("completion", { completion: hf("completion") }, valueLines("completion", ans.completion));
+
+  const irr = ans.irreversible;
+  const rules = [];
+  if (!isNoneIrr(irr)) rules.push(`단계 산출물이 비가역 목록에 닿는다 → 중대 — 비가역: ${inlineValues("irreversible", irr, true)}`);
+  rules.push("계약 변경·다도메인(SKILL.md 5-6 표) → 중대", "다파일·기능 추가 → 표준", "그 밖 → 경량");
+  const tier = ["단계 등급은 아래를 위에서부터 적용해 처음 맞는 것으로 정한다.", ...rules.map((r, i) => `${i + 1}. ${r}`)];
+  if (ans.cost.value.includes("error-worse")) tier.push("하한: 실패 비용 = 오류 우선 → 코드·설계 단계는 최소 표준");
+  put("tier", { irreversible: hf("irreversible"), cost: hf("cost") }, tier);
+
+  // ④ 는 ② 에서 파생하지 않는다(10-3) — 저장된 value 그대로.
+  const appr = valueLines("approval", ans.approval);
+  if (!ans.approval.value.includes("autonomous")) appr.push("- 자율 노브(_workspace/.autonomous): 허용하지 않음");
+  put("approval", { approval: hf("approval") }, appr);
+
+  const as = ans.assets;
+  const names = (arr) => (arr.length ? arr.join(", ") : "없음");
+  put("assets", { assets: hf("assets") }, [
+    `- 정책: ${inlineValues("assets", as, true)}`,
+    `- 스캔된 에이전트(${as.scanned.agents.length}): ${names(as.scanned.agents)}`,
+    `- 스캔된 스킬(${as.scanned.skills.length}): ${names(as.scanned.skills)}`,
+  ]);
+
+  // premise: 가정 항목(카탈로그 순서) → 비가역. 날짜 = premise 항목(irreversible + assumed)의 항목별 at 최신값 날짜 — 최상위 at 은 쓰지 않는다.
+  const assumedIds = ITEM_IDS.filter((id) => ans[id].source === "assumed");
+  const assumed = Object.fromEntries(assumedIds.map((id) => [id, hf(id)]));
+  const date = uniqSorted(["irreversible", ...assumedIds].map((id) => ans[id].at)).pop().slice(0, 10);
+  const fv = prof.factory_version;
+  const premise = [`**전제:** 프로파일 ${bt(rel)} (${date} · 팩토리 ${fv})`];
+  for (const id of assumedIds) premise.push(`- ⚠ 가정(무응답): ${ITEM[id].header} = ${inlineValues(id, ans[id], false)}`);
+  premise.push(isNoneIrr(irr) ? "- 비가역: 없음 — 전부 되돌릴 수 있다" : `- 비가역: ${inlineValues("irreversible", irr, false)} → 이 목록에 닿는 단계는 중대`);
+  put("premise", { irreversible: hf("irreversible"), assumed, date, factory_version: fv, profile: rel }, premise);
+  return out;
+}
+
+const blockText = (id, b) => `<!-- harness-profile:${id} sha256=${b.hash} -->\n${b.inner.join("\n")}\n<!-- /harness-profile:${id} -->\n`;
+
+function loadForS3(o, ctx) {
+  const p = profilePaths(ctx, o.orchestrator);
+  const rel = slash(path.relative(ctx.root, p.file));
+  const prof = readProfile(p.file);
+  if (prof === null) fail2(`프로파일 없음: ${rel} — answer 로 먼저 만든다`);
+  return { p, rel, prof: prof.obj, blocks: renderBlocks(prof.obj, rel, p.file) };
+}
+
+function cmdRender(o, ctx) {
+  const { blocks } = loadForS3(o, ctx);
+  const ids = o.block === undefined ? BLOCK_IDS : [o.block];
+  return { rc: 0, out: ids.map((id) => blockText(id, blocks.get(id))).join("\n"), err: "" };
+}
+
+// ── verify ──
+
+// 대상 파일: 없음 → absent · 읽기 실패(권한·디렉토리 등 I/O) → rc=2 · UTF-8 아님 → unreadable · 그 밖 → BOM 1개 제거 · CRLF→LF 뒤 줄 배열.
+function readTarget(file) {
+  let buf;
+  try { buf = fs.readFileSync(file); }
+  catch (e) {
+    if (e.code === "ENOENT" || e.code === "ENOTDIR") return { state: "absent" };
+    fail2(`대상 파일을 읽을 수 없다(환경 오류 — 검사하지 못했다): ${file} (${e.code || e.message})`);
+  }
+  let text;
+  try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buf); }
+  catch { diag(`대상 파일이 UTF-8 이 아니다(unreadable 로 판정): ${file}`); return { state: "unreadable" }; }
+  const lines = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").split("\n");
+  return { state: "ok", lines, info: lineInfo(lines) };
+}
+
+// 줄마다 { fenced, section }. 코드 펜스 = CommonMark 기본형: 0~3칸 들여쓴 ``` 또는 ~~~(3개 이상)로 열고(백틱 펜스의 info 에 백틱 금지),
+// 같은 문자·같거나 긴 길이·뒤 공백만인 줄로 닫는다 · 닫히지 않으면 문서 끝까지. 펜스 줄 자체도 fenced.
+// 섹션 = 펜스 밖 헤딩(HEADING_RE — 0~3칸 들여쓰기 뒤 # 또는 ## + 공백·탭/줄 끝)부터 다음 헤딩 전까지. 첫 헤딩 전은 section null.
+const HEADING_RE = /^ {0,3}#{1,2}(?:[ \t]|$)/;
+function lineInfo(lines) {
+  const info = [];
+  let fence = null;
+  let section = null;
+  for (const line of lines) {
+    if (fence !== null) {
+      const m = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+      if (m && m[1][0] === fence.ch && m[1].length >= fence.len) fence = null;
+      info.push({ fenced: true, section });
+      continue;
+    }
+    const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (m && !(m[1][0] === "`" && m[2].includes("`"))) {
+      fence = { ch: m[1][0], len: m[1].length };
+      info.push({ fenced: true, section });
+      continue;
+    }
+    // 헤딩(참조 문서 10-4 · CommonMark ATX): 0~3칸 들여쓰기 뒤 # 또는 ## + 공백·탭(또는 줄 끝). 4칸 이상 = 코드 블록 · ### 이하 = 경계 아님.
+    // 섹션 문구는 들여쓰기·끝 공백을 뗀 값 — 지정 섹션 비교(정확 일치 · `## 하네스:` 접두)가 들여쓰기에 흔들리지 않게.
+    if (HEADING_RE.test(line)) section = line.replace(/^ {0,3}/, "").replace(/[ \t]+$/, "");
+    info.push({ fenced: false, section });
+  }
+  return info;
+}
+
+const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// 한 파일 안 블록 하나의 판정(10-4 표 — 위에서부터 처음 맞는 것). want = { hash, inner } · inSection(section) = 지정 섹션인가.
+// 표식 = 펜스 밖에서 **줄 전체**가 정확히 여는/닫는 표식인 줄. 그 블록 id 의 `harness-profile:<id>` 를 담고 `<!--`·`-->` 가 있는데
+// 정확한 표식이 아닌 줄(앞뒤 공백·해시 형식·대문자 등)은 형식 불일치 → malformed.
+function judgeBlock(id, doc, want, inSection) {
+  if (doc.state === "absent") return "missing";
+  if (doc.state === "unreadable") return "unreadable";
+  const openRe = new RegExp(`^<!-- harness-profile:${reEsc(id)} sha256=([0-9a-f]{64}) -->$`);
+  const close = `<!-- /harness-profile:${id} -->`;
+  const looseRe = new RegExp(`harness-profile:${reEsc(id)}(?![A-Za-z0-9_-])`);
+  const ev = [];
+  doc.lines.forEach((line, i) => {
+    if (doc.info[i].fenced) return;
+    const m = openRe.exec(line);
+    if (m) ev.push({ t: "open", hash: m[1], i });
+    else if (line === close) ev.push({ t: "close", i });
+    else if (looseRe.test(line) && (line.includes("<!--") || line.includes("-->"))) ev.push({ t: "bad", i });
+  });
+  if (ev.length === 0) return "missing";
+  if (ev.some((e) => e.t === "bad")) return "malformed";
+  const pairs = [];
+  let cur = null;
+  for (const e of ev) {
+    if (e.t === "open") { if (cur !== null) return "malformed"; cur = e; }
+    else { if (cur === null) return "malformed"; pairs.push([cur, e]); cur = null; }
+  }
+  if (cur !== null) return "malformed";
+  if (pairs.length > 1) return "duplicate";
+  const [op, cl] = pairs[0];
+  if (!inSection(doc.info[op.i].section) || !inSection(doc.info[cl.i].section)) return "misplaced";
+  if (op.hash !== want.hash) return "stale";
+  if (doc.lines.slice(op.i + 1, cl.i).join("\n") !== want.inner.join("\n")) return "drift";
+  return "ok";
+}
+
+function cmdVerify(o, ctx) {
+  const { p, prof, blocks } = loadForS3(o, ctx);
+  const skill = readTarget(path.join(p.dir, "SKILL.md"));
+  const claude = readTarget(path.join(ctx.root, "CLAUDE.md"));
+  const agents = readTarget(path.join(ctx.root, "AGENTS.md"));
+  const inPremise = (s) => s !== null && s.startsWith(PREMISE_SECTION);
+  const w = [];
+  for (const id of BLOCK_IDS.slice(0, 4)) w.push([id, judgeBlock(id, skill, blocks.get(id), (s) => s === SECTION_OF[id])]);
+  w.push(["premise.claude", judgeBlock("premise", claude, blocks.get("premise"), inPremise)]);
+  w.push(["premise.agents", agents.state === "absent" ? "na" : judgeBlock("premise", agents, blocks.get("premise"), inPremise)]);
+  const ans = prof.answers;
+  const dated = (src) => {
+    const ids = ITEM_IDS.filter((id) => ans[id].source === src);
+    return ids.length ? ids.map((id) => `${id}(${ans[id].at.slice(0, 10)})`).join(" ") : "none";
+  };
+  const out = `WIRED: ${w.map(([k, v]) => `${k}=${v}`).join(" ")}\nDECLARED: ${dated("declared")}\nASSUMED: ${dated("assumed")}\n`;
+  return { rc: w.some(([, v]) => v !== "ok" && v !== "na") ? 1 : 0, out, err: "" };
+}
+
 // ── 인자 ──
 
 const ARG_SPEC = {
   questions: { val: ["--root", "--now", "--orchestrator", "--mode", "--after"], rep: [], flag: [] },
   answer: { val: ["--root", "--now", "--orchestrator", "--mode", "--from-file"], rep: ["--set", "--recommended", "--why"], flag: ["--from-env", "--defaults"] },
+  // S3 — --now 는 받지 않는다(시각을 쓰지 않으므로 받으면 결정성을 오해한다 · rc=2).
+  render: { val: ["--root", "--orchestrator", "--block"], rep: [], flag: [] },
+  verify: { val: ["--root", "--orchestrator"], rep: [], flag: [] },
 };
 
 // 판정 순서 ① — 인자 형식·출처 개수·--orchestrator. 반복 가능 옵션(--set·--recommended·--why) 외에 두 번 오면 rc=2.
@@ -1185,6 +1452,8 @@ function parseS2Args(sub, argv) {
       const val = argv[++i];
       if (spec.rep.includes(a)) rep[a].push(val);
       else { if (seen.has(a)) failUsage(`옵션이 두 번: ${a}`); seen.add(a); v[a] = val; }
+    } else if (a === "--now" && (sub === "render" || sub === "verify")) {
+      failUsage(`${sub} 는 --now 를 받지 않는다 — 시각을 쓰지 않는다(같은 프로파일 → 같은 출력)`);
     } else if (a.startsWith("-")) {
       failUsage(`모르는 옵션(${sub}): ${a}`);
     } else {
@@ -1192,7 +1461,7 @@ function parseS2Args(sub, argv) {
     }
   }
   const o = {
-    root: v["--root"], now: v["--now"], orchestrator: v["--orchestrator"], mode: v["--mode"], after: v["--after"], fromFile: v["--from-file"],
+    root: v["--root"], now: v["--now"], orchestrator: v["--orchestrator"], mode: v["--mode"], after: v["--after"], fromFile: v["--from-file"], block: v["--block"],
     fromEnv: seen.has("--from-env"), defaults: seen.has("--defaults"),
     set: rep["--set"], recommended: rep["--recommended"], why: rep["--why"],
   };
@@ -1201,12 +1470,15 @@ function parseS2Args(sub, argv) {
     if (!["new", "extend", "maintain", "update"].includes(o.mode)) failUsage(`--mode 값이 아니다: ${o.mode}(new|extend|maintain|update)`);
     if (o.after !== undefined && o.mode !== "new") failUsage("--after 는 --mode new 와만 쓴다");
     if (o.mode !== "new" && o.orchestrator === undefined) failUsage(`--mode ${o.mode} 는 --orchestrator 가 필요하다(기존 프로파일 위치)`);
-  } else {
+  } else if (sub === "answer") {
     if (o.mode === undefined) o.mode = "new";
     if (!["new", "extend"].includes(o.mode)) failUsage(`answer 의 --mode 는 new|extend: ${o.mode}`);
     if (o.orchestrator === undefined) failUsage("--orchestrator 가 없다");
     const n = (o.set.length ? 1 : 0) + (o.fromEnv ? 1 : 0) + (o.fromFile !== undefined ? 1 : 0);
     if (n > 1) failUsage("--set·--from-env·--from-file 중 하나만 쓴다");
+  } else {
+    if (o.orchestrator === undefined) failUsage("--orchestrator 가 없다");
+    if (o.block !== undefined && !BLOCK_IDS.includes(o.block)) failUsage(`--block 값이 블록 id 가 아니다: ${JSON.stringify(o.block)}(${BLOCK_IDS.join("|")})`);
   }
   if (o.orchestrator !== undefined && !ORCH_RE.test(o.orchestrator)) failUsage(`--orchestrator 이름이 ^[a-z0-9][a-z0-9-]{0,63}$ 가 아니다: ${JSON.stringify(o.orchestrator)}`);
   return o;
@@ -1223,10 +1495,13 @@ function rootOf(root) {
 async function runS2(sub, argv) {
   try {
     const o = parseS2Args(sub, argv);
-    const now = parseNow(o.now);
+    const now = sub === "questions" || sub === "answer" ? parseNow(o.now) : null; // render·verify 는 시각을 쓰지 않는다
     const ctx = { root: rootOf(o.root), home: path.resolve(os.homedir()) };
-    const r = sub === "questions" ? cmdQuestions(o, ctx) : await cmdAnswer(o, ctx, now);
-    return exitWith(0, r.out, r.err);
+    const r = sub === "questions" ? cmdQuestions(o, ctx)
+      : sub === "answer" ? await cmdAnswer(o, ctx, now)
+      : sub === "render" ? cmdRender(o, ctx)
+      : cmdVerify(o, ctx);
+    return exitWith(r.rc === undefined ? 0 : r.rc, r.out, r.err);
   } catch (e) {
     if (e instanceof IntakeError) return exitWith(e.rc, "", `harness-intake: ${e.message}\n${e.usage ? USAGE + "\n" : ""}`);
     throw e;
@@ -1235,7 +1510,7 @@ async function runS2(sub, argv) {
 
 // ───────────────────────── CLI ─────────────────────────
 
-const USAGE = "사용: node harness-intake.mjs <scan|questions|answer|selftest> [--root <dir>] [--now <ISO>] …(questions·answer 옵션: references/harness-interview.md)";
+const USAGE = "사용: node harness-intake.mjs <scan|questions|answer|render|verify|selftest> [--root <dir>] [--now <ISO>] …(questions·answer·render·verify 옵션: references/harness-interview.md)";
 
 function exitWith(code, out, err) {
   if (err) process.stderr.write(err);
@@ -1255,8 +1530,8 @@ async function main(argv) {
     const r = spawnSync(process.execPath, [st, ...argv.slice(1)], { stdio: "inherit" });
     return exitWith(typeof r.status === "number" ? r.status : 2, "", r.error ? `harness-intake: selftest 실행 실패 (${r.error.message})\n` : "");
   }
-  if (sub === "questions" || sub === "answer") return runS2(sub, argv.slice(1));
-  if (sub !== "scan") return exitWith(2, "", `not implemented in this version: ${sub}\n`);
+  if (sub === "questions" || sub === "answer" || sub === "render" || sub === "verify") return runS2(sub, argv.slice(1));
+  if (sub !== "scan") return usageError(`모르는 서브커맨드: ${sub}`);
 
   let root = process.cwd();
   for (let i = 1; i < argv.length; i++) {

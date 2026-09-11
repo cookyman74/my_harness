@@ -1,4 +1,4 @@
-// CLI 공통 계약(명세 §2) — 사용 오류 rc=2 · 미구현 서브커맨드 · --root 기본값 · --now · import 시 CLI 미실행 · 심링크 실행.
+// CLI 공통 계약(명세 §2) — 사용 오류 rc=2 · 모르는 서브커맨드 · --root 기본값 · --now · import 시 CLI 미실행 · 심링크 실행.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -27,11 +27,13 @@ test('--root 가 디렉토리 아님(파일) → rc=2', () => {
   assert.equal(scan({ root: path.join(fx.root, 'CHANGELOG.md'), home: fx.home, pathDirs: [fx.bin] }).rc, 2);
 });
 
-test('미구현 서브커맨드(render) → rc=2 · stderr "not implemented in this version: render"', () => {
+test('모르는 서브커맨드(bogus) → rc=2 · stdout 비어 있음 · stderr 사용법(S3 — render·verify 구현 뒤 "미구현" 경로 없음)', () => {
   requireFile(INTAKE);
-  const r = runNode(INTAKE, ['render', '--root', fx.root], { env: env() });
+  const r = runNode(INTAKE, ['bogus', '--root', fx.root], { env: env() });
   assert.equal(r.rc, 2);
-  assert.ok(r.stderr.includes('not implemented in this version: render'), r.stderr);
+  assert.equal(r.stdout, '');
+  assert.ok(!r.stderr.includes('not implemented'), r.stderr);
+  assert.ok(r.stderr.includes('사용:'), `stderr 에 사용법(USAGE) 없음: ${r.stderr}`);
 });
 
 test('--root 기본값 = cwd → 골든과 같다', () => {

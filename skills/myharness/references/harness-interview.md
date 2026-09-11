@@ -3,7 +3,7 @@
 ## 목차 (필요한 섹션만 로드)
 - 1 역할과 범위 — 인터뷰를 돌리기 전 · 2 카탈로그(기계 판독 블록) — 문항·선택지·라벨을 볼 때 · 3 기본값 규칙("안전한 쪽") — 기본을 판단할 때
 - 4 선택지 도출·쪽 분할·확인만 — `questions` 출력을 해석할 때 · 5 렌더링(대화형·텍스트·비대화) — 사용자에게 물을 때 · 6 답 형식·검증 — `answer` 를 부를 때
-- 7 프로파일 — 파일·`at` 규칙을 볼 때 · 8 정규 JSON·해시 필드 — `render`/`verify`(S3) · 9 결선표 — 블록을 어디에 넣는지(S3·S4)
+- 7 프로파일 — 파일·`at` 규칙을 볼 때 · 8 정규 JSON·해시 필드 — `render`/`verify` · 9 결선표 — 블록을 어디에 넣는지 · 10 `render`·`verify` 계약 — 블록 문장·해시 입력·판정
 
 ---
 
@@ -191,6 +191,7 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs answer --orchestrat
 | 숫자만인 토큰(위치 번호) | 2 — 선택지 세트가 바뀌면 조용히 다른 답이 된다 |
 | 같은 항목 두 번 · 한 항목 안 같은 토큰 두 번 | 2 — 어느 쪽인지 모호하다 |
 | 빈 토큰(`a,,b`)·빈 값(`cost=`)·`=` 없는 조각(끝의 `;` 포함) · 빈 `other:` · 한 항목에 `other:` 두 번 | 2 |
+| `other:<문장>` 에 제어 문자(개행 `\n`·`\r`·탭 외 C0·DEL)가 있음 | 2 — 블록은 줄 단위라 개행이 들어가면 줄 구조가 깨지고 CR 은 영구 `drift` 가 된다(S3 결정) · `--why` 문장은 렌더하지 않으므로 이 제한을 두지 않는다 |
 | 입력 출처를 줬는데 내용이 빔(빈 env·빈 파일) | 2 — `--defaults` 만 원하면 출처를 주지 않는다 |
 | ④ `before:none` · `before:<이번 스캔에서 노출되지 않은 ②키>` | 2(모르는 선택지 키) |
 | 빠진 항목이 있고 `--defaults` 없음 | 2 — 기본값을 **암묵적으로** 쓰지 않는다 |
@@ -277,3 +278,120 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs answer --orchestrat
 | 전제 | `premise` | 대상 `CLAUDE.md` **와** `AGENTS.md` 의 하네스 섹션 | 생성 하네스 Phase 0 컨텍스트 확인 · Phase 7 |
 
 표식 형식은 `<!-- harness-profile:<블록 id> sha256=<해시> -->` … `<!-- /harness-profile:<블록 id> -->`(설계서 §7-1). 전제 절에는 가정 항목·비가역·경로만 둔다 — 5-4 "넣지 않는 것" 원칙(`SKILL.md:269`).
+
+---
+
+## 10. `render`·`verify` 계약
+
+```
+node <이 스킬의 디렉토리>/scripts/harness-intake.mjs render --orchestrator <이름> [--block <id>] [--root <대상>]
+node <이 스킬의 디렉토리>/scripts/harness-intake.mjs verify --orchestrator <이름> [--root <대상>]
+```
+
+`render` 는 **프로파일만** 읽는다(실시간 스캔·실행 시각 금지 — 같은 프로파일 → 바이트 동일). 파일을 쓰지 않는다 — 모델이 블록을 지정 위치에 넣는다.
+
+### 10-1. 블록 형식
+
+```
+<!-- harness-profile:<id> sha256=<64자 소문자 16진> -->
+<내용 줄들>
+<!-- /harness-profile:<id> -->
+```
+- **섹션 헤딩은 블록 밖**에 둔다(S4 템플릿이 헤딩을 소유 — 블록에 헤딩을 넣으면 두 번 나온다). 블록은 내용만 싣는다.
+- `render` 출력 = 블록 5개를 `completion` · `tier` · `approval` · `assets` · `premise` 순으로, 블록 사이 빈 줄 1개, 끝 개행 1개. `--block <id>` 면 그 블록 하나.
+- 표기 규칙은 아래 10-2 의 **예시가 규범**이다(글로 쓴 규칙과 예시가 다르면 예시를 따른다). 백틱은 선택지 키와 `premise` 첫 줄의 프로파일 경로에만 쓴다.
+- `--block <id>` 출력도 끝 개행 1개로 끝난다. `render` 는 프로파일의 답이 `answer` 의 의미 규칙(6절 — 모르는 키·단일 문항 복수·`none` 배타·④ `before:<키>` 가 ② 답에 없음)을 어기면 rc=2 로 멈춘다(손으로 고친 프로파일로 `answer` 가 거부할 조합의 블록을 만들지 않게). 렌더되는 문자열(`other` 문장 · `scanned` 이름 · `factory_version`)에 제어 문자(탭 외 C0·DEL)가 있어도 rc=2 — 블록은 줄 단위라 개행이 들어가면 줄 구조가 깨지고 CR 은 영구 `drift` 가 된다(6절 `answer` 규칙과 같은 이유). `verify` 도 같다.
+
+### 10-2. 블록 내용 — 규범 예시
+
+**예시 프로파일**(오케스트레이터 `orch1` · `factory_version` `1.7.5`): ① `completion` = `tests-pass`,`ci-green`(declared) · ② `irreversible` = `release-publish`,`unknown` + `other:데이터 삭제`(declared · `at` 2026-09-10) · ③ `cost` = `error-worse`(**assumed** · `at` 2026-09-11) · ④ `approval` = `before:release-publish`,`before:unknown`,`ladder`(declared) · ⑤ `assets` = `reuse`(declared · `scanned` 에이전트 `a1`,`a2` · 스킬 `s1`).
+
+아래는 각 블록의 **안쪽 줄**(여는·닫는 표식 사이)이다.
+
+```text
+[completion]
+- 테스트 게이트 통과 (`tests-pass`)
+- CI green (`ci-green`)
+
+[tier]
+단계 등급은 아래를 위에서부터 적용해 처음 맞는 것으로 정한다.
+1. 단계 산출물이 비가역 목록에 닿는다 → 중대 — 비가역: 릴리스·태그 발행 (`release-publish`) · 모름 — 비가역으로 취급 (`unknown`) · 그 외: 데이터 삭제 (`other`)
+2. 계약 변경·다도메인(SKILL.md 5-6 표) → 중대
+3. 다파일·기능 추가 → 표준
+4. 그 밖 → 경량
+하한: 실패 비용 = 오류 우선 → 코드·설계 단계는 최소 표준
+
+[approval]
+- 「릴리스·태그 발행」 직전 승인 (`before:release-publish`)
+- 「모름 — 비가역으로 취급」 직전 승인 (`before:unknown`)
+- 중대 단계 승인 사다리(PRD→계획서→실행) (`ladder`)
+- 자율 노브(_workspace/.autonomous): 허용하지 않음
+
+[assets]
+- 정책: 재사용 우선 — 에이전트 2·스킬 1 (`reuse`)
+- 스캔된 에이전트(2): a1, a2
+- 스캔된 스킬(1): s1
+
+[premise]
+**전제:** 프로파일 `.claude/skills/orch1/harness-profile.json` (2026-09-11 · 팩토리 1.7.5)
+- ⚠ 가정(무응답): 실패 비용 = 오류가 더 아프다 — 늦더라도 정확하게
+- 비가역: 릴리스·태그 발행 · 모름 — 비가역으로 취급 · 그 외: 데이터 삭제 → 이 목록에 닿는 단계는 중대
+```
+
+**변형 규칙**(위 예시에서 달라지는 곳만):
+
+| 경우 | 달라지는 줄 |
+|---|---|
+| 선택지 한 개 표기 | 블록 `completion`·`tier`·`approval`·`assets` 는 `라벨 (` + 백틱 키 + `)` · 블록 `premise` 는 **라벨만**(키 없음) |
+| 이음 | 한 줄 안의 여러 값은 ` · `(공백·가운뎃점·공백) · `assets` 의 이름 목록만 `, ` |
+| `other` | 값 목록 **뒤에** `그 외: <문장>`(키 표기 블록에서는 뒤에 ` (` + 백틱 `other` + `)`) · 줄 단위 블록(`completion`·`approval`)은 `- 그 외: <문장> (…other…)` 줄 하나를 값 줄들 뒤에 |
+| `approval` 순서 | `value` 줄들 → `other` 줄 → (`autonomous` 가 `value` 에 없을 때만) `- 자율 노브(_workspace/.autonomous): 허용하지 않음` · `autonomous` 가 있으면 그 줄 대신 `- 자율 노브 허용(_workspace/.autonomous) (…autonomous…)` 가 `value` 순서 자리에 · `before:other` 라벨 = 「그 외 비가역」 직전 승인 |
+| ② = `none` | `tier`: 비가역 규칙 줄을 **빼고** 번호 1~3(`1. 계약 변경·…` `2. 다파일·…` `3. 그 밖 → 경량`) · `premise` 마지막 줄 `- 비가역: 없음 — 전부 되돌릴 수 있다`(뒤 문구 없음) |
+| ③ ≠ `error-worse` | `tier` 의 `하한:` 줄 없음 |
+| ⑤ 가 `other` 만 | `- 정책: 그 외: <문장> (…other…)` |
+| 스캔 0개 | `- 스캔된 에이전트(0): 없음` · `- 스캔된 스킬(0): 없음` |
+| 가정 항목 없음 | `premise` 에 `⚠` 줄 없음(첫 줄 다음이 바로 `- 비가역:` 줄) · 가정 항목이 여럿이면 카탈로그 순서로 한 줄씩 · 값은 라벨(⑤ 는 수 채운 라벨) · `other` 는 `그 외: <문장>` |
+
+- **premise 날짜** = premise 항목(`irreversible` + `source: assumed` 항목)들의 항목별 `at` 중 최신값의 날짜 부분(`YYYY-MM-DD`, **UTC** — 로컬 시간대로 바꾸지 않는다). 최상위 `at` 은 쓰지 않는다.
+- `⚠` 줄의 항목 이름은 카탈로그 `header` 다. ② 자체가 가정이면 ② 의 `⚠` 줄과 마지막 `- 비가역:` 줄이 둘 다 나온다.
+
+### 10-3. 블록별 해시 입력(정규 JSON — 8절)
+
+| 블록 | 입력 객체 |
+|---|---|
+| 공통 | `{"block": <id>, "catalog_version": <2절 값>, …}` |
+| `completion` | `completion`: 항목 해시 필드 |
+| `tier` | `irreversible`·`cost`: 각 항목 해시 필드 |
+| `approval` | `approval`: 항목 해시 필드 — **② 에서 파생하지 않는다.** ② 가 바뀌어 `before:*` 가 무효가 되면 `answer` 가 ④ 재답을 요구한다(rc=1 — 6절) |
+| `assets` | `assets`: 항목 해시 필드(`scanned` 포함) |
+| `premise` | `irreversible`: 해시 필드 · `assumed`: `{항목: 해시 필드}`(가정 항목이 없으면 **빈 객체 `{}`** — 키를 빼지 않는다) · `date`: premise 날짜 · `factory_version` · `profile`: 대상 루트 기준 프로파일 경로(`/`) |
+
+원칙: **렌더 내용에 들어가는 값은 전부 그 블록의 해시 입력에 있다**(라벨은 `catalog_version` 이 대표한다 — 라벨이 바뀌면 `catalog_version` 을 올려 `stale` 로 드러낸다).
+
+### 10-4. `verify` 판정
+
+대상 파일: `<대상>/.claude/skills/<오케스트레이터>/SKILL.md`(블록 4종) · `<대상>/CLAUDE.md`·`<대상>/AGENTS.md`(`premise`). 파일은 UTF-8 로 **엄격** 해독(깨진 바이트면 그 파일의 블록 전부 `unreadable`)하고 BOM 제거 · CRLF→LF 정규화 뒤 비교한다.
+
+| 판정 | 조건(위에서부터 처음 맞는 것) |
+|---|---|
+| `missing` | 파일이 없거나 블록이 없음(코드 펜스 ```` ``` ````/`~~~` 안의 표식은 **세지 않는다**) |
+| `unreadable` | 파일이 UTF-8 이 아님 — 그 파일에서 찾는 블록 **전부**(블록이 있는지조차 알 수 없으므로 `missing` 보다 앞선다 · 파일이 아예 없으면 `missing`) |
+| `malformed` | 여는 표식만 있고 닫는 표식이 없음(또는 그 반대) · 표식 형식 불일치 |
+| `duplicate` | 같은 블록이 한 파일에 둘 이상 |
+| `misplaced` | 블록이 지정 섹션 밖 — 4종은 SKILL.md 의 `## 완료 기준`·`## 리스크 등급`·`## 승인 관문`·`## 기존 자산`, `premise` 는 `## 하네스:` 로 시작하는 섹션(섹션 = 그 헤딩부터 다음 `#`/`##` 헤딩 전까지 · **헤딩 = 펜스 밖에서 줄 머리 공백 0~3칸 뒤 `#` 또는 `##` 와 공백·탭(또는 줄 끝)** — CommonMark ATX 헤딩(`#태그` 처럼 붙어 있으면 헤딩 아님) · 4칸 이상은 코드 블록이라 헤딩 아님 · `###` 이하는 경계 아님 · 헤딩 문구 비교는 들여쓰기·끝 공백을 뗀 뒤 정확 일치) |
+| `stale` | 표식 해시 ≠ 현재 프로파일로 계산한 해시(답이 바뀌었는데 다시 렌더하지 않았다) |
+| `drift` | 해시는 같은데 내용 ≠ `render` 출력(손으로 고쳤다 — **의도된 fail-loud**, 완화하지 않는다) |
+| `ok` | 그 밖 |
+
+- `AGENTS.md` 가 **없으면** `premise.agents=na`(듀얼 런타임이 아님 — 실패 아님). 있으면 블록이 있어야 한다.
+- **코드 펜스**: 줄 머리 공백 0~3칸 뒤 ```` ``` ```` 또는 `~~~`(3개 이상)로 열고, 같은 문자·같거나 긴 길이로 닫는다(CommonMark 기본형). 펜스 안의 표식·헤딩은 세지 않는다.
+- **표식 판정**: 줄 전체가 정확히 여는/닫는 표식 형식이어야 표식이다(앞뒤 공백·대문자 16진·해시 길이 불일치는 아니다). `harness-profile:<블록 id>` 와 `<!--` 또는 `-->` 를 담고 있는데 정확한 표식이 아닌 줄은 그 블록의 `malformed` 로 본다(가짜 표식이 조용히 무시되지 않게). 블록 id 5종이 **아닌** id(`harness-profile:bogus`)는 어느 블록에도 속하지 않아 무시한다.
+- **대상 파일을 읽을 수 없음**(권한 등 I/O 오류) → rc=2(검사를 하지 못했다 — 환경 오류). `unreadable` 은 **읽었는데 UTF-8 이 아닌** 경우만이다.
+- 출력(stdout 3줄 · 항목은 카탈로그 순서 · 날짜 = 항목별 `at` 의 날짜 부분):
+  ```
+  WIRED: completion=<판정> tier=<판정> approval=<판정> assets=<판정> premise.claude=<판정> premise.agents=<판정|na>
+  DECLARED: <항목>(<날짜>) … | none
+  ASSUMED: <항목>(<날짜>) … | none
+  ```
+- rc: `ok`·`na` 가 아닌 판정이 하나라도 있으면 **1** · 프로파일 없음·JSON 오류·스키마 불일치·인자 오류는 **2**.
+
