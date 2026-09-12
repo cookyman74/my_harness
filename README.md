@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.7.5-brightgreen.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-1.8.0-brightgreen.svg" alt="Version">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/Claude_Code-Plugin-purple.svg" alt="Claude Code Plugin">
   <img src="https://img.shields.io/badge/Runtime-Claude_Code_+_Codex-blueviolet.svg" alt="Dual Runtime">
@@ -71,6 +71,7 @@ claude   # start the Claude Code CLI (for Codex, use the codex command)
 | Feature | Details |
 |---------|---------|
 | **6 team architectures** | Pipeline · Fan-out/Fan-in · Specialist pool · Generate-and-verify · Supervisor · Hierarchical delegation. Picks the pattern that fits the domain |
+| **Configuration interview** | Phase 0.5 asks for the harness premises up front — completion criteria · irreversibility · failure cost · approval points · existing assets — and records them in a profile. `scripts/harness-intake.mjs` (`scan`·`questions`·`answer`·`render`·`verify`) renders the answers into 5 wiring blocks (`completion`·`tier`·`approval`·`assets` in the orchestrator skill, `premise` in `CLAUDE.md`/`AGENTS.md`), and `verify` fails Phase 6 when any block is missing, stale, or hand-edited. Non-interactive runs fall back to safe defaults and report every `ASSUMED:` item. Contract: `references/harness-interview.md` |
 | **Agent teams by default** | Spawn teammates with the `Agent` tool, communicate directly via `SendMessage`, and self-coordinate through a shared task list (`TaskCreate`). Quality rises through shared findings and debating disagreements |
 | **Automatic skill generation** | Progressive Disclosure (staged loading: metadata → body → references) for context efficiency. Trigger descriptions are written aggressively |
 | **Two-layer quality gate** | Internal generate-and-verify QA **+** an external independent review loop. Details below |
@@ -108,6 +109,7 @@ A generated harness separates **who** from **how**:
 
 ```
 Phase 0  Status audit (check existing harness for drift · branch into new/extend/maintain/update)
+Phase 0.5  Configuration interview (completion criteria · risk tier · approval gates · existing assets → profile)
 Phase 1  Domain analysis (task type · conflicts with existing assets · detect user skill level)
 Phase 2  Team architecture design (execution mode + choice among the 6 patterns)
 Phase 3  Generate agent definitions (.claude/agents/ · doctrine injection)
@@ -230,8 +232,8 @@ my_harness/
 │   ├── SKILL.md                 # main skill (7-phase workflow)
 │   ├── references/              # factory-map · agent-design-patterns · orchestrator-template ·
 │   │                            #   external-review-loop · tdd-doctrine · dev-rules ·
-│   │                            #   runtime-adapters · harness-update · loop-self-eval, etc.
-│   └── scripts/                 # check-review-tools · build-scorecard · harness-update
+│   │                            #   runtime-adapters · harness-update · harness-interview · loop-self-eval, etc.
+│   └── scripts/                 # harness-intake · check-review-tools · build-scorecard · harness-update
 ├── AGENTS.md                    # Codex entry point
 ├── install.sh                   # dual-runtime install
 └── README.md / README_KO.md / README_JA.md
