@@ -16,7 +16,7 @@
 
 **구성:** 에이전트 5(`doc-syncer`, `release-manager`, `skill-maintainer`, `stabilizer`, `repo-qa`) + 스킬 3(`doc-sync`, `release-flow`, `skill-authoring`) + 오케스트레이터(`repo-maintainer`). 모드: 에이전트 팀(생성-검증+파이프라인 하이브리드), 전원 `model: opus`. **안정화 게이트(중대 blast-radius):** 팩토리 정본(`skills/myharness/`) 변경은 skill-maintainer→`stabilizer`(정책감사 `run-policy-audit.sh`·외부리뷰 `external-review-loop`·회귀 드라이런·리스크 등급 조절) 게이트 통과 후 배포. 상세는 각 `.claude/agents/*`, `.claude/skills/*`에서 단일 출처로 관리.
 
-**알려진 정합성 이슈:** 없음. 버전 1.8.0 정합(plugin=marketplace=badge×3=CHANGELOG), `bash skills/myharness/scripts/run-policy-audit.sh` PASS(fail 0, warn 0). **HI10(인터뷰 효과 실측)은 보류 상태로 릴리스** — 배선은 검증, before/after 비교는 미실행(`docs/v1.7.6/working_history/S5-measurement.md` §5).
+**알려진 정합성 이슈:** 없음. 버전 1.8.0 정합(plugin=marketplace=badge×3=CHANGELOG), `bash skills/myharness/scripts/run-policy-audit.sh` PASS(fail 0, warn 0). **다음 릴리스 = v1.8.3**(모델 배치 · `docs/v1.8.3/` — 구 v1.7.7 재번호, 2026-09-13). **HI10(인터뷰 효과 실측)은 보류 상태로 릴리스** — 배선은 검증, before/after 비교는 미실행(`docs/v1.7.6/working_history/S5-measurement.md` §5).
 
 ## 하네스 3: harness-ui-dev (harness-ui v0.6 기획·개발)
 
@@ -32,13 +32,13 @@
 
 ## 변경 이력
 
-전체 원장: [`docs/harness-history.md`](docs/harness-history.md) — 32건(2026-06-08~), 날짜 역순, 원문 보존. 과거 문서의 "CLAUDE.md 이력 YYYY-MM-DD" 인용은 원장의 같은 날짜 행이다.
+전체 원장: [`docs/harness-history.md`](docs/harness-history.md) — 33건(2026-06-08~), 날짜 역순, 원문 보존. 과거 문서의 "CLAUDE.md 이력 YYYY-MM-DD" 인용은 원장의 같은 날짜 행이다.
 **여기에는 최근 5건만 한 줄로 둔다** — 매 세션 로딩되는 파일이라 상세는 원장에 쓴다. 새 변경은 원장에 전문 행을 먼저 추가하고, 여기에 한 줄 요약을 올린 뒤 가장 오래된 요약을 지운다.
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+| 2026-09-13 | **로드맵 재번호** v1.7.7 → **v1.8.3**(`docs/v1.8.3/`) — 1.8.0 릴리스로 깨진 번호 계획 정정 · 1.8.0 유지 | `docs/v1.8.3/`, PRD, `CLAUDE.md` | 사용자 결정 |
 | 2026-09-12 | **릴리스 v1.8.0** — 구성 인터뷰(HI1~HI13) · 측정 도구 · HI10 효과 실측은 보류 명시 · PR→머지→태그→Release | `.claude-plugin/*.json`, `CHANGELOG.md`, `README*.md` | 사용자 릴리스 요청 |
 | 2026-09-12 | **v1.7.6 S5** — HI10 측정 도구(`criteria.json` 일반화 · 인터뷰 케이스 2) 완성 · 보정 1회($3.73 · 배선 11/11 ok) · **효과 판정 보류**(before 미실행 · 사용자 보류 → 릴리스 전 결정) · 외부리뷰 R1~R7 수렴(확인 7 반영 · 기각 2) | `tests/test-case-coverage*.sh`, `docs/v1.7.6/cases/harness-interview/*` | v1.7.6 S5 |
 | 2026-09-12 | **v1.7.6 S4b** — 결선표 소비처 쪽 누락 8건(외부리뷰 스킬 `{등급}`·승인 관문 블록 · Phase 5 렌더/복사 · 7-4/7-5 · premise 헤딩 요구) 정본 배선 · `SKILL.md` 494 · 외부리뷰 R1~R2 클린 수렴(리뷰어 신규 0) | `skills/myharness/SKILL.md`, `references/{external-review-loop,runtime-adapters}.md` | 배선도 재검토 |
 | 2026-09-12 | **v1.7.6 S4** — 정본 배선(`SKILL.md` 463→490 · Phase 0.5 인터뷰·2-4 등급·6-7 결선 검증 · 템플릿 4섹션 · `MANAGED_RELS` 12 + 헤더 드리프트 고정) · 드라이런 2종 · 외부리뷰 R1~R7 수렴(확인 16 전부 수정 · 정본 편집 규칙 신설) · 테스트 트랩 은폐 수정 | `skills/myharness/**`, `tests/test-harness-update.sh`, `CHANGELOG.md` | v1.7.6 S4 |
-| 2026-09-12 | **v1.7.6 S3** — `render`·`verify`(표식 블록 5종 · 해시 대조 · 가짜 결선 판정 7종) + 참조 문서 10절 규범 예시 · 테스트 510(작성자 분리 · 불일치 0) · 외부리뷰 R1~R4 수렴 | `skills/myharness/{scripts/harness-intake.mjs,references/harness-interview.md}`, `tests/harness-intake/**` | v1.7.6 S3 |
