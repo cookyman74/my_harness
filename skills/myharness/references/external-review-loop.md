@@ -210,7 +210,7 @@ bash "{스킬scripts}/run-review.sh" "{단계ID}" "{러너}"   # 경로에 공�
 **최소 스키마** — 이대로 쓰면 Step 8 이 그냥 돈다:
 ```json
 { "loop":"external-review", "stage_id":"{단계ID}", "rounds":1,
-  "risk_level":"중대", "diff_lines":120, "termination_reason":"converged",
+  "risk_level":"critical", "diff_lines":120, "termination_reason":"converged",
   "issues":[ {"fingerprint":"파일+결함요지", "verdict":"confirmed", "round":1, "source":"codex"} ],
   "reviewer_coverage":[ {"reviewer":"codex","round":1,"scope":"full","status":"ok"} ] }
 ```

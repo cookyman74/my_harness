@@ -26,6 +26,7 @@
 | MCP | settings/플러그인 | `config.toml`의 `mcp_servers.<id>` | ✅ |
 | 커스텀 슬래시 | `commands/*.md` | ❌ `~/.codex/prompts/*.md`·`$ARGUMENTS` 0.137.0 미지원 | 🔴 생략 |
 | 외부 리뷰(subprocess 호출) | 리뷰어 = **codex + agy** (러너=claude 제외) | 리뷰어 = **claude + agy** (러너=codex 제외) | 🟡 러너 제외 분기 |
+| 사용자 질문(객관식) | `AskUserQuestion` — **대화형만**(`claude -p` 에는 없음, 2026-09-10 실측) · 호출당 1~4문항·선택지 2~4·"그 외" 자동 | 질문 도구 없음 → 번호 목록 텍스트 + 다음 턴(agy 도 동일, stdin 금지) · `codex exec` 는 env/기본값 | 🟡 렌더러 분기(스키마 공통) |
 | 스크립트(scripts/) | bash | bash | ✅ |
 
 핵심: 스킬 본문은 **포맷 동일** → 거의 그대로 공유. 진짜 변환이 필요한 건 에이전트 정의(md→toml)와 오케스트레이션뿐.

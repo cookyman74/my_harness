@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **하네스 구성 인터뷰** — 하네스를 만들기 전에 전제 다섯 가지(완료 기준·비가역·실패 비용·승인 지점·기존 자산)를 묻고 프로파일(`.claude/skills/<오케스트레이터>/harness-profile.json`)에 남긴다. 새 스크립트 `scripts/harness-intake.mjs`(`scan`·`questions`·`answer`·`render`·`verify`·`selftest`)가 선택지 노출·기본값·답 검증·블록 렌더·결선 검증을 **결정적으로** 처리하고, 모델은 추천과 질문만 맡는다. 답은 `render` 가 표식 주석 블록(`<!-- harness-profile:<id> sha256=… -->`) 5종으로 만들어 오케스트레이터 SKILL.md 의 `## 완료 기준`·`## 리스크 등급`·`## 승인 관문`·`## 기존 자산` 과 `CLAUDE.md`/`AGENTS.md` 의 전제 절에 배선되고, `verify` 가 `missing`/`stale`/`drift` 를 잡는다(Phase 0.5·2-4·5-4·6-7). 기본값은 항상 "안전한 쪽"이라 무응답·비대화(`claude -p`·`codex exec`)에서도 위험한 쪽으로 흐르지 않는다. 계약 단일 출처: `references/harness-interview.md`.
+
+### Changed
+
+- **팩토리가 node 를 필수로 요구한다** — 정책 감사 #9(`node --check`)·#12(intake 자기검증)가 node 부재 시 warn 이 아니라 **FAIL** 이다. 도구가 없을 때 검사가 조용히 증발하던 전례(PR #6 python3)를 막는 쪽을 택했다. node 20 이상을 권장한다.
+- **리스크 등급 어휘 정규화** — 표시(경량/표준/중대)와 기계 키(`light`/`standard`/`critical`)를 분리하고, 원장·프로파일에는 기계 키만 쓴다. `external-review-loop.md` 의 최소 스키마 예시가 `"risk_level":"중대"` 로 한글을 보여주고 있어 `"critical"` 로 고쳤다 — 예시를 그대로 복사하면 집계가 enum 밖 값으로 떨어진다.
+
 ## [1.7.5] - 2026-09-09
 
 **하네스 평가 시스템(harness-eval) 개선 — "측정이 자동이라는 오보"와 "판단 기준이 정의에 섞여 있는 문제"를 걷어내고, 3개월간 "📐 설계만"이던 산출물 벤치 러너를 실제로 돌렸다.** `docs/v1.7.5/todo/eval-upgrade-plan.md` 의 단계(P1 → P0-c/d/e/M → B0~B5 → B3-pre)를 모두 외부리뷰 게이트(codex+agy, 양 엔진 no-high 2연속)로 마감했다. 총 외부리뷰 약 150라운드. 결과서 10편은 `docs/v1.7.5/working_history/`.

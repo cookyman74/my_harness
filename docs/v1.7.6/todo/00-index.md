@@ -16,7 +16,7 @@
 | S1 | [S1-scan.md](S1-scan.md) | `harness-intake.mjs scan`·`selftest` · 감사 #9·#12 · CI node | 중대 | S0 | ✅ 완료 |
 | S2 | [S2-questions-answer.md](S2-questions-answer.md) | `questions`·`answer`·프로파일 · `references/harness-interview.md` | 중대 | S1 | ✅ 완료 |
 | S3 | [S3-render-verify.md](S3-render-verify.md) | `render`·`verify` · 차분 회귀(HI6) | 중대 | S2 | ✅ 완료 |
-| S4 | [S4-canon-wiring.md](S4-canon-wiring.md) | 정본 배선(`SKILL.md`·템플릿·`runtime-adapters`·`MANAGED_RELS`) | 중대 | S3 | ⬜ 미착수 |
+| S4 | [S4-canon-wiring.md](S4-canon-wiring.md) | 정본 배선(`SKILL.md`·템플릿·`runtime-adapters`·`MANAGED_RELS`) | 중대 | S3 | ✅ 완료 |
 | S5 | [S5-measurement.md](S5-measurement.md) | HI10 before/after 실측 — **비용 승인 후** | 표준 | S4 | ⬜ 미착수 |
 | S5b | (조건부 — 열 때 문서 생성) | S5 에서 효과 미확인 항목을 빼기로 결정한 경우만: `references/harness-interview.md`·`harness-intake.mjs` 카탈로그·`SKILL.md` Phase 0.5·PRD·설계서 갱신 | 중대 | S5 | ⬜ 조건부 |
 
