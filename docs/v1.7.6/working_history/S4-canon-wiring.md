@@ -117,6 +117,28 @@ BASE `7d6f9c99` · 러너 claude · 리뷰어 codex(general, stdin)+agy(perf, ar
 
 **이 단계의 교훈:** 7라운드 중 5라운드가 **같은 계열**(정본의 명령 문자열이 스크립트 계약보다 짧다 — `--root`·`--orchestrator`·`--mode`·접두 경로·placeholder). 사람이 읽기엔 자연스러운 생략이 리뷰어에겐 매번 rc=2 재현이었다. 수정자가 새로 쓴 문장도 한 번 새 결함을 들여왔고(`--after` 는 `new` 전용), 내가 수정분을 실행해 잡았다. R5 뒤에 SCOPE 의 `harness-intake.mjs` 호출 14건을 전수 실행·판정(명령 9 / 산문 5)한 뒤에야 R6·R7 이 클린이었다 — **다음부터는 정본 편집 명세에 "본문의 모든 명령 문자열을 편집자가 실행해 rc 를 적는다" 를 넣고, R1 전에 오케스트레이터가 전수 대조를 먼저 한다.** 리뷰 라운드 3~4개는 그 규칙 하나로 절약된다.
 
+## 6. 배선 재검토 (S4b · 2026-09-12 · S4 커밋 `5acfbb2` 뒤)
+
+사용자 요청으로 설계서 §7-2 결선표(= 참조 문서 §9)의 각 행을 **「삽입 위치」와 「소비처」 양쪽**에서 소스 대조했다. 삽입 위치(오케스트레이터 4섹션 · CLAUDE.md/AGENTS.md premise · 2-4 · 6-7 · 템플릿 Phase 0 verify · `MANAGED_RELS` · 7-7 재렌더)는 S4 가 전부 배선했다. 누락은 **소비처 쪽 — S4 가 손대지 않은 파일·소절**에 있었다.
+
+| # | 누락(소스 근거) | 수정 |
+|---|---|---|
+| G1 | `external-review-loop.md` 「입력」(:22-26)에 `{등급}` 이 없다 — `:38/39/93/180/182` 가 등급을 소비하는데 출처를 모른다. 이 파일은 생성 하네스에 본문째 복사된다 | 「입력」에 `{등급}` 행 — 오케스트레이터 `## 리스크 등급` 블록 규칙으로 판정한 값 · 기계 키 |
+| G2 | 같은 파일 Step 7(:230) "마커 시 자동 통과" 가 무조건 — `SKILL.md:310` 은 `## 승인 관문` 블록의 `허용하지 않음` 이 마커를 이긴다 | Step 7 에 블록 우선 한 절 |
+| G3 | Phase 5 본문(:205-295)에 4블록 렌더·삽입 지시 **0건** — 2-4 의 "Phase 5 에서" 문장과 템플릿에만 있다 | 5-0 끝 「결선 블록·스크립트 번들」 |
+| G7 | `check-artifacts.sh`·`harness-intake.mjs` 의 생성 시 복사가 Phase 본문에 없다(체크리스트 :473 만 · check-artifacts 는 거기도 없음) — 템플릿 :405 는 "생성 하네스 자체 scripts 로 복사", hook :437 은 없으면 커밋 차단 | G3 과 같은 줄 + 체크리스트 병기(S4 이월 ⑦ 해소) |
+| G4 | 7-5 Step 1 현황 감사 = 에이전트·스킬 목록 비교만 — 결선표 premise 소비처 "Phase 7" | Step 1 에 `verify` 결선 상태 불릿 |
+| G5 | PRD HI11 「진화 신호」(탈출구 반복 → Phase 7 이 집는다) — `SKILL.md` 에 `options_incomplete`·`other` **0건** | 7-4 진화 트리거 불릿(카탈로그 확장 → `catalog_version`) |
+| G6 | `runtime-adapters.md:53` "같은 포인터·같은 변경 이력" 에 premise 블록 동일 요구가 없다(`SKILL.md:287` 에만) | :53 한 절 |
+
+**문제 없음(확인):** 결선표 ①·⑤ · `tier` 2-4→5-6 · 5-4 premise 양쪽 · 템플릿 A~D 4섹션 · 템플릿 Phase 0 verify(DECLARED/ASSUMED) · runtime-adapters §1 행 · `MANAGED_RELS` 12(`harness-interview.md` 미포함 — §9-2) · `:213` critical · `## 하네스:` 헤딩 = `PREMISE_SECTION`.
+**미해소로 기록:** 설계서 §14 M2 "대화형은 S4 회귀 드라이런에서 확인" — 드라이런 ② 는 서브에이전트(비대화)로 돌아 대화형 경로는 미실측 · S5 에서.
+
+- **G8(skill-maintainer 발견 · 채택):** `verify` 는 `premise` 를 `## 하네스:` 접두 섹션에서만 찾는데(`harness-intake.mjs:1178`·`:1415`) 정본은 그 요구를 쓰지 않고 5-4 템플릿 헤딩에 우연히 의존 — A/B 실측(`## 하네스: x` → `ok` · `## Harness` → `premise.agents=misplaced`) → 5-4 듀얼 포인터 문장에 한 절. 보고만(미수정): 5-0 "4섹션" 표현이 블록 5개 중 premise 를 5-4 에 맡긴다는 점 · 템플릿 :405 가 `check-artifacts.sh` 만 열거 · `{등급}` 표기 어휘가 소비 지점마다 암묵.
+- 수정: skill-maintainer(`_workspace/repo-maintainer/v176-S4b/01_skill-maintainer_wiring.md`) — 3파일 8곳 · `SKILL.md` 490 → **494** · 새 명령 2건 편집자 실행(render rc=0 · verify 삽입 전 rc=1 전 `missing` → 삽입 후 rc=0 전 `ok`) · 오케스트레이터 재검증(approval 블록 `허용하지 않음` 리터럴 · Step 2 소속 실재).
+- 게이트: 감사 PASS · 518/518 · harness-update PASS. 외부리뷰 `v176-S4b`(BASE `5acfbb2` · 패치 81줄 · codex→agy 순차): **R1·R2 양 엔진 신규 0 2연속**(같은 트리 `3721d54`) → **R-3 수렴**. 측정 꼬리 `_workspace/evals/external-review/v176-S4b/v176-S4b_20260912/{verdicts,scorecard}.json`.
+- **S4 와의 대비:** S4 는 7라운드(리뷰어 확인 11건)였고 S4b 는 2라운드(리뷰어 확인 0건). 차이는 정본 편집 **전에** 오케스트레이터가 결선표를 소스로 전수 대조했고, 편집자가 본문 명령을 실행해 rc 를 적은 것 — S4 「다음 단계 참조」의 규칙이 첫 적용에서 리뷰 5라운드분을 없앴다.
+
 ## 다음 단계 참조
 
 - **인터뷰는 이제 정본에 배선돼 있다** — Phase 0(`scan`+`--root` 규칙) → 0.5(분기별 `questions`/`answer` · 비대화 `--defaults` · 서브에이전트로 불린 팩토리는 `ASSUMED:` 전건 보고) → 2-4(등급 기준 **확정**만) → 5-4(`premise` — CLAUDE.md·AGENTS.md 양쪽) → 5(템플릿 A 4섹션에 `render --block <id>`) → 6-7(`verify` — 비-`ok`/`na` 면 Phase 6 FAIL). S5 실측은 이 흐름을 **그대로** 돌린 결과로 한다.

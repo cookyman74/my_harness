@@ -222,6 +222,8 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 
 **하이브리드 패턴:** Phase마다 모드를 섞음(예: 병렬 수집=서브 → 합의 통합=팀 / 팀 초안 → 서브 검증 / Phase 간 팀원 shutdown+새 팀원 spawn). 각 Phase 상단에 실행 모드 명시. 상세: `references/orchestrator-template.md` 템플릿 C.
 
+**결선 블록·스크립트 번들(패턴 공통):** 어느 패턴이든 ① 템플릿 A 의 4섹션(`## 완료 기준`·`## 리스크 등급`·`## 승인 관문`·`## 기존 자산`)에 `node <이 스킬의 디렉토리>/scripts/harness-intake.mjs render --orchestrator {오케스트레이터} --block <id>` 출력을 표식 주석째로 넣고(2-4 에서 확정한 `tier` 포함 · 손으로 고치지 않는다) ② `scripts/harness-intake.mjs`·`scripts/check-artifacts.sh` 를 그 스킬 `scripts/` 로 복사한다(듀얼이면 `.agents/skills/{오케스트레이터}/scripts/` 에도) — 6-7 `verify`·생성 하네스 Phase 0·pre-commit hook(`references/orchestrator-template.md` 「강제장치」)이 **그 사본**을 부르므로, 복사하지 않으면 6-7 이 부를 파일이 없다.
+
 #### 5-1. 데이터 전달 프로토콜
 
 오케스트레이터 내에 에이전트 간 데이터 전달 방식을 명시한다:
@@ -284,7 +286,7 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 | {YYYY-MM-DD} | 초기 구성 | 전체 | - |
 ````
 
-**듀얼 런타임 포인터:** Codex용으로 레포 루트 `AGENTS.md`에도 같은 포인터 + **같은 `premise` 블록**(한쪽만 넣으면 6-7 `verify` 가 `premise.agents=missing`) + Codex 오케스트레이션 어댑터(subagents/subprocess) 주석을 출력한다(Codex 자동 로드). 둘 다 같은 정본을 가리킴. 한쪽만 갱신=drift. 상세: `references/runtime-adapters.md`.
+**듀얼 런타임 포인터:** Codex용으로 레포 루트 `AGENTS.md`에도 같은 포인터 + **같은 `premise` 블록**(한쪽만 넣으면 6-7 `verify` 가 `premise.agents=missing`) + Codex 오케스트레이션 어댑터(subagents/subprocess) 주석을 출력한다(Codex 자동 로드). 둘 다 같은 정본을 가리킴. 한쪽만 갱신=drift. 두 파일 모두 블록은 **`## 하네스:` 로 시작하는 섹션 안**에 둔다 — `verify` 가 그 접두로 섹션을 찾으므로 헤딩이 다르면 `misplaced`. 상세: `references/runtime-adapters.md`.
 
 **CLAUDE.md에 넣지 않는 것:** 에이전트 목록, 스킬 목록, 디렉토리 구조, 실행 규칙 상세. 이유: 에이전트/스킬 목록은 오케스트레이터 스킬과 `.claude/agents/`, `.claude/skills/`에서 관리하므로 중복이다. 디렉토리 구조는 파일 시스템에서 직접 확인 가능하다. CLAUDE.md는 **포인터(트리거 규칙) + 변경 이력**만 담는다.
 
@@ -424,6 +426,7 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 - 같은 유형의 피드백이 2회 이상 반복될 때
 - 에이전트가 반복적으로 실패하는 패턴이 발견될 때
 - 사용자가 오케스트레이터를 우회하여 수동으로 작업하는 것이 관찰될 때
+- 프로파일 `harness-profile.json` 의 어느 항목에 `options_incomplete: true`(탈출구 `other:` 답)가 **여러 하네스·여러 회** 반복될 때 — 카탈로그 선택지 개선 신호다(PRD HI11 「진화 신호」). 팩토리 `references/harness-interview.md` 카탈로그에 선택지를 더하고 `catalog_version` 을 올린다(올리면 전 생성 하네스가 `stale` → 7-7 결선 재렌더).
 - **(구성 자기평가 — 주축)** `harness_scorecard`(구성 건강도·`references/harness-scorecard.md`) 악화 시 **구성 개선 제안**. 2 cadence: 무거운 정적 재계산=구성변경 시점(Phase 0/7-5), 얇은 인터셉터=run 종료 시 `loop_scorecard` 추세만 검사→스냅샷 config_hash 대조(일치 시 제안·불일치 시 정적 감사 요청만). 보조(`loop_ref`): `alignment_score` 3연속 하락·`rounds` 상승. **자동 적용 금지 — 제안+승인**, adjudicated≥30 전 발화 금지. 지표표: `references/loop-self-eval.md`.
 
 #### 7-5. 운영/유지보수 워크플로우
@@ -433,6 +436,7 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 **Step 1: 현황 감사**
 - `.claude/agents/` 파일 목록과 오케스트레이터 스킬의 에이전트 구성 비교 → 불일치 목록 생성
 - `.claude/skills/` 디렉토리 목록과 오케스트레이터 스킬의 스킬 구성 비교 → 불일치 목록 생성
+- `node .claude/skills/{오케스트레이터}/scripts/harness-intake.mjs verify --orchestrator {오케스트레이터}` 의 `WIRED:` 에서 `ok`/`na` 가 아닌 항목(`stale`·`drift`·`missing`…)을 불일치 목록에 넣고, `DECLARED:`·`ASSUMED:` 두 줄을 보고에 싣는다(전제가 바뀌었는지 사람이 본다). `stale` 처리는 `references/harness-update.md` 결선 재렌더.
 - 감사 결과를 사용자에게 보고한다
 
 **Step 2: 점진적 추가/수정**
@@ -470,7 +474,7 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 - [ ] **CLAUDE.md 포인터 등록 + 변경 이력에 에이전트/스킬 추가·삭제·수정 기록**
 - [ ] **오케스트레이터 Phase 0에 컨텍스트 확인 단계** (초기/후속/부분 재실행 판별)
 - [ ] **결선 블록 5종**(`completion`·`tier`·`approval`·`assets` = 오케스트레이터 SKILL.md의 `## 완료 기준`·`## 리스크 등급`·`## 승인 관문`·`## 기존 자산` / `premise` = `CLAUDE.md` + `AGENTS.md`)이 지정 섹션에 있고 `harness-intake.mjs verify` 가 전부 `ok`(`na` 포함) — `DECLARED`·`ASSUMED` 를 사용자에게 보고 (Phase 6-7)
-- [ ] **`scripts/harness-intake.mjs` 복사** — 오케스트레이터 스킬 `scripts/`(듀얼이면 `.agents/skills/{하네스명}/scripts/`에도)로 복사하고 `harness-update.sh manifest` 기준선에 포함. 복사하지 않으면 생성 하네스의 Phase 0이 부를 파일이 없다
+- [ ] **`scripts/harness-intake.mjs`·`scripts/check-artifacts.sh` 복사** — 오케스트레이터 스킬 `scripts/`(듀얼이면 `.agents/skills/{하네스명}/scripts/`에도)로 복사하고 `harness-update.sh manifest` 기준선에 포함. 복사하지 않으면 생성 하네스의 Phase 0이 부를 파일이, `pre-commit` hook 이 부를 `check-artifacts.sh` 가 없다
 - [ ] **듀얼 런타임:** 루트 `AGENTS.md` + `.agents/skills/` 출력(references/scripts 동봉) + `.codex/agents/*.toml` 생성 + `.claude`↔`.codex` 역할 동등성 + 오케스트레이터에 어댑터(Agent 팀원 spawn / Codex subagents·subprocess) 명시 (`references/runtime-adapters.md`)
 - [ ] (코드/설계) 코드/수정 에이전트에 dev-rules·tdd-doctrine **타겟상대 실경로** 주입 (`[[ ]]` 금지) + 교리 파일 타겟 복사 (Phase 3-1) + 생성 직후 `harness-update.sh manifest`로 기준선 기록(후속 `update` 사용자 수정 감지용, 7-7)
 - [ ] (코드/설계) **외부 리뷰어 연동 점검**(`check-review-tools.sh` — 러너 제외 `REVIEWERS:`) 후 `external-review-loop` 스킬 생성 — 도구 전무면 생략(불필요 스킬 방지) + 단계 게이트 배선, 단계마다 리스크 등급 판정 (Phase 4-6, 5-6)

@@ -50,7 +50,7 @@
 
 ## 5. 생성 하네스의 듀얼 출력 (Phase 5-4)
 팩토리가 하네스 생성 시:
-- `프로젝트/CLAUDE.md` + `프로젝트/AGENTS.md` (같은 포인터·같은 변경 이력. 한쪽만 갱신 = drift)
+- `프로젝트/CLAUDE.md` + `프로젝트/AGENTS.md` (같은 포인터·같은 변경 이력·같은 `premise` 표식 블록 — 한쪽만 갱신 = drift, 한쪽만 넣으면 `verify` 가 `premise.agents=missing`)
 - 스킬 → `.claude/skills/` + `.agents/skills/`
 - 에이전트 → `.claude/agents/{n}.md` + `.codex/agents/{n}.toml`
 - (선택) MCP 필요 시 `.codex/config.toml`의 `mcp_servers.<id>` 동봉
