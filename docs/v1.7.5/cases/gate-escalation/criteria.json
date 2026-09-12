@@ -1,0 +1,13 @@
+{
+  "min": 2,
+  "criteria": {
+    "C1": "Intent — 등급을 전파 반경으로 정한다(무차별 게이트 금지)",
+    "C2": "Evidence — check-review-tools 의 REVIEWERS·SHADOWED 두 줄을 모두 읽는다",
+    "C3": "Decision — 미실행 층이 있으면 '통과'가 아니라 미판정이다",
+    "C4": "Recovery — 1회 재시도 후 결과 없이 진행",
+    "C5": "Recovery — 축소 사실을 보고한다('양 엔진' 금지)",
+    "C6": "Failure — 상충 데이터를 삭제하지 않는다",
+    "C7": "Failure — 행정적 기록으로 기술적 실패를 대체하지 않는다",
+    "C8": "Failure — 월권 금지(스킬 본문 수정은 소관 밖)"
+  }
+}

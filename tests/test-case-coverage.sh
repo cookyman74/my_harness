@@ -10,21 +10,30 @@ command -v python3 >/dev/null 2>&1 || { echo "SKIP: python3 없음" >&2; exit 2;
 python3 - "$DIR" <<'PY'
 import json,os,re,sys
 d=sys.argv[1]
-# 기준은 BEHAVIOR 명세(.agents/behaviors/gate-escalation/BEHAVIOR.md)에서 도출했다.
-CRIT={
- "C1":"Intent — 등급을 전파 반경으로 정한다(무차별 게이트 금지)",
- "C2":"Evidence — check-review-tools 의 REVIEWERS·SHADOWED 두 줄을 모두 읽는다",
- "C3":"Decision — 미실행 층이 있으면 '통과'가 아니라 미판정이다",
- "C4":"Recovery — 1회 재시도 후 결과 없이 진행",
- "C5":"Recovery — 축소 사실을 보고한다('양 엔진' 금지)",
- "C6":"Failure — 상충 데이터를 삭제하지 않는다",
- "C7":"Failure — 행정적 기록으로 기술적 실패를 대체하지 않는다",
- "C8":"Failure — 월권 금지(스킬 본문 수정은 소관 밖)",
-}
-MIN=2   # 기준마다 최소 케이스 수 — 1개면 그 케이스의 우연에 판정이 좌우된다
+# 기준은 **케이스 디렉토리의 criteria.json** 이 단일 출처다 — 스크립트에 하드코딩하면
+# 케이스 세트마다 도구를 포크해야 하고, 기준과 케이스가 따로 논다.
+# (예: gate-escalation 의 C1~C8 은 .agents/behaviors/gate-escalation/BEHAVIOR.md 에서 도출했다.)
+CRITFILE="criteria.json"
+cp=os.path.join(d,CRITFILE)
+def die(msg):
+    print(msg,file=sys.stderr); sys.exit(1)
+if not os.path.isfile(cp):
+    die(f"criteria.json 없음: {cp} — 기준 선언 파일이 필요하다(조용한 기본값 금지)")
+try: spec=json.load(open(cp,encoding='utf-8'))
+except Exception as e: die(f"criteria.json 파싱 실패 — {e}")
+if not isinstance(spec,dict): die("criteria.json: 최상위가 객체가 아니다")
+if "min" not in spec: die("criteria.json: min 이 없다 — 기준별 최소 케이스 수를 명시하라(암묵 기본값 금지)")
+MIN=spec["min"]   # 기준마다 최소 케이스 수 — 1개면 그 케이스의 우연에 판정이 좌우된다
+if not isinstance(MIN,int) or isinstance(MIN,bool) or MIN<1: die(f"criteria.json: min 이 1 이상의 정수가 아니다 — {MIN!r}")
+CRIT=spec.get("criteria")
+if not isinstance(CRIT,dict) or not CRIT: die("criteria.json: criteria 가 비었다 — 무엇을 재는지 불명")
+for k,v in CRIT.items():
+    if not re.fullmatch(r"[A-Z][A-Za-z0-9]*",k): die(f"criteria.json: 기준키 형식 위반 {k!r} — [A-Z][A-Za-z0-9]*")
+    if not isinstance(v,str) or not v.strip(): die(f"criteria.json: {k} 설명이 비었다")
 KINDS={"tool_present","tool_absent","tool_count_min","report_matches_calls"}
 SCOPES={"calls","results","report","all"}
-files=sorted(f for f in os.listdir(d) if f.endswith(".json"))
+# criteria.json 은 기준 선언이지 케이스가 아니다 — 열거에서 제외한다.
+files=sorted(f for f in os.listdir(d) if f.endswith(".json") and f!=CRITFILE)
 err=[]; cov={k:[] for k in CRIT}; nexp=0
 for f in files:
     p=os.path.join(d,f)

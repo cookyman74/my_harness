@@ -17,7 +17,7 @@
 | S2 | [S2-questions-answer.md](S2-questions-answer.md) | `questions`·`answer`·프로파일 · `references/harness-interview.md` | 중대 | S1 | ✅ 완료 |
 | S3 | [S3-render-verify.md](S3-render-verify.md) | `render`·`verify` · 차분 회귀(HI6) | 중대 | S2 | ✅ 완료 |
 | S4 | [S4-canon-wiring.md](S4-canon-wiring.md) | 정본 배선(`SKILL.md`·템플릿·`runtime-adapters`·`MANAGED_RELS`) | 중대 | S3 | ✅ 완료 |
-| S5 | [S5-measurement.md](S5-measurement.md) | HI10 before/after 실측 — **비용 승인 후** | 표준 | S4 | ⬜ 미착수 |
+| S5 | [S5-measurement.md](S5-measurement.md) | HI10 before/after 실측 — **비용 승인 후** | 표준 | S4 | ⏸ **측정 보류**(도구·케이스 완성 · 보정 1회 · before 미실행 — 릴리스 전 결정) |
 | S5b | (조건부 — 열 때 문서 생성) | S5 에서 효과 미확인 항목을 빼기로 결정한 경우만: `references/harness-interview.md`·`harness-intake.mjs` 카탈로그·`SKILL.md` Phase 0.5·PRD·설계서 갱신 | 중대 | S5 | ⬜ 조건부 |
 
 **순서를 바꾸지 않는다.** S1 은 S0 의 M1·M2 실측 결과 위에 선다(설계서 「다음 단계 참조」 · §14 M1·M2: 실측 없이 들어가면 플러그인 판정·호출 경로가 가정 위에 선다).
