@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.7.5-brightgreen.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-1.8.0-brightgreen.svg" alt="Version">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
   <img src="https://img.shields.io/badge/Claude_Code-Plugin-purple.svg" alt="Claude Code Plugin">
   <img src="https://img.shields.io/badge/Runtime-Claude_Code_+_Codex-blueviolet.svg" alt="Dual Runtime">
@@ -71,6 +71,7 @@ claude   # Claude Code CLI 起動 (Codex は codex コマンド)
 | 機能 | 内容 |
 |------|------|
 | **6 つのチームアーキテクチャ** | パイプライン · ファンアウト／ファンイン · エキスパートプール · 生成-検証 · スーパーバイザー · 階層的委譲。ドメインに合ったパターンを選択 |
+| **構成インタビュー** | Phase 0.5 でハーネスの前提（完了基準・不可逆性・失敗コスト・承認ポイント・既存資産）を先に尋ね、プロファイルに記録します。`scripts/harness-intake.mjs`（`scan`·`questions`·`answer`·`render`·`verify`）が回答を結線ブロック 5 種（`completion`·`tier`·`approval`·`assets` はオーケストレータースキル、`premise` は `CLAUDE.md`/`AGENTS.md`）へレンダリングし、欠落・stale・手修正は `verify` が Phase 6 FAIL として検出。非対話環境では「安全な側」のデフォルトで進め、`ASSUMED:` 項目を全件報告。契約の単一出典: `references/harness-interview.md` |
 | **エージェントチーム基本** | チームメンバーを `Agent` ツールで spawn、`SendMessage` で直接通信、共有タスクリスト（`TaskCreate`）で自己調整。発見の共有・対立の議論で品質↑ |
 | **スキル自動生成** | Progressive Disclosure（メタデータ→本文→references の段階ロード）でコンテキスト効率化。トリガーの description は積極的に記述 |
 | **2 層品質ゲート** | 内部の生成-検証 QA **＋** 外部の独立レビューループ。詳細は下記 |
@@ -108,6 +109,7 @@ claude   # Claude Code CLI 起動 (Codex は codex コマンド)
 
 ```
 Phase 0  現状監査 (既存ハーネスの drift 点検 · 新規/拡張/保守/更新へ分岐)
+Phase 0.5  構成インタビュー (完了基準 · リスク等級 · 承認ゲート · 既存資産 → プロファイル)
 Phase 1  ドメイン分析 (作業タイプ · 既存資産との衝突 · ユーザー習熟度の検知)
 Phase 2  チームアーキテクチャ設計 (実行モード + 6 パターンから選択)
 Phase 3  エージェント定義の生成 (.claude/agents/ · 教義の注入)
@@ -228,8 +230,8 @@ my_harness/
 │   ├── SKILL.md                 # メインスキル (7 ステップワークフロー)
 │   ├── references/              # factory-map · agent-design-patterns · orchestrator-template ·
 │   │                            #   external-review-loop · tdd-doctrine · dev-rules ·
-│   │                            #   runtime-adapters · harness-update · loop-self-eval など
-│   └── scripts/                 # check-review-tools · build-scorecard · harness-update
+│   │                            #   runtime-adapters · harness-update · harness-interview · loop-self-eval など
+│   └── scripts/                 # harness-intake · check-review-tools · build-scorecard · harness-update
 ├── AGENTS.md                    # Codex エントリポイント
 ├── install.sh                   # デュアルランタイムのインストール
 └── README.md / README_KO.md / README_JA.md

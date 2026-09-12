@@ -5,3 +5,8 @@
 *.sh text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+# node 스크립트도 LF(v1.7.6 harness-intake.mjs) — shebang 줄의 CR 이 `env: node\r` 로 실행을 깨고, windows 에서만 재현된다.
+*.mjs text eol=lf
+# 테스트 픽스처는 바이트 그대로 둔다(골든 바이트 비교 · CRLF .cmd 픽스처 보존) — core.autocrlf 가 골든을 CRLF 로 바꾸면
+# T1 이 windows 에서만 깨진다.
+tests/fixtures/** -text

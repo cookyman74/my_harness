@@ -32,8 +32,9 @@ description: "하네스(에이전트 팀 + 스킬)를 구성·확장·점검하�
 
 하네스 스킬이 트리거되면 가장 먼저 기존 하네스 현황을 확인한다.
 
-1. `프로젝트/.claude/agents/`·`skills/`·`CLAUDE.md`를 읽는다. **듀얼 런타임이면 `AGENTS.md`·`.agents/skills/`·`.codex/agents/`도 읽어 양쪽 drift 점검**
-2. 현황에 따라 실행 모드를 분기한다:
+1. `node <이 스킬의 디렉토리>/scripts/harness-intake.mjs scan` 과 `bash <이 스킬의 디렉토리>/scripts/check-review-tools.sh {러너}` 를 **둘 다 실행**하고 그 출력으로 분기한다. `scan` 은 15줄(`RUNTIME`·`AGENTS_PROJECT`·`AGENTS_GLOBAL`·`PLUGINS`·`AGENTS_PLUGIN`·`AGENTS_CODEX`·`AGENTS_BUILTIN`·`AGENTS_DUPLICATE`·`SKILLS_PROJECT`·`SKILLS_AGENTS`·`MODEL`·`LINKS_INVALID`·`UNKNOWN_FIELDS`·`SIGNALS`·`PROFILE`)로 현황을, `check-review-tools.sh` 는 끝줄 `REVIEWERS:`+`SHADOWED:` 로 외부 리뷰 가능 여부를 준다(해석은 4-6). 손으로 훑는 대신 이 두 출력을 근거로 삼는다 — 같은 현황에 매번 다른 판단이 나오지 않게. 다섯 서브커맨드(`scan`·`questions`·`answer`·`render`·`verify`)는 대상 루트를 cwd 로 잡는다 — cwd 가 대상 프로젝트 루트가 아니면 아래 예시를 포함해 **모든 호출에 `--root <대상>`** 을 붙인다. 선택지·기본값·프로파일 경로가 그 루트의 신호로 정해지므로, 한 번이라도 빠지면 답과 배선이 어긋난다.
+2. **듀얼 런타임 판정**은 `scan` 의 `SKILLS_AGENTS`·`AGENTS_CODEX` 로 한다(둘 중 하나라도 `none` 이 아니면 듀얼). 듀얼이면 `AGENTS.md`·`.agents/skills/`·`.codex/agents/`도 읽어 양쪽 drift 를 점검한다.
+3. 현황에 따라 실행 모드를 분기한다:
    - **신규 구축**: 에이전트/스킬 디렉토리가 없거나 비어있음 → Phase 1부터 전체 실행
    - **기존 확장**: 기존 하네스가 있고 새 에이전트/스킬 추가 요청 → 아래 Phase 선택 매트릭스에 따라 필요한 Phase만 실행
    - **운영/유지보수**: 기존 하네스의 감사·수정·동기화 요청 → Phase 7-5 운영/유지보수 워크플로우로 이동
@@ -45,8 +46,17 @@ description: "하네스(에이전트 팀 + 스킬)를 구성·확장·점검하�
    | 에이전트 추가 | 건너뜀 (Phase 0 결과 활용) | 배치 결정만 | 필수 (3-0 포함) | 전용 스킬 필요 시 (4-0 포함) | 오케스트레이터 수정 | 필수 |
    | 스킬 추가/수정 | 건너뜀 | 건너뜀 | 건너뜀 | 필수 (4-0 포함) | 연결 변경 시 | 필수 |
    | 아키텍처 변경 | 건너뜀 | 필수 | 영향받는 에이전트만 (3-0 포함) | 영향받는 스킬만 (4-0 포함) | 필수 | 필수 |
-3. 기존 에이전트/스킬 목록과 CLAUDE.md 기록을 대조하여 불일치(drift)를 감지한다
-4. 감사 결과를 사용자에게 요약 보고하고, 실행 계획을 확인받는다
+4. 기존 에이전트/스킬 목록과 CLAUDE.md 기록을 대조하여 불일치(drift)를 감지한다
+5. 감사 결과를 사용자에게 요약 보고하고, 실행 계획을 확인받는다
+
+### Phase 0.5: 구성 인터뷰
+
+하네스의 전제(완료 기준·비가역·실패 비용·승인 지점·기존 자산)를 묻고 프로파일에 남긴다 — 물어두면 등급·게이트·중복 검토가 매번 즉흥이 아니라 같은 답을 근거로 돈다. 인터뷰는 **팩토리 메인 세션에서만** 돈다(서브에이전트에는 질문 도구도, 사용자와의 다음 턴도 없다). 팩토리 자체가 서브에이전트나 `-p`/`exec` 로 불렸으면 3(비대화)으로 진행하되 6-7 의 `ASSUMED:` 줄을 **결과 보고에 전건 그대로** 올려 사람이 확정하게 한다 — 가정으로만 지은 하네스가 조용히 통과하지 않게.
+
+1. **분기별 적용** — `new`=①②③⑤ 를 묻고 ② 답을 `questions --mode new --after irreversible=<키,…>` 로 넘겨 ④ 를 받는다 · `extend`=②⑤ 를 묻고 ①③④ 는 기존 프로파일에서 이어받되(`carried`), ② 답이 바뀌어 기존 ④ 의 `before:*` 키가 새 ② 답에 없으면 `answer` 가 rc=1 로 멈춘다 — 그때는 `questions --mode new --after irreversible=<새 ② 키,…>` 로 ④ 선택지만 받아(`--after` 는 `new` 전용) 그 답을 `extend` 의 `answer` 입력에 `approval` 로 함께 넣는다 · `maintain`·`update`=묻지 않는다(`questions` 가 `[]` 를 낸다). `answer` 는 `new`·`extend` 에서만 부르고 `questions` 와 **같은 `--mode`** 를 넘긴다(생략하면 `new` — `extend` 에서 빠지면 기존 프로파일의 ①③④ 를 잇지 못한다) · `maintain`·`update` 는 `answer` 도 부르지 않는다(기존 프로파일 그대로).
+2. **대화형** — `node <이 스킬의 디렉토리>/scripts/harness-intake.mjs questions --mode <new|extend|maintain|update> --orchestrator <이름>` 의 JSON 을 `AskUserQuestion` 으로 옮겨 1차(①②③⑤)·2차(④)로 묻고, 받은 **라벨을 선택지 키로 되돌려** `answer --orchestrator <이름> --mode <분기> --set <항목>=<키,…>` 로 넘긴다(추천은 모델이 찍고 근거 한 줄을 붙인다 — `--recommended`·`--why`). 질문 도구가 없는 대화형(codex·agy)은 번호 목록 텍스트로 묻고 다음 턴에 받는다.
+3. **비대화**(모델의 도구 목록에 질문 도구가 없다 — `claude -p`·`codex exec`·`agy -p`) — `HARNESS_INTAKE_ANSWERS` 가 **비어 있지 않게** 있으면(빈 값·빈 파일은 rc=2 — `--defaults` 만 원하면 출처를 주지 않는다) `answer --orchestrator <이름> --mode <분기> --from-env --defaults`, 사용자·과제가 답 파일을 주면 `answer --orchestrator <이름> --mode <분기> --from-file <파일> --defaults`, 둘 다 없으면 `answer --orchestrator <이름> --mode <분기> --defaults`. **비대화에서는 항상 `--defaults`** 를 붙인다 — 응답할 사람이 없어 빠진 항목이 rc=2 로 멈추기 때문이다. 기본값은 "안전한 쪽"이라 무응답이 위험한 쪽으로 흐르지 않는다.
+4. `answer` 가 `PROFILE:`·`SOURCES:` 두 줄을 내면 답이 `<대상>/.claude/skills/<오케스트레이터>/harness-profile.json` 에 기록된 것이다. 카탈로그·기본값 규칙·쪽 분할·답 문법·렌더링·결선표는 `references/harness-interview.md`.
 
 ### Phase 1: 도메인 분석
 1. 사용자 요청에서 도메인/프로젝트 파악
@@ -89,13 +99,19 @@ description: "하네스(에이전트 팀 + 스킬)를 구성·확장·점검하�
 
 전문성·병렬성·컨텍스트·재사용성 4축으로 판단한다. 상세 기준표는 `references/agent-design-patterns.md`의 "에이전트 분리 기준" 참조. 기존 에이전트와의 중복·재사용 검토는 Phase 3-0에서 다룬다.
 
+#### 2-4. 리스크 등급 기준 확정
+
+`node <이 스킬의 디렉토리>/scripts/harness-intake.mjs render --orchestrator {오케스트레이터} --block tier` 출력을 읽어 그 규칙(표시 어휘 경량/표준/중대 ↔ 기계 키 `light`/`standard`/`critical`)을 이 하네스의 등급 판정 기준으로 **확정**하고, 5-6 은 그 규칙으로 **단계마다** 등급을 판정한다. 등급이 4-6(외부 리뷰 스킬 생성 여부)·5-6(게이트 강도)의 입력이라 그보다 앞서 확정해야 한다. 프로파일·`verdicts.json` 은 기계 키로 적는다 — 집계가 enum 으로만 돈다.
+
+**블록 배선은 Phase 5**(오케스트레이터 생성 시)다 — 템플릿 A 의 4섹션(`## 완료 기준`·`## 리스크 등급`·`## 승인 관문`·`## 기존 자산`)에 `render --block <id>` 출력을 **표식 주석째로** 넣는다(`references/orchestrator-template.md`). 여기(2-4)엔 넣을 파일이 아직 없다.
+
 ### Phase 3: 에이전트 정의 생성
 
 > **듀얼 런타임:** 아래 `.claude/agents/*.md`는 Claude 기준. Codex 동시 출력 시 같은 역할을 `.codex/agents/{name}.toml`로도 생성한다 (`references/runtime-adapters.md` §3-4).
 
 #### 3-0. 기존 에이전트 중복 검토
 
-신규 에이전트 생성 전, `프로젝트/.claude/agents/`의 기존 에이전트와 중복 여부를 확인한다. 하네스를 반복 구축하다 보면 역할이 겹치는 에이전트가 다른 이름으로 누적되기 쉽다.
+신규 에이전트 생성 전, `프로젝트/.claude/agents/`의 기존 에이전트와 중복 여부를 확인한다. 하네스를 반복 구축하다 보면 역할이 겹치는 에이전트가 다른 이름으로 누적되기 쉽다. **대조 목록과 정책(재사용 우선/참고만/무시)은 Phase 0.5 ⑤ 답을 따른다** — `render --block assets` 의 스캔 목록(Phase 5 뒤에는 오케스트레이터 `## 기존 자산` 블록)이 그 정본이다.
 
 > 중복 분류 기준과 재사용 설계는 `references/agent-design-patterns.md`의 "에이전트 재사용 설계" 참조.
 
@@ -135,7 +151,7 @@ description: "하네스(에이전트 팀 + 스킬)를 구성·확장·점검하�
 
 #### 4-0. 기존 스킬 중복 검토
 
-신규 스킬 생성 전, `프로젝트/.claude/skills/`의 기존 스킬과 중복 여부를 확인한다. 하네스를 반복 구축하다 보면 기능이 겹치는 스킬이 다른 이름으로 누적되기 쉽다.
+신규 스킬 생성 전, `프로젝트/.claude/skills/`의 기존 스킬과 중복 여부를 확인한다. 하네스를 반복 구축하다 보면 기능이 겹치는 스킬이 다른 이름으로 누적되기 쉽다. **대조 목록과 정책은 3-0과 같은 출처** — Phase 0.5 ⑤ 답(`render --block assets` · Phase 5 뒤에는 `## 기존 자산` 블록)의 스캔된 스킬 목록을 쓴다.
 
 > 중복 분류 기준과 일반화 패턴은 `references/skill-writing-guide.md`의 "스킬 재사용 설계" 참조.
 
@@ -168,27 +184,8 @@ description은 스킬의 유일한 트리거 메커니즘이다. Claude는 보�
 
 #### 4-4. Progressive Disclosure (단계적 정보 공개)
 
-스킬은 3단계 로딩 시스템으로 컨텍스트를 관리한다:
-
-| 단계 | 로딩 시점 | 크기 목표 |
-|------|----------|----------|
-| **Metadata** (name + description) | 항상 컨텍스트에 존재 | ~100단어 |
-| **SKILL.md 본문** | 스킬 트리거 시 | <500줄 |
-| **references/** | 필요할 때만(조건부) | 파일당 권장 300줄, 초과 시 ToC+섹션 라우팅 필수 (스크립트는 로딩 없이 실행) |
-
-**크기 관리 규칙:**
-- SKILL.md가 500줄에 근접하면 세부 내용을 references/로 분리하고, 본문에 "언제 이 파일을 읽으라"는 포인터를 남긴다
-- 300줄 이상의 reference 파일에는 상단에 **목차(ToC)**를 포함한다
-- 도메인/프레임워크별 변형이 있으면 references/ 하위에 도메인별로 분리하여, 관련 파일만 로드한다
-
-```
-cloud-deploy/
-├── SKILL.md (워크플로우 + 선택 가이드)
-└── references/
-    ├── aws.md    ← AWS 선택 시만 로드
-    ├── gcp.md
-    └── azure.md
-```
+- 스킬은 3단계 로딩(Metadata → SKILL.md 본문 → references/)으로 컨텍스트를 관리한다. 단계별 크기 목표와 크기 관리 규칙: `references/skill-writing-guide.md` §5 「3단계 로딩과 크기 관리」.
+- 분리 패턴(도메인별 분리 · 조건부 상세 · 300줄+ reference 목차): 같은 파일 §5 패턴 1~3.
 
 #### 4-5. 스킬-에이전트 연결 원칙
 
@@ -224,6 +221,8 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 오케스트레이터가 `Agent` 도구로 서브 에이전트를 직접 호출한다(`run_in_background: true` 병렬, 결과는 메인 반환). 팀 통신이 불필요할 때. (템플릿 B)
 
 **하이브리드 패턴:** Phase마다 모드를 섞음(예: 병렬 수집=서브 → 합의 통합=팀 / 팀 초안 → 서브 검증 / Phase 간 팀원 shutdown+새 팀원 spawn). 각 Phase 상단에 실행 모드 명시. 상세: `references/orchestrator-template.md` 템플릿 C.
+
+**결선 블록·스크립트 번들(패턴 공통):** 어느 패턴이든 ① 템플릿 A 의 4섹션(`## 완료 기준`·`## 리스크 등급`·`## 승인 관문`·`## 기존 자산`)에 `node <이 스킬의 디렉토리>/scripts/harness-intake.mjs render --orchestrator {오케스트레이터} --block <id>` 출력을 표식 주석째로 넣고(2-4 에서 확정한 `tier` 포함 · 손으로 고치지 않는다) ② `scripts/harness-intake.mjs`·`scripts/check-artifacts.sh` 를 그 스킬 `scripts/` 로 복사한다(듀얼이면 `.agents/skills/{오케스트레이터}/scripts/` 에도) — 6-7 `verify`·생성 하네스 Phase 0·pre-commit hook(`references/orchestrator-template.md` 「강제장치」)이 **그 사본**을 부르므로, 복사하지 않으면 6-7 이 부를 파일이 없다.
 
 #### 5-1. 데이터 전달 프로토콜
 
@@ -277,42 +276,28 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 
 **트리거:** {도메인} 관련 작업 요청 시 `{orchestrator-skill-name}` 스킬을 사용하라. 단순 질문은 직접 응답 가능.
 
+<!-- harness-profile:premise sha256=… -->
+{`node <이 스킬의 디렉토리>/scripts/harness-intake.mjs render --orchestrator {오케스트레이터} --block premise` 출력을 표식 주석째로 붙여넣는다. 손으로 고치면 `verify` 가 `drift` 로 실패한다 — 답을 바꾸려면 `answer` → `render` → 교체.}
+<!-- /harness-profile:premise -->
+
 **변경 이력:**
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
 | {YYYY-MM-DD} | 초기 구성 | 전체 | - |
 ````
 
-**듀얼 런타임 포인터:** Codex용으로 레포 루트 `AGENTS.md`에도 같은 포인터 + Codex 오케스트레이션 어댑터(subagents/subprocess) 주석을 출력한다(Codex 자동 로드). 둘 다 같은 정본을 가리킴. 한쪽만 갱신=drift. 상세: `references/runtime-adapters.md`.
+**듀얼 런타임 포인터:** Codex용으로 레포 루트 `AGENTS.md`에도 같은 포인터 + **같은 `premise` 블록**(한쪽만 넣으면 6-7 `verify` 가 `premise.agents=missing`) + Codex 오케스트레이션 어댑터(subagents/subprocess) 주석을 출력한다(Codex 자동 로드). 둘 다 같은 정본을 가리킴. 한쪽만 갱신=drift. 두 파일 모두 블록은 **`## 하네스:` 로 시작하는 섹션 안**에 둔다 — `verify` 가 그 접두로 섹션을 찾으므로 헤딩이 다르면 `misplaced`. 상세: `references/runtime-adapters.md`.
 
 **CLAUDE.md에 넣지 않는 것:** 에이전트 목록, 스킬 목록, 디렉토리 구조, 실행 규칙 상세. 이유: 에이전트/스킬 목록은 오케스트레이터 스킬과 `.claude/agents/`, `.claude/skills/`에서 관리하므로 중복이다. 디렉토리 구조는 파일 시스템에서 직접 확인 가능하다. CLAUDE.md는 **포인터(트리거 규칙) + 변경 이력**만 담는다.
 
 #### 5-5. 후속 작업 지원
 
-오케스트레이터는 초기 실행뿐 아니라 후속 작업도 처리해야 한다. 다음 세 가지를 보장하라:
-
-**1. 오케스트레이터 description에 후속 키워드 포함:**
-초기 생성 키워드만으로는 후속 요청이 트리거되지 않는다. description에 반드시 포함할 후속 표현:
-- "다시 실행", "재실행", "업데이트", "수정", "보완"
-- "{도메인}의 {부분작업}만 다시"
-- "이전 결과 기반으로", "결과 개선"
-
-**2. 오케스트레이터 Phase 0에 컨텍스트 확인 단계 추가:**
-워크플로우 시작 시 기존 산출물 존재 여부를 확인하여 실행 모드를 결정한다:
-- `_workspace/` 존재 + 사용자가 부분 수정 요청 → **부분 재실행** (해당 에이전트만 재호출)
-- `_workspace/` 존재 + 사용자가 새 입력 제공 → **새 실행** (기존 _workspace를 `_workspace_{YYYYMMDD_HHMMSS}/`로 이동 — 반복 실행 덮어쓰기 방지, 템플릿과 일치)
-- `_workspace/` 미존재 → **초기 실행**
-
-**3. 에이전트 정의에 재호출 지침 포함:**
-각 에이전트 `.md` 파일에 "이전 산출물이 있을 때의 행동"을 명시한다:
-- 이전 결과 파일이 존재하면 읽고 개선점을 반영
-- 사용자 피드백이 주어지면 해당 부분만 수정
-
-> 오케스트레이터 템플릿의 "Phase 0: 컨텍스트 확인" 섹션 참조: `references/orchestrator-template.md`
+- 오케스트레이터는 초기 실행뿐 아니라 후속 작업도 처리해야 한다 — description 후속 키워드: `references/orchestrator-template.md` 「description 작성 시 후속 작업 키워드」 · Phase 0 컨텍스트 확인(초기/부분 재실행/새 실행 — 새 실행은 기존 `_workspace/`를 시각 접미사로 옮겨 덮어쓰기 방지): 같은 파일 「Phase 0: 컨텍스트 확인」.
+- 에이전트 정의의 재호출 지침("이전 산출물이 있을 때의 행동"): `references/agent-design-patterns.md` 「에이전트 정의 구조」.
 
 #### 5-6. 품질 게이트 (코드/설계 도메인)
 
-내부 생성-검증(QA 에이전트)에 더해, 단계 산출물마다 외부 리뷰 게이트를 건다. 무차별 적용은 과의식이므로 **리스크 등급으로 강도를 맞춘다.**
+내부 생성-검증(QA 에이전트)에 더해, 단계 산출물마다 외부 리뷰 게이트를 건다. 무차별 적용은 과의식이므로 **리스크 등급으로 강도를 맞춘다** — 등급은 2-4 에서 확정하고 Phase 5 가 오케스트레이터에 넣은 `## 리스크 등급` 블록 규칙으로 **단계마다** 판정한다(아래 표는 그 블록의 2·3·4번 규칙과 같은 내용이다. 1번 비가역 규칙과 **하한**(③ 실패 비용이 `error-worse`=오류 우선이면 코드·설계 단계는 최소 표준)은 답에서 오므로, 표만 보고 경량으로 내리지 않는다).
 
 | 등급 | 조건 | 게이트 |
 |------|------|--------|
@@ -323,8 +308,8 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 **단계 마감 게이트(표준·중대):** 오케스트레이터가 `external-review-loop` 스킬 호출 — **라운드 반복 루프**(러너 제외 리뷰어 병렬 — Claude면 codex+agy, Codex면 claude+agy → 판정 → 확인분만 TDD 수정·게이트 → 수정 diff 재리뷰). **loop-until-dry**(신규 확인 0건 K회 연속) 또는 MAX_ROUNDS에서 종료. **게이트가 `BLOCKED` 를 반환하면**(리뷰어 축소 + 중대 + 사용자 미승인) 그 단계를 terminal blocked 로 기록하고 **check-artifacts·승인·커밋·후속 단계에 진입하지 않는다** — 승인/복구 후 **게이트를 재호출**해 새 판정을 받고 진행(산출물 유지·게이트만 재실행). 판정 원장(`verdicts.json`)으로 신규만 판정. 근거 수집은 위임 가능하나 **최종 확정은 오케스트레이터 비위임**. 상세: `references/external-review-loop.md`.
 
 **커밋 순서(순환 제거):** 리뷰→판정→수정→게이트 PASS → **`check-artifacts.sh`(결과서 docs/ 기록 검증 — missing이면 차단)** → **승인 관문** → 단일 커밋. (리뷰는 커밋 *전* 작업트리/스테이지 대상.) 결과서 방치는 프롬프트로 못 막음(스킵·할루시) → 생성 하네스는 이 검증을 **git `pre-commit` hook**에 배선(런타임 물리 차단). 상세: `references/orchestrator-template.md` 문서 체계.
-- 승인 관문 기본: 사용자 승인 대기.
-- **자율 노브:** `프로젝트/_workspace/.autonomous` 마커(또는 "자율로"·"승인 생략" 발화) 시 승인 자동 통과 → 커밋. 권한모드(bypassPermissions)는 스킬이 못 읽으므로 마커/발화로 명시. 마커 ON이어도 외부리뷰·판정·게이트는 그대로(인간 승인 한 스텝만 생략).
+- 승인 관문 기본: 사용자 승인 대기. **어느 지점에서 받는지·중대 사다리를 타는지는 오케스트레이터 `## 승인 관문` 블록**(Phase 0.5 ④ 답)을 따른다.
+- **자율 노브:** `프로젝트/_workspace/.autonomous` 마커(또는 "자율로"·"승인 생략" 발화) 시 승인 자동 통과 → 커밋. 권한모드(bypassPermissions)는 스킬이 못 읽으므로 마커/발화로 명시. 마커 ON이어도 외부리뷰·판정·게이트는 그대로(인간 승인 한 스텝만 생략). **단 `## 승인 관문` 블록이 `자율 노브(_workspace/.autonomous): 허용하지 않음` 이면 마커가 있어도 승인을 생략하지 않는다** — 사용자가 그렇게 답했기 때문이다.
 - **push는 자율이어도 기본 대기**(외부 송출·되돌리기 어려움) — `_workspace/.autonomous-push` 마커 시만 자동.
 
 **리뷰 예산(비용·지연 통제):** run당 외부 리뷰 횟수 상한을 두고, **코드 변경 없으면 게이트 생략(skip-when-no-delta)**. 검증된 반복 구간은 `_workspace/.fast-pass` 마커로 우회. 이슈 다수(10+)면 판정 보조로 일괄 처리해 오케스트레이터 컨텍스트 비대를 막는다.
@@ -390,7 +375,11 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 #### 6-6. 테스트 시나리오 작성
 
 - 오케스트레이터 스킬에 `## 테스트 시나리오` 섹션 추가
-- 정상 흐름 1개 + 에러 흐름 1개 이상 기술
+- 정상 흐름 1개 + 에러 흐름 1개 이상 기술 — **정상 흐름의 종료 조건은 `## 완료 기준` 블록의 항목**을 그대로 인용한다(물어놓고 쓰지 않으면 인터뷰가 장식이 된다)
+
+#### 6-7. 결선 검증
+
+`node .claude/skills/{오케스트레이터}/scripts/harness-intake.mjs verify --orchestrator {오케스트레이터}`(듀얼은 `.agents/skills/{오케스트레이터}/scripts/…`)를 실행한다. `WIRED:` 여섯 항목이 하나라도 `ok`/`na` 가 아니면 **Phase 6 FAIL** — 답을 받아놓고 배선하지 않은 하네스를 통과시키지 않는다. `stale`(답이 바뀜)은 `render` 로 블록을 교체한 뒤 재검증하고, `drift`(블록을 손으로 고침)는 손수정을 되돌릴 게 아니라 `answer` 로 답을 바꾸고 다시 렌더한다. `DECLARED:`·`ASSUMED:` 두 줄은 사용자에게 보고한다(가정으로 넘어간 항목을 사람이 보게).
 
 ### Phase 7: 하네스 진화
 
@@ -437,6 +426,7 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 - 같은 유형의 피드백이 2회 이상 반복될 때
 - 에이전트가 반복적으로 실패하는 패턴이 발견될 때
 - 사용자가 오케스트레이터를 우회하여 수동으로 작업하는 것이 관찰될 때
+- 프로파일 `harness-profile.json` 의 어느 항목에 `options_incomplete: true`(탈출구 `other:` 답)가 **여러 하네스·여러 회** 반복될 때 — 카탈로그 선택지 개선 신호다(PRD HI11 「진화 신호」). 팩토리 `references/harness-interview.md` 카탈로그에 선택지를 더하고 `catalog_version` 을 올린다(올리면 전 생성 하네스가 `stale` → 7-7 결선 재렌더).
 - **(구성 자기평가 — 주축)** `harness_scorecard`(구성 건강도·`references/harness-scorecard.md`) 악화 시 **구성 개선 제안**. 2 cadence: 무거운 정적 재계산=구성변경 시점(Phase 0/7-5), 얇은 인터셉터=run 종료 시 `loop_scorecard` 추세만 검사→스냅샷 config_hash 대조(일치 시 제안·불일치 시 정적 감사 요청만). 보조(`loop_ref`): `alignment_score` 3연속 하락·`rounds` 상승. **자동 적용 금지 — 제안+승인**, adjudicated≥30 전 발화 금지. 지표표: `references/loop-self-eval.md`.
 
 #### 7-5. 운영/유지보수 워크플로우
@@ -446,6 +436,7 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 **Step 1: 현황 감사**
 - `.claude/agents/` 파일 목록과 오케스트레이터 스킬의 에이전트 구성 비교 → 불일치 목록 생성
 - `.claude/skills/` 디렉토리 목록과 오케스트레이터 스킬의 스킬 구성 비교 → 불일치 목록 생성
+- `node .claude/skills/{오케스트레이터}/scripts/harness-intake.mjs verify --orchestrator {오케스트레이터}` 의 `WIRED:` 에서 `ok`/`na` 가 아닌 항목(`stale`·`drift`·`missing`…)을 불일치 목록에 넣고, `DECLARED:`·`ASSUMED:` 두 줄을 보고에 싣는다(전제가 바뀌었는지 사람이 본다). `stale` 처리는 `references/harness-update.md` 결선 재렌더.
 - 감사 결과를 사용자에게 보고한다
 
 **Step 2: 점진적 추가/수정**
@@ -465,7 +456,7 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 한쪽 런타임(예: `.claude/`)에서 스킬·에이전트를 수정하면 다른 쪽(`.agents/`·`.codex/`)이 stale → 런타임별 행동 불일치(하네스 drift). **모든 수정 후** 양쪽 경로(`.claude/skills/`↔`.agents/skills/`, `.claude/agents/*.md`↔`.codex/agents/*.toml`)의 정합을 대조·동기화한다. CLAUDE.md·AGENTS.md 포인터도 동시 갱신. 심링크 운영(예: `.agents/skills/{name}`→`.claude` 또는 공통 출처)이면 자동 동기되므로 권장.
 
 #### 7-7. 하네스 업데이트 (팩토리 정본 → 빌드된 산출물 · `update`)
-팩토리 정본을 고친 뒤 빌드된 하네스에 재전파한다(복사 방식이라 자동 전파 안 됨). **사용자 수정 보존** = 해시 감지+propose: `bash scripts/harness-update.sh plan|apply <skill_dir> <factory_dir> [--approve …]`. UPDATABLE/NEW=자동, USER-MODIFIED=승인만(보류=보존). 선행: 플러그인 최신화(`/plugin update myharness`). 생성 시 `harness-update.sh manifest`로 기준선 기록 필수(없으면 보수 모드). 사용자 정책은 `.local` 분리 권장. 상세·절차: `references/harness-update.md`.
+팩토리 정본을 고친 뒤 빌드된 하네스에 재전파한다(복사 방식이라 자동 전파 안 됨). **사용자 수정 보존** = 해시 감지+propose: `bash <이 스킬의 디렉토리>/scripts/harness-update.sh plan|apply <skill_dir> <factory_dir> [--approve …]`. UPDATABLE/NEW=자동, USER-MODIFIED=승인만(보류=보존). 선행: 플러그인 최신화(`/plugin update myharness`). 생성 시 `harness-update.sh manifest`로 기준선 기록 필수(없으면 보수 모드). 사용자 정책은 `.local` 분리 권장. **`apply` 뒤에는 `harness-intake.mjs verify` 로 결선을 재확인한다**(팩토리 카탈로그가 바뀌면 전 블록이 `stale`). 상세·절차: `references/harness-update.md`.
 
 ## 산출물 체크리스트
 
@@ -482,6 +473,8 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 - [ ] 테스트 프롬프트 2~3개 실행 검증 + 트리거 검증(should/should-NOT) 완료 (BEHAVIOR `Intent`·`Failure modes` 변경분은 결과서에 **4필드 기록**·`behavior-specs.md` §6)
 - [ ] **CLAUDE.md 포인터 등록 + 변경 이력에 에이전트/스킬 추가·삭제·수정 기록**
 - [ ] **오케스트레이터 Phase 0에 컨텍스트 확인 단계** (초기/후속/부분 재실행 판별)
+- [ ] **결선 블록 5종**(`completion`·`tier`·`approval`·`assets` = 오케스트레이터 SKILL.md의 `## 완료 기준`·`## 리스크 등급`·`## 승인 관문`·`## 기존 자산` / `premise` = `CLAUDE.md` + `AGENTS.md`)이 지정 섹션에 있고 `harness-intake.mjs verify` 가 전부 `ok`(`na` 포함) — `DECLARED`·`ASSUMED` 를 사용자에게 보고 (Phase 6-7)
+- [ ] **`scripts/harness-intake.mjs`·`scripts/check-artifacts.sh` 복사** — 오케스트레이터 스킬 `scripts/`(듀얼이면 `.agents/skills/{하네스명}/scripts/`에도)로 복사하고 `harness-update.sh manifest` 기준선에 포함. 복사하지 않으면 생성 하네스의 Phase 0이 부를 파일이, `pre-commit` hook 이 부를 `check-artifacts.sh` 가 없다
 - [ ] **듀얼 런타임:** 루트 `AGENTS.md` + `.agents/skills/` 출력(references/scripts 동봉) + `.codex/agents/*.toml` 생성 + `.claude`↔`.codex` 역할 동등성 + 오케스트레이터에 어댑터(Agent 팀원 spawn / Codex subagents·subprocess) 명시 (`references/runtime-adapters.md`)
 - [ ] (코드/설계) 코드/수정 에이전트에 dev-rules·tdd-doctrine **타겟상대 실경로** 주입 (`[[ ]]` 금지) + 교리 파일 타겟 복사 (Phase 3-1) + 생성 직후 `harness-update.sh manifest`로 기준선 기록(후속 `update` 사용자 수정 감지용, 7-7)
 - [ ] (코드/설계) **외부 리뷰어 연동 점검**(`check-review-tools.sh` — 러너 제외 `REVIEWERS:`) 후 `external-review-loop` 스킬 생성 — 도구 전무면 생략(불필요 스킬 방지) + 단계 게이트 배선, 단계마다 리스크 등급 판정 (Phase 4-6, 5-6)
@@ -497,4 +490,5 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 - **자기평가**: **주축** `references/harness-scorecard.md`(하네스 구성 상태 개선·계층A 정적 SSOT·frontmatter 연결 계약·2 cadence·분류 orphan/link_unknown/dead_link) + 보조 `references/loop-self-eval.md`(루프 효율 `loop_ref`·alignment·단계적) + `references/self-improvement-loop.md`(산출물 벤치·설계만). 용어: `harness_scorecard`(구성·주축) ⊃ `loop_scorecard`(루프) · `artifact_benchmark`(산출물).
 - **외부 리뷰 루프**: `references/external-review-loop.md` — 외부 독립 AI(러너 엔진 제외) 검증 단계 게이트. 방법론 겸 생성 템플릿. **루프 제어(loop-until-dry·MAX_ROUNDS·라운드 카운터)·판정 원장(verdicts.json, dedup vs seen)·수정본 재리뷰·근거수집 위임/확정 비위임**·기각 사유표·커밋 순서·자율 노브 포함.
 - **TDD 교리 / 개발 규칙 / 하네스 업데이트**: `references/tdd-doctrine.md`, `references/dev-rules.md`(작업 원칙 주입), `references/harness-update.md`(빌드 산출물 재전파·사용자 수정 보존).
+- **구성 인터뷰**: `references/harness-interview.md` — `harness-intake.mjs` 계약의 단일 출처. 문항 카탈로그·기본값("안전한 쪽") 규칙·선택지 노출/쪽 분할·답 문법과 rc·프로파일 스키마·`render`/`verify` 블록 형식과 판정(Phase 0.5·2-4·5-4·6-7이 이 문서를 따른다).
 - **런타임 어댑터 / 행동 명세**: `references/runtime-adapters.md` — Claude Code/Codex 듀얼 런타임 설계. 진입점·오케스트레이션 매핑, AGENTS.md·`.agents/skills/` 생성, 설치(Codex 공식 docs 검증). · `references/behavior-specs.md` — `.agents/behaviors/` 소유 경계 2축·6차원·`check-behaviors.sh` 검사 항목·비목표.

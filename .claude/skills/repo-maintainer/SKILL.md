@@ -70,7 +70,7 @@ Phase 0(컨텍스트 확인) → Phase 1(작업 분류 → 실행 경로) → Ph
 ## Phase 4: 완료 + 진화
 1. 최종 `bash .../check-version.sh` PASS 확인.
 2. 사용자에게 피드백 요청 ("결과/팀 구성에 바꿀 점?").
-3. CLAUDE.md **변경 이력**에 이번 작업 기록.
+3. 변경 이력 기록 — `docs/harness-history.md` 맨 위에 전문 행, `CLAUDE.md` 「변경 이력」에 한 줄 요약(최근 5건 유지 · 가장 오래된 요약 삭제).
 
 ## 테스트 시나리오
 **정상 흐름 (릴리스):** "v1.3.0 릴리스" → Phase0 check-version(현 1.2.0) → release-manager가 CHANGELOG Unreleased 승격 + plugin/marketplace 1.3.0 → doc-syncer가 뱃지 3종 1.3.0 → repo-qa check-version PASS → 태그 계획 제시 → 승인 대기.

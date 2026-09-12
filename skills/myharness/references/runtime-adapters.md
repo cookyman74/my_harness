@@ -26,6 +26,7 @@
 | MCP | settings/플러그인 | `config.toml`의 `mcp_servers.<id>` | ✅ |
 | 커스텀 슬래시 | `commands/*.md` | ❌ `~/.codex/prompts/*.md`·`$ARGUMENTS` 0.137.0 미지원 | 🔴 생략 |
 | 외부 리뷰(subprocess 호출) | 리뷰어 = **codex + agy** (러너=claude 제외) | 리뷰어 = **claude + agy** (러너=codex 제외) | 🟡 러너 제외 분기 |
+| 사용자 질문(객관식) | `AskUserQuestion` — **대화형만**(`claude -p` 에는 없음, 2026-09-10 실측) · 호출당 1~4문항·선택지 2~4·"그 외" 자동 | 질문 도구 없음 → 번호 목록 텍스트 + 다음 턴(agy 도 동일, stdin 금지) · `codex exec` 는 env/기본값 | 🟡 렌더러 분기(스키마 공통) |
 | 스크립트(scripts/) | bash | bash | ✅ |
 
 핵심: 스킬 본문은 **포맷 동일** → 거의 그대로 공유. 진짜 변환이 필요한 건 에이전트 정의(md→toml)와 오케스트레이션뿐.
@@ -49,7 +50,7 @@
 
 ## 5. 생성 하네스의 듀얼 출력 (Phase 5-4)
 팩토리가 하네스 생성 시:
-- `프로젝트/CLAUDE.md` + `프로젝트/AGENTS.md` (같은 포인터·같은 변경 이력. 한쪽만 갱신 = drift)
+- `프로젝트/CLAUDE.md` + `프로젝트/AGENTS.md` (같은 포인터·같은 변경 이력·같은 `premise` 표식 블록 — 한쪽만 갱신 = drift, 한쪽만 넣으면 `verify` 가 `premise.agents=missing`)
 - 스킬 → `.claude/skills/` + `.agents/skills/`
 - 에이전트 → `.claude/agents/{n}.md` + `.codex/agents/{n}.toml`
 - (선택) MCP 필요 시 `.codex/config.toml`의 `mcp_servers.<id>` 동봉

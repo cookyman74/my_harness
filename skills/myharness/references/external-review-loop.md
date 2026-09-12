@@ -24,6 +24,7 @@ description: 작업 단계 산출물(설계서·코드·문서)마다 외부 독
 - `{단계ID}`: 임의 단계 식별자 (예: `design-auth`, `feat-login`)
 - `{커밋id}`: 해당 시 `git rev-parse HEAD`, 아니면 생략
 - `{게이트명령}`: 프로젝트 테스트/린트 게이트 (예: `npm test && tsc --noEmit` / 없으면 생략)
+- `{등급}`: 이 단계의 리스크 등급(경량/표준/중대). **호출한 오케스트레이터가 자기 `## 리스크 등급` 블록 규칙으로 판정해 넘긴다**(Phase 0.5 ②③ 답에서 렌더된 블록 — 팩토리 `SKILL.md` 2-4·5-6). `verdicts.json` 에는 기계 키 `light`/`standard`/`critical` 로 적는다. 아래 「루프 제어」의 `축소종결판정(등급)` 과 Step 2 「리스크 등급별 축소 정책」이 이 값을 쓴다.
 
 ## 루프 제어 (수렴·종료 — 무한 루프/미검증 방지)
 이 게이트는 **라운드 반복 루프**다. 단일 패스가 아니다.
@@ -210,7 +211,7 @@ bash "{스킬scripts}/run-review.sh" "{단계ID}" "{러너}"   # 경로에 공�
 **최소 스키마** — 이대로 쓰면 Step 8 이 그냥 돈다:
 ```json
 { "loop":"external-review", "stage_id":"{단계ID}", "rounds":1,
-  "risk_level":"중대", "diff_lines":120, "termination_reason":"converged",
+  "risk_level":"critical", "diff_lines":120, "termination_reason":"converged",
   "issues":[ {"fingerprint":"파일+결함요지", "verdict":"confirmed", "round":1, "source":"codex"} ],
   "reviewer_coverage":[ {"reviewer":"codex","round":1,"scope":"full","status":"ok"} ] }
 ```
@@ -227,7 +228,7 @@ bash "{스킬scripts}/run-review.sh" "{단계ID}" "{러너}"   # 경로에 공�
 ## Step 7 — 기록·커밋 (커밋 순서·자율 노브)
 1. 결과서에 `## 외부 리뷰 반영 ({일자} — {단계ID} {k}건)` § — 판정표·게이트 수치·출처(리뷰어: codex|claude + agy, 러너 제외분).
 2. 순서: 게이트 PASS → **승인 관문** → 단일 커밋(`fix: 외부 리뷰 {k}건 — {요지}`, Co-Authored-By).
-   - 승인 관문 기본: 사용자 대기. `_workspace/.autonomous` 마커(또는 "자율로" 발화) 시 자동 통과.
+   - 승인 관문 기본: 사용자 대기. `_workspace/.autonomous` 마커(또는 "자율로" 발화) 시 자동 통과. 어느 지점에서 받는지·중대 사다리를 타는지·자율 노브 허용 여부는 **오케스트레이터 `## 승인 관문` 블록**(Phase 0.5 ④ 답)을 따른다 — 블록이 `자율 노브(_workspace/.autonomous): 허용하지 않음` 이면 마커가 있어도 대기한다.
    - **push는 자율이어도 기본 대기** — `_workspace/.autonomous-push` 마커 시만 자동.
    - 권한모드(bypassPermissions)는 스킬이 못 읽으므로 마커/발화로 명시. 마커 ON이어도 리뷰·판정·게이트는 그대로(인간 승인 한 스텝만 생략).
 

@@ -1,0 +1,6 @@
+{
+  "enabledPlugins": {
+    "plugone@mkt": true,
+    "plugthree@mkt": true
+  }
+}

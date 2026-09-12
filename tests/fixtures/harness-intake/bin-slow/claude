@@ -1,0 +1,3 @@
+#!/bin/sh
+/bin/sleep 8
+echo '2.1.267 (Claude Code)'
