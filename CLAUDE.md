@@ -32,13 +32,13 @@
 
 ## 변경 이력
 
-전체 원장: [`docs/harness-history.md`](docs/harness-history.md) — 33건(2026-06-08~), 날짜 역순, 원문 보존. 과거 문서의 "CLAUDE.md 이력 YYYY-MM-DD" 인용은 원장의 같은 날짜 행이다.
+전체 원장: [`docs/harness-history.md`](docs/harness-history.md) — 34건(2026-06-08~), 날짜 역순, 원문 보존. 과거 문서의 "CLAUDE.md 이력 YYYY-MM-DD" 인용은 원장의 같은 날짜 행이다.
 **여기에는 최근 5건만 한 줄로 둔다** — 매 세션 로딩되는 파일이라 상세는 원장에 쓴다. 새 변경은 원장에 전문 행을 먼저 추가하고, 여기에 한 줄 요약을 올린 뒤 가장 오래된 요약을 지운다.
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+| 2026-09-13 | **v1.8.3 PRD 수렴(R1~R12) + 설계서** — 소스 대조 정정 13 · 실행 계약화(alias·session_fallback·egress 강제·인터페이스) · 이월 2 · 설계서 외부리뷰 R1~R21 수렴(확인 46 · 기각 3 · PRD 정정 3) | `docs/v1.8.3/*` | v1.8.3 착수 |
 | 2026-09-13 | **로드맵 재번호** v1.7.7 → **v1.8.3**(`docs/v1.8.3/`) — 1.8.0 릴리스로 깨진 번호 계획 정정 · 1.8.0 유지 | `docs/v1.8.3/`, PRD, `CLAUDE.md` | 사용자 결정 |
 | 2026-09-12 | **릴리스 v1.8.0** — 구성 인터뷰(HI1~HI13) · 측정 도구 · HI10 효과 실측은 보류 명시 · PR→머지→태그→Release | `.claude-plugin/*.json`, `CHANGELOG.md`, `README*.md` | 사용자 릴리스 요청 |
 | 2026-09-12 | **v1.7.6 S5** — HI10 측정 도구(`criteria.json` 일반화 · 인터뷰 케이스 2) 완성 · 보정 1회($3.73 · 배선 11/11 ok) · **효과 판정 보류**(before 미실행 · 사용자 보류 → 릴리스 전 결정) · 외부리뷰 R1~R7 수렴(확인 7 반영 · 기각 2) | `tests/test-case-coverage*.sh`, `docs/v1.7.6/cases/harness-interview/*` | v1.7.6 S5 |
 | 2026-09-12 | **v1.7.6 S4b** — 결선표 소비처 쪽 누락 8건(외부리뷰 스킬 `{등급}`·승인 관문 블록 · Phase 5 렌더/복사 · 7-4/7-5 · premise 헤딩 요구) 정본 배선 · `SKILL.md` 494 · 외부리뷰 R1~R2 클린 수렴(리뷰어 신규 0) | `skills/myharness/SKILL.md`, `references/{external-review-loop,runtime-adapters}.md` | 배선도 재검토 |
-| 2026-09-12 | **v1.7.6 S4** — 정본 배선(`SKILL.md` 463→490 · Phase 0.5 인터뷰·2-4 등급·6-7 결선 검증 · 템플릿 4섹션 · `MANAGED_RELS` 12 + 헤더 드리프트 고정) · 드라이런 2종 · 외부리뷰 R1~R7 수렴(확인 16 전부 수정 · 정본 편집 규칙 신설) · 테스트 트랩 은폐 수정 | `skills/myharness/**`, `tests/test-harness-update.sh`, `CHANGELOG.md` | v1.7.6 S4 |

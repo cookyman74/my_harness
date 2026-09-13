@@ -2,9 +2,11 @@
 
 > **재번호(2026-09-13, 사용자 결정):** 이 PRD 는 원래 `docs/v1.7.7/` 였다. 선행 공정 v1.7.6 이 SemVer minor 로 **1.8.0** 으로 릴리스되어 이 릴리스는 **v1.8.3** 으로 재번호했다.
 
-작성일: 2026-09-10 · 상태: **초안(검토용)** · **선행: v1.7.6 하네스 구성 인터뷰**
+작성일: 2026-09-10 · **소스 대조 정정: 2026-09-13**(v1.8.0 출시 후 — 아래 「정정 기록」) · 상태: **검토·외부리뷰 수렴(R11·R12 HIGH 0 · 2026-09-13 — `docs/v1.8.3/working_history/prd-review.md`) · 설계 착수** · **선행: v1.7.6 하네스 구성 인터뷰 = 릴리스 1.8.0(출시됨)**
+
+> **정정 기록(2026-09-13, 소스 대조):** `SKILL.md:109`→`:125`(라우팅 정책 · 체크리스트 `:468`) · 정본 모델명 13곳→**17줄·21회**(재실측 · MA1 grep 범위 명시) · MA7 "Phase 4 에서 에이전트 생성"→**Phase 3**(`SKILL.md:108` — Phase 4 는 스킬) · MA15 ② "재인터뷰 없이 기본값" 은 `harness-intake.mjs:1229`(5항목 전부 없으면 rc=2) 때문에 **스크립트 변경 + `catalog_version` 상향이 전제** · §8 "3-OS CI"→**2-OS**(`factory-ci.yml` linux·windows) · Claude Code 모델 alias 실측(opus→`claude-opus-5` · sonnet→`claude-sonnet-5` · haiku→`claude-haiku-4-5-20251001` · 이 레포 에이전트 6개 = `opus`) → MA2/MA7 에 alias↔ID 선택 규칙 추가 · `후속 릴리스` 은 **후속 릴리스(v1.8.3 다음 · 코드네임 미정)** 로 표기 · HI9 스캔은 **이미 출시**(1.8.0 — `RUNTIME:`·`MODEL:`·`UNKNOWN_FIELDS:` 등 15줄 계약). **설계 착수 정정(2026-09-13 · 설계서 §0-7):** 팀 구성표 산출물 신설(a) · egress 강제 ② 는 `run-review.sh` 한 곳(b·c) · 허용 목록은 intake 내부 스캔(d) · pin 호출 규칙 = 단일 출처 규칙(f) · 실패 규약 = status `failed`(h) · 감사 `--now` → env(g).
 요청: "최신 모델 가이드를 myharness 에 자동 적용할 수 있는가" 검토 → PRD 화
-**범용성 요구:** OpenAI · Anthropic · Google · Qwen · xAI 등 **모든 모델 서비스에 적용 가능해야 한다**(사용자 명시)
+**범용성 요구:** OpenAI · Anthropic · Google · Qwen · xAI 등 **모든 모델 서비스에 적용 가능해야 한다**(사용자 명시) — **충족 방식(2026-09-13 확정):** 범용성은 **프로파일 스키마·파라미터 조립·오프라인 계약 테스트(MA2~MA4)** 로 충족한다. **실행 계약**(폴백·자동 복구·`modelUsage` 수용 기준)은 하네스가 실제로 도는 런타임 — **Claude Code**(1차) · Codex(런타임 기본) — 에만 닫는다. 하네스는 프로바이더 API 를 직접 부르지 않으므로(§5 비목표 "SDK 직접 호출") OpenAI·Google·Qwen 프로파일은 이 릴리스에서 **조립 대상**이지 실행 대상이 아니다; 그 프로바이더가 실제로 도는 곳은 외부리뷰 엔진(codex·agy CLI)뿐이고 거기서의 단종·불가는 이미 `run-review.sh` 가 `fail/suspect → degraded` 로 잡는다(감지) — 복구는 MA8 확인일 warn + 프로파일 갱신(사람)이다.
 
 > **릴리스 재편(2026-09-10, 사용자 결정):** 이 문서는 원래 v1.7.6 이었으나 **v1.8.3 로 이동**했다.
 > v1.7.6 은 **하네스 구성 인터뷰**(`docs/v1.7.6/prd/harness-interview-prd.md`)가 가져간다.
@@ -14,14 +16,14 @@
 > "비가역성 경계" 답이 게이트 강도를 정한다. 인터뷰 없이 배치를 먼저 하면 **배분 기준을 지어내야 한다**.
 > 반대 방향 의존은 없다 — 인터뷰는 배치 없이도 Phase 1~6 산출물을 바꾼다.
 >
-> **긴급도도 그쪽이 높다.** 배치 부재는 *비효율*이다(`SKILL.md:109` 가 `opus` 를 박아둬도 하네스는 돈다).
+> **긴급도도 그쪽이 높다.** 배치 부재는 *비효율*이다(`SKILL.md:125` 가 `opus` 를 박아둬도 하네스는 돈다).
 > 인터뷰 부재는 *매 생성마다 구조적 오류*를 낳고 그 오류는 오래 안 보인다 — 측정 꼬리 누락이 22라운드를
 > 돌 때까지 보이지 않았다.
 
 > **범위 결정(유지):** 이 릴리스는 **최신 클라우드 모델을 에이전트에 효율적으로 배치·활용하는 것**에
 > 집중한다. **sLM·로컬 모델은 "고려만" 한다** — 스키마가 나중에 담을 수 있는지만 확인하고 구현하지 않는다.
 > 사유: 한 번의 작업에 설계·구현 복잡도를 몰아넣지 않는다(원래 사용자 판단이고 재편 후에도 유효하다).
-> 로컬 실측 근거는 §10 에 보존해 **v1.7.8** 입력으로 쓴다.
+> 로컬 실측 근거는 §10 에 보존해 **후속 릴리스(v1.8.3 다음 · 코드네임 미정 · 구 후속 릴리스)** 입력으로 쓴다.
 
 ---
 
@@ -40,7 +42,7 @@
 
 | 위치 | 내용 |
 |---|---|
-| `SKILL.md:109` | 고추론 작업만 `opus`, 단순 작업은 경량 모델로 라우팅(비용 통제) |
+| `SKILL.md:125`(구 :109 · 체크리스트 `:468`) | 고추론 작업만 `opus`, 단순 작업은 경량 모델로 라우팅(비용 통제) — v1.7.6 배선(S4)이 이 정책은 손대지 않았다 |
 | `references/agent-design-patterns.md:226` | **모든** 에이전트는 `model: "opus"` 를 사용한다 |
 | 실측 | 이 레포 에이전트 6개 전부 `model: opus` — 라우팅 정책은 문서에만 있다 |
 
@@ -57,7 +59,7 @@ v1.7.5 가 26종 잡아낸 **"같은 규칙의 두 구현이 갈라진다"** 계
 | 대응 | `run-review.sh` 의 `AGY_MODEL` 하드코딩 제거 → 조건부 전달로 전환 |
 
 **정본에 모델 ID 를 박으면 그 이름이 사라진 환경에서 게이트가 통째로 죽는다.**
-현재 정본에 모델명이 **13곳** 박혀 있다.
+현재 정본(`skills/myharness/**`)에 모델명이 **17줄·21회** 박혀 있다(2026-09-13 재실측 · `grep -rc 'opus\|sonnet\|haiku\|Gemini 3\|gpt-'`): **에이전트 배치 계열** 12 — `team-examples.md` 4 · `orchestrator-template.md` 4 · `SKILL.md` 2 · `agent-design-patterns.md` 1 · `self-improvement-loop.md` 1 / **외부리뷰 엔진 env 예시** 5 — `external-review-loop.md` 3(`AGY_MODEL`·`CODEX_MODEL` 상황별 선택 · `Gemini 3.5 Flash`) · `run-review.sh` 2(주석 예시 `Gemini 3.5 Flash (High)`·`gpt-5.4-mini`). 두 계열은 부패 양상이 다르다 — 배치 계열은 Claude alias(`opus`)라 이름은 안 썩지만 **최신 세대를 못 가리키고**, 리뷰 엔진 계열은 실제 ID 라 **이름이 썩는다**(§1-1 나 의 400 이 그것).
 
 ---
 
@@ -67,18 +69,18 @@ v1.7.5 가 26종 잡아낸 **"같은 규칙의 두 구현이 갈라진다"** 계
 |---|---|
 | 하네스 제작자(팩토리 사용자) | 도메인만 말하면 에이전트별로 **적절한 모델·추론 강도**가 자동 지정되기를 원한다 |
 | 하네스 운영자 | 프로바이더가 모델을 단종·변경해도 **하네스가 죽지 않기를** 원한다 |
-| 오케스트레이터(에이전트) | 위임·검증·보고 방식이 **그 모델의 성향에 맞게** 조정되기를 원한다 |
+| 오케스트레이터(에이전트) | 위임·검증·보고 방식이 **그 모델의 성향에 맞게** 조정되기를 원한다 — **이 릴리스는 부분 충족**: 모델 귀속 프롬프트 주입(MA5)은 MA9 실측 뒤 후속이고, 이 릴리스는 §6-2 의 기존 기구 연결(외부리뷰 독립 판정 · `report_matches_calls` · 정책 감사)과 티어별 추론 강도(MA7)까지만 한다. 이 행의 나머지는 후속 릴리스 시나리오다 |
 | 팩토리 메인테이너 | 새 프로바이더·새 세대가 나와도 **한 파일만 고치면** 되기를 원한다 |
 
 ---
 
 ## 3. 실측 — 프로바이더별 계약은 "같은 축, 다른 이름, 각기 다른 금지값"
 
-2026-09-10 확인. 출처는 §9.
+프로바이더 가이드는 2026-09-10 확인, **Claude Code 런타임 사실(alias 해석·`effort:`·`fallbackModel`)은 2026-09-13 확인**. 출처는 §9.
 
 | 프로바이더 | 추론 강도 필드 | 값 어휘 | 기본 | 금지·제약 |
 |---|---|---|---|---|
-| Anthropic (Claude Fable 5) | effort | high / medium / low | high | 가이드: 일상 작업은 medium·low 로 충분 |
+| Anthropic (Claude Fable 5 — 2026-09-13 현재 최신은 **Fable 5.1** `claude-fable-5-1`; 가이드 재확인 필요 = MA8 의 첫 사례) | effort — **어휘가 두 층이다:** API 가이드 `high/medium/low` · Claude Code CLI·frontmatter `low/medium/high/xhigh/max`(모델별 지원 상이 · 미지원이면 CLI 가 최고 지원값으로 내림). **프로파일은 런타임(Claude Code) 5단 어휘를 저장**하고, API 직접 호출이 생기는 후속 릴리스에서 어댑터가 3단으로 내린다 | Claude Code 5단 / API 3단 | high | 가이드: 일상 작업은 medium·low 로 충분 · **Claude Code 는 에이전트 frontmatter `effort:`(low·medium·high·xhigh·max · 세션 값을 덮어씀)와 CLI `--effort` 를 문서상 지원**(code.claude.com/docs/en/sub-agents · cli-reference, 2026-09-13 확인 — 실행 실측은 설계서 계약 테스트) |
 | OpenAI (GPT-6 Astra) | `reasoning.effort` | (low·medium·high 계열) | — | **`none` → HTTP 400** · `configuration_update` 로 캐시 유지한 채 중간 변경 |
 | Google (Gemini 3.8 Flash) | `thinking_level` | LOW / MEDIUM / HIGH | MEDIUM | **`MINIMAL` → 400** · `temperature`·`top_p`·`top_k`·`frequency_penalty`·`presence_penalty`·`candidate_count` **제거 필수** · `thinking_budget` 혼용 시 400 |
 | Qwen (3.8) | `reasoning_effort` (+`thinking_budget`) | low / medium / xhigh | xhigh | `enable_thinking=False` 하드 스위치 · **프롬프트 내 `/think`·`/no_think` 소프트 스위치** |
@@ -110,7 +112,7 @@ v1.7.5 가 26종 잡아낸 **"같은 규칙의 두 구현이 갈라진다"** 계
 > *"멀티턴 에이전트에서 낮은 `reasoning_effort` 는 분석을 약화시켜 실패한 액션과 재시도를 늘리고,
 > 결과적으로 **총 토큰과 실행 시간이 오히려 증가**한다."*
 
-현재 `SKILL.md:109` 의 비용 통제 정책("단순 작업은 경량 모델")은 **단발 작업 기준**이다.
+현재 `SKILL.md:125` 의 비용 통제 정책("단순 작업은 경량 모델")은 **단발 작업 기준**이다.
 멀티턴 에이전트에서는 역효과일 수 있다. **티어 하향은 측정 후에만 확정해야 한다**(§6-3).
 
 ---
@@ -130,24 +132,22 @@ v1.7.5 가 26종 잡아낸 **"같은 규칙의 두 구현이 갈라진다"** 계
 | `standard` | 일반 실행·문서·조율 | 문서 동기화, 오케스트레이션, 일반 구현 |
 | `light` | 기계적 검사·수집 | grep, 구조 검증, 트리거 eval, 파일 감사 |
 
-**수용 기준:** 정본(`skills/myharness/**`)에서 `grep -c 'opus\|sonnet\|haiku\|Gemini 3\|gpt-'` 결과가
-**모델 프로파일 파일 1개를 제외하고 0** 이다.
+**수용 기준:** **에이전트 배치 계열 정본**(`SKILL.md` · `agent-design-patterns.md` · `orchestrator-template.md` · `team-examples.md` · `self-improvement-loop.md`)에서 `grep -c 'opus\|sonnet\|haiku\|Gemini 3\|gpt-'` 결과가 **모델 프로파일 파일 1개를 제외하고 0** 이다. 외부리뷰 엔진 env 예시(`external-review-loop.md:183,190,191`·`run-review.sh:57,60` 의 `AGY_MODEL`/`CODEX_MODEL`)도 **라벨화한다** — §1-1(나)의 400 이 정확히 이 계열에서 났으므로 예시로 남기지 않는다. 문서는 "경량/표준/중대 → 프로파일의 리뷰어 티어" 로 쓰고, 실제 모델명은 프로파일에만 둔다(env 전달 기구는 그대로 · `run-review.sh` 는 값을 해석하지 않으므로 코드 변경 없음). **수용 기준:** 이 5줄을 포함해 정본에 프로파일 밖 모델 ID 가 0 이다.
 
 ### MA2. 프로바이더 어댑터 — 라벨을 실제 파라미터로 해석
 라벨 → `{모델 ID, 추론 필드명, 값, 제거할 파라미터, 금지값 회피 규칙}` 변환을 **한 곳**에서 한다.
 
-**수용 기준:** 새 프로바이더 추가가 **파일 1개 편집**으로 끝난다. 코드 변경이 필요하면 실패.
+**수용 기준:** 새 프로바이더 추가가 **파일 1개 편집**으로 끝난다 — 그 파일은 **데이터 파일**(설계서가 경로·형식을 확정 · 후보 `skills/myharness/references/model-profiles.json`)이고, 어댑터 코드(`harness-intake.mjs` 의 새 서브커맨드 또는 별도 `.mjs`)는 그 파일을 **읽기만** 한다. 검증 절차: 계약 테스트 픽스처에 가짜 프로바이더 항목 1개를 **데이터 파일에만** 더했을 때 조립 결과가 나오고 `git diff -- '*.mjs' '*.sh'` 가 비어 있어야 한다. 코드 변경이 필요하면 실패.
 
 **sLM 확장 슬롯(고려만 — 구현하지 않음):** 스키마는 로컬 런타임을 나중에 담을 수 있어야 한다.
 실측(§10)에서 로컬은 OpenAI 호환 API 를 노출하므로 `{base_url, 기동 명령}` **두 필드만 추가**하면 된다.
-**수용 기준:** 설계서에 이 두 필드의 자리를 예약하고, v1.7.8 에서 값을 채울 때 **스키마 변경이 없음**을 문서로 보인다.
+**수용 기준:** 설계서에 이 두 필드의 자리를 예약하고, 후속 릴리스 에서 값을 채울 때 **스키마 변경이 없음**을 문서로 보인다.
 이 릴리스에서는 필드를 비워 두고 로컬 프로파일을 등록하지 않는다.
 
 ### MA3. 금지값 회피 — 하한 클램프가 아니라 프로바이더별 최저 유효값
 `light` 라벨을 Astra 는 `none` 이 아닌 최저 유효값으로, Gemini 3.8 은 `MINIMAL` 이 아닌 `LOW` 로 해석한다.
 
-**수용 기준:** 각 프로바이더의 **금지값을 실제로 요청했을 때 400 이 나는지** 계약 테스트로 고정한다
-(모델 호출 없이 파라미터 조립만 검증 — 오프라인).
+**수용 기준(오프라인):** 각 프로바이더의 금지값(Astra `none` · Gemini 3.8 `MINIMAL` — 실제 요청 시 400 이 나는 값, §3 출처)이 **조립 결과에 절대 나타나지 않는다**는 것을 계약 테스트로 고정한다 — `light` 요청이 그 프로바이더의 최저 **유효**값으로 해석되고, 금지값을 직접 넣어도 조립이 거부(rc=2)된다. 모델 호출은 하지 않는다(400 은 규칙의 **근거**이지 테스트가 재현하는 대상이 아니다 — 실제 400 재현은 옵트인 probe 로만).
 
 ### MA4. 파라미터 제거 규칙
 Gemini 3.8 처럼 "이 파라미터를 빼야 한다"는 요구를 프로파일이 표현할 수 있어야 한다.
@@ -176,10 +176,12 @@ Qwen 의 `/think`·`/no_think` 처럼 **프롬프트 본문에 들어가는** �
 (API 파라미터만으로는 부족).
 
 ### MA7. 에이전트 생성 시 자동 배치 — **이 릴리스의 중심**
-Phase 4 에서 에이전트를 만들 때 **역할 특성 → 라벨 → 프로파일** 경로로 `model` 과 추론 강도가 자동으로 붙는다.
+**Phase 3(에이전트 정의 생성 · `SKILL.md:108`)** 에서 에이전트를 만들 때 **역할 특성 → 라벨 → 프로파일** 경로로 `model` 과 추론 강도가 자동으로 붙는다(Phase 4 는 스킬 생성이라 대상이 아니다 — 초안의 "Phase 4" 는 오기).
 지금은 `agent-design-patterns.md:226` 이 "모든 에이전트는 opus" 라고만 말해 **배치라는 개념이 없다**.
 
-**배치 매핑(초안 — 설계서에서 확정):**
+**분류 입력과 규칙(PRD 가 기구를 정하고, 표의 내용은 설계서가 확정한다):** 입력은 두 가지다 — ① **팀 구성표**(에이전트 이름·역할 한 줄·실행 모드) — **정본에는 아직 이 산출물이 없다**(Phase 2 는 산문 · 설계서 §0-7 a): 설계서가 `_workspace/02_team-roster.json` 과 `SKILL.md` 2-5 를 신설한다 ② 인터뷰 ③ 답(실패 비용). 분류는 **프로파일 데이터 파일의 키워드 표**(역할 한 줄의 어휘 → 성격 열 · 모델이 아니라 스크립트가 매칭)로 하고, 같은 입력이면 같은 출력이다(결정성). **멀티턴/단발 판정**은 실행 모드에서 온다 — 팀 모드 팀원 = 멀티턴(팀 통신) · 서브 모드 `run_in_background` 1회 호출 = 단발 · 오케스트레이터 = 멀티턴. **모호(표에 없는 어휘)** 는 `standard` 로 떨어지고 그 사실과 매칭 실패 어휘를 에이전트 정의 주석에 남긴다(③). 이 세 규칙은 PRD 가 고정하고, 키워드 표의 내용·성격 열 6종의 경계는 설계서 §4 가 확정한다.
+
+**배치 매핑(초안 — 표의 내용은 설계서에서 확정):**
 
 | 에이전트 성격 | 티어 | 근거 |
 |---|---|---|
@@ -190,19 +192,32 @@ Phase 4 에서 에이전트를 만들 때 **역할 특성 → 라벨 → 프로�
 | 조율 · 오케스트레이션 | `standard` | 주 업무가 위임이라 추론량보다 지시 준수가 중요하다 |
 | 수집 · grep · 구조 검증 · 트리거 eval | `light` | 단발 · 기계적 · 검증 가능 |
 
+**Claude Code 런타임의 실측(2026-09-13 · `claude -p --model … --output-format json` 의 `modelUsage`):** 에이전트 frontmatter `model:` 과 `--model` 은 **alias = 제품군의 최신**을 가리킨다 — `opus`→`claude-opus-5` · `sonnet`→`claude-sonnet-5` · `haiku`→`claude-haiku-4-5-20251001` · **`fable`→`claude-fable-5-1`**(`claude-fable-5` 를 명시하면 이전 세대 Fable 5). 이 레포 에이전트 6개의 `model: opus` 는 그래서 Opus 5 다. CLI 는 `--effort {low,medium,high,xhigh,max}`(세션 수준 · 서브에이전트에 상속 · frontmatter `effort:` 가 덮어씀)과 `--fallback-model <a,b,…>`(과부하·불가·**단종** 시 순서대로 폴백 · 서브에이전트 상속 · settings `fallbackModel`)를 제공한다(`claude --help` 실측 + 문서 확인). frontmatter `model:` 은 alias(`opus`·`sonnet`·`haiku`·`fable`)·전체 ID·`inherit` 를 받고, **alias 해석은 프로바이더별로 다르다**(문서: Anthropic API `sonnet`=Sonnet 5 · AWS Claude Platform =Sonnet 4.6 · Bedrock =Sonnet 4.5) — 어댑터가 프로바이더 축을 가져야 하는 이유가 하나 더 생겼다. **`Agent` 도구 호출의 `model` 파라미터 계약은 문서에 없다**(미결 — 설계서 실측).
+
+**alias/ID 실행 계약(운영자 시나리오를 닫는다):**
+1. **1차 = 제품군 alias.** 프로파일의 티어 항목은 `{family_alias, pinned_id?}` 를 갖고, 생성된 에이전트 정의의 `model:` 에는 **alias** 가 들어간다(예: `deep → fable`, `standard → sonnet`, `light → haiku`). alias 는 세대가 바뀌어도 이름이 유지되므로 **모델 단종으로 하네스가 죽지 않는다** — 이것이 운영자 시나리오의 근거다. **폴백 체인은 티어별이 아니라 프로파일 최상위 `session_fallback: [alias…]` 하나다** — Claude Code 의 `fallbackModel` 은 세션 키 하나뿐이고 서브에이전트는 그것을 상속하므로 에이전트(티어)별 폴백은 **런타임이 표현하지 못한다**(문서). 체인은 프로바이더 데이터 파일이 제품군 순서(예: `fable → opus → sonnet → haiku`)로 정하고, 어느 티어의 alias 가 죽든 같은 체인이 받는다.
+2. **명시 ID 는 고정(pin)이 필요할 때만** 쓴다 — 선택 규칙: 프로파일 티어 항목에 `pinned_id` 가 **있을 때만** 그 티어의 생성 `model:` 은 alias 대신 그 ID 가 되고(예: 벤치 재현성 · 회귀 기준선 고정), 없으면 alias 다. pin 은 사람이 명시적으로 넣는 값이며(자동 채움 없음) 넣으면 MA8 stale 대상이 된다(확인 날짜 필수 · 감사 #13 warn). 계약 테스트: 같은 팀 구성표에서 한 티어에 `pinned_id` 를 넣으면 그 티어 에이전트의 `model:` 만 ID 로 바뀐다.
+3. **런타임 폴백의 배선 지점은 `Agent` 호출이 아니라 프로젝트 설정이다.** `Agent` 도구에는 폴백 파라미터가 없고 `--fallback-model` 은 세션 플래그다 — 문서상 둘 다 **서브에이전트에 상속**되는 것은 settings `fallbackModel` 이다. 그래서 생성 하네스는 Phase 5 에서 대상 프로젝트 `.claude/settings.json` 에 `fallbackModel: "<프로파일 fallback 체인>"` 을 쓴다(오케스트레이터 템플릿에 그 줄을 배선 — `orchestrator-template.md:68-74`·`:221-226` 에는 현재 폴백 배선이 없다). **쓰기 계약(기존 설정을 덮어쓰지 않는다):** 파일이 없으면 생성 · 있으면 **키 단위 병합**(다른 키 전부 보존 · JSON 파싱 실패면 rc=2 로 멈추고 손대지 않는다) · `fallbackModel` 이 이미 있고 값이 다르면 **덮어쓰지 않고 사용자 승인**(before/after 병기) · 쓰기 전 `settings.json.bak-<ISO>` 백업 · 이 파일은 사용자 파일이라 `harness-update.sh` 관리 대상이 아니다(재전파 시 `verify` 가 아니라 별도 점검 — `fallbackModel` 부재는 7-5 감사 항목). **계약 테스트:** 기존 키 3개가 있는 settings 에 쓰면 3개가 그대로이고 `fallbackModel` 만 추가된다 · 값이 다르면 **덮어쓰지 않고 rc=0 + `NEEDS_APPROVAL:` 줄**(설계서 §3-6 — intake 의 rc 규약 `0/2` 유지 · 승인 대기는 실패가 아니라 결과) · `--approve` 로만 교체 · 백업 파일명은 콜론 없는 시각(Windows 파일명 제약). 프로파일의 **`session_fallback`** 이 그 값의 단일 출처다(티어별 `fallback` 은 없다 — 위 1항). `Agent` 도구의 `model` 파라미터는 이 세션 실측으로 enum `[sonnet, opus, haiku, fable]` 를 받는다(문서에는 없음) — 정의 파일 `model:` 과의 우선순위는 **설계서 계약 테스트**로 실측한다.
+4. **자동 복구 계약(단종 시 하네스가 어떻게 사는가):** `session_fallback` 체인은 **같은 제품군 안이 아니라 다른 제품군의 alias 로** 잇는다(예: `fable → opus → sonnet → haiku`). CLI 는 주 모델이 "과부하·사용 불가(단종 포함)"일 때 체인을 순서대로 시도한다(문서) — 따라서 한 제품군 alias 가 사라져도 **실행은 자동으로 다음 군으로 넘어간다.** 이것이 자동 복구다. 부패 *감지*는 별개다: 정책 감사가 프로파일 alias 의 **확인 날짜**를 warn 하고(MA8), 실제 해석 확인은 모델 호출이 필요하므로 **옵트인 probe**(`claude -p --model <alias>` 1턴 · 비용 기록)로 한다. **수용 기준:** 프로파일에서 1차 alias 를 존재하지 않는 값으로 바꾼 뒤 계약 테스트가 조립한 설정으로 `claude -p` 1턴을 돌리면 폴백 군의 모델이 `modelUsage` 에 찍힌다(옵트인 실측 · 결과서 기록).
+5. **Codex 런타임**은 `SKILL.md:125` 의 정책 문장("Codex 런타임은 `.codex/agents/*.toml`·내장 `worker`/`explorer` 의 현재 모델/설정값을 사용" · 체크리스트 `:468` 은 그 요약)대로 런타임 모델을 따른다(`.codex/agents/*.toml` 의 model 필드는 S4 이월 ④ — toml 스키마 부재 — 가 먼저 풀려야 한다). 이 릴리스의 어댑터는 Claude 런타임을 계약으로 닫고 Codex 는 "런타임 기본" 한 값으로 둔다.
+
+**수용 기준(추가):** 프로파일에 위 5요소(티어별 `family_alias`/`pinned_id?` · 최상위 `session_fallback` · Codex 기본 · probe · 확인일)가 있고 · 생성 에이전트의 `model:` 이 alias 이며 · Phase 5 가 `settings.json` 에 쓰는 `fallbackModel` 값이 `session_fallback` 을 그대로 직렬화한 것이며(계약 테스트) · 프로파일에서 alias 하나를 존재하지 않는 값으로 바꾸면 **계약 테스트(오프라인)는 통과하되 probe 스크립트가 실패**를 보고한다(둘의 역할이 다르다는 것을 테스트로 고정).
+
 **추론 강도도 티어에 묶는다** — 프로바이더별 기본값이 다르므로(Fable 5 `high` 기본 / Gemini 3.8 `MEDIUM` 기본)
 티어 → 강도 매핑은 프로파일이 소유하고 정본은 라벨만 말한다.
+
+**전환 규칙(정본 모순 해소 — 무엇을 어떻게 바꾸나):** 현재 정본은 두 곳이 상충한다(§1-1 가). 이 릴리스는 **라우팅 정책(`SKILL.md:125`)을 살리고 "모든 에이전트 opus"(`agent-design-patterns.md:226`)를 폐기**한다 — 바꾸는 줄은 배치 계열 12줄 전부다: `SKILL.md:125`(정책 문장을 티어 라벨로) · `:468`(체크리스트) · `agent-design-patterns.md:226`(→ "티어는 MA7 매핑표로, 값은 프로파일로") · `orchestrator-template.md:70-71`(Agent 호출 예시 `model: "{tier}"`) · `:225-226`(팀 표의 model 열 → tier 열) · `team-examples.md:42-45`(예시 4줄) · `self-improvement-loop.md:72`(cheap-judge "Haiku/Sonnet" → `light`/`standard`). **Agent 도구 호출**은 `model:` 에 정의 파일과 같은 alias 를 넘긴다 — **배선과 검증:** 템플릿의 호출 예시(`orchestrator-template.md:70-71`·`team-examples.md:42-45`)는 리터럴 `opus` 를 버리고 `model: "{정의 파일 model}"` 자리표시자로 바꾸며, Phase 5 는 오케스트레이터를 쓸 때 각 호출의 `model` 을 **해당 에이전트 정의 파일에서 읽어** 채운다(정의 파일이 단일 출처 · 호출이 다른 값을 주면 정의가 진다). **계약 테스트(오프라인·결정적):** 생성된 오케스트레이터의 `Agent(...)` 호출을 파싱해 `subagent_type` 별 `model` 값이 `.claude/agents/<name>.md` 의 `model:` 과 같아야 한다 — 다르면 FAIL. 정의 파일이 `inherit` 면 호출도 `model` 생략. **기존 생성 하네스**는 `harness-update.sh apply` 로 정본을 받은 뒤에도 에이전트 정의의 `model:` 은 사용자 파일이라 **자동으로 바뀌지 않는다** — `update` 가 `UNTIERED:`(scan `MODEL:` 에서 파생)를 보고하고 사용자가 승인해야 바뀐다(HI9 의 `MODEL:` 관측값이 여기서 소비된다). **Codex 산출물**은 위 alias 계약 5항.
 
 **"효율"의 정의:** 모델 단가가 아니라 **실패·재시도를 포함한 총비용**이다(§3-2).
 따라서 티어 하향은 "싸 보이니까"가 아니라 **작업이 단발이고 결과를 기계로 검증할 수 있을 때**만 한다.
 
 **수용 기준:** ① 생성된 에이전트 정의에 티어와 **선정 근거**가 주석으로 남는다 ② 같은 성격의 에이전트가
 두 번 생성되면 같은 티어가 나온다(결정적) ③ 매핑표에 없는 성격은 `standard` 로 떨어지고 그 사실이 기록된다
-④ **인터뷰의 "실패 비용" 답을 바꾸면 배분 비율이 실제로 달라진다**(HI6 결선 회귀와 같은 틀).
+④ **인터뷰의 "실패 비용" 답을 바꾸면 배분 비율이 실제로 달라진다**(HI6 결선 회귀와 같은 틀). **변환 기구(PRD 고정 · 표는 설계서):** `cost` 답(`error-worse` / `balanced` / `delay-worse` — 카탈로그 ③)은 매핑표의 **경계 행**("구현·리팩터 단발" · "모호(표에 없음)")을 한 단계 **올리거나 내린다** — `error-worse` 는 경계 행을 위로(단발 구현 `deep` · 모호 `standard` 유지), `delay-worse` 는 아래로(단발 구현 `standard` · 모호 `light`), `balanced` 는 표 그대로. 비경계 행(설계·판정 = `deep` · 수집 = `light`)은 답과 무관하다. **테스트 벡터 3종**(같은 팀 구성표 × 세 답 → 경계 행만 달라진다 · 결정적)을 계약 테스트에 둔다. **배선 방식은 설계서가 둘 중 하나로 확정한다:** (a) 배치 결과를 새 표식 블록 `placement` 로 오케스트레이터에 넣는다 — `BLOCK_IDS` 5→6 · `verify` 의 `WIRED:` 7항목. **`catalog_version` 과는 무관하다**(그 상수는 카탈로그 라벨 변경용 — `harness-interview.md:25` · `harness-intake.mjs:586-589`): 블록 추가는 결선 구조 변경이라 구 하네스는 `placement=missing` 으로 나타나고, 처리는 `render --block placement` 삽입이다(`stale` 재렌더가 아니다). MA15 의 `catalog_version` 2 는 `egress` 항목 추가 때문이지 이 블록 때문이 아니다 (b) 블록 없이 Phase 3 에서 프로파일 ③ 답을 읽어 매핑만 한다 — `verify` 가 배치를 검사하지 않으므로 ④ 는 **에이전트 정의 주석의 티어 근거**로만 회귀한다. MA15 의 새 문항은 이것과 별개로 **카탈로그 항목(`ITEM_IDS`) 확장**이다 — 블록 수와 무관. ⑤ Claude 런타임에서 티어→alias/ID 선택 규칙과 그 근거가 프로파일에 있고, 생성된 에이전트 정의의 `model:` 값이 그 규칙과 일치한다 ⑥ **추론 강도:** 생성된 에이전트 정의에 `effort:` 가 프로파일의 티어→강도 매핑대로 들어간다(오프라인 계약 테스트 · 값 집합은 Claude Code 5단). **런타임 적용 여부**는 문서에 관측 수단이 없다(`modelUsage` 는 모델만 보고한다) → 설계서 미결: 관측 가능한 채널(stream-json 이벤트·usage 필드)이 실측되면 옵트인 probe 로 확인하고, 없으면 "정의 파일 값까지 검증 · 적용은 미검증" 을 결과서에 명시한다 — 검증하지 못한 것을 검증했다고 쓰지 않는다.
 
 ### MA8. 부패 감지 — 가이드도 모델도 **스캔 대상 포맷도** 썩는다
 프로파일 항목마다 **출처 URL 과 확인 날짜**를 필수로 기록한다.
-정책 감사가 **확인 날짜가 N일 이상 지난 항목**을 warn 한다.
+정책 감사가 **확인 날짜가 N일 이상 지난 항목**을 warn 한다 — **N 은 프로파일 파일의 `stale_after_days`(기본 90)** · 확인일은 ISO `YYYY-MM-DD` · 감사 항목 #13 · 현재 날짜는 **env `HARNESS_AUDIT_NOW=<ISO>`** 로 주입해 테스트가 결정적이다 — `run-policy-audit.sh` 는 인자를 파싱하지 않으므로(`:6` 이후 인자 처리 없음) `--now` 파서 신설 대신 env(설계서 §0-7 g).
 
 **부패하는 것은 프로파일만이 아니다**(실측 이력):
 
@@ -215,8 +230,7 @@ Phase 4 에서 에이전트를 만들 때 **역할 특성 → 라벨 → 프로�
 | **빌트인 에이전트 목록** | CLI 버전 종속이고 **조회 명령이 없다**(§MA14 실측) |
 
 **수용 기준:** ① `run-policy-audit.sh` 가 stale 프로파일을 경고한다(차단은 하지 않는다 — 가이드 갱신은 사람 일)
-② 스캔 산출물에 **런타임 버전**을 기록한다 ③ 모르는 frontmatter 필드는 **버리지 않고 보고**한다
-(포맷이 바뀐 것을 알 수 있어야 한다).
+② 스캔 산출물에 **런타임 버전**을 기록한다 — **1.8.0 이 이미 제공**(`scan` 의 `RUNTIME:` 줄) ③ 모르는 frontmatter 필드는 **버리지 않고 보고**한다 — **1.8.0 이 이미 제공**(`UNKNOWN_FIELDS:` 줄). 이 릴리스는 ②③을 소비만 하고, ①(stale 프로파일 warn)만 새로 만든다.
 
 ### MA9. 실측 검증 — 보정이 실제로 효과가 있는가
 v1.7.5 에서 만든 **벤치 러너·궤적 채점기·케이스 세트**로 보정 주입 전/후를 측정한다.
@@ -257,22 +271,25 @@ LM Studio·llama.cpp·vLLM 도 같은 규약을 노출한다.
 **수용 기준:** 로컬 모델의 티어는 v1.7.5 벤치 러너·케이스 세트로 **측정한 결과**로 정한다.
 추정만으로 `light` 라벨을 부여하지 않는다.
 
-### MA15. 인터뷰에 모델 항목 두 개를 **이때** 추가한다
-v1.7.6 인터뷰(HI2)는 다섯 항목만 묻는다 — 완료 판정 · 비가역 경계 · 실패 비용 · 승인 지점 · 기존 자산.
-**모델 관련 두 항목은 v1.7.6 에서 의도적으로 뺐다: 소비처가 이 릴리스에 생기기 때문이다.**
+### MA15. 인터뷰에 모델 항목 **하나**를 **이때** 추가한다(+ 기존 ③ 소비)
+v1.7.6 인터뷰(HI2)는 다섯 항목을 묻는다 — 완료 판정 · 비가역 경계 · 실패 비용 · 승인 지점 · 기존 자산(`ITEM_IDS` 5). 이 릴리스가 **새로 더하는 항목은 1개**(외부 반출 가부)이고, "실패 비용"은 기존 ③ 을 **소비**한다(초안의 "두 개 추가"는 오기).
 
-| 추가 항목 | 무엇을 결정하는가 | 소비하는 요구 |
-|---|---|---|
-| **외부 반출 가부** — 이 하네스가 다루는 내용을 외부 API 로 보내도 되는가 | 가용 프로바이더 집합. '아니오'면 클라우드 전부 탈락 | MA2 어댑터 · (v1.7.8) 로컬 |
-| **실패 비용 비대칭** *(v1.7.6 에서 이미 수집)* | `deep`/`standard`/`light` **배분 비율** | MA7 배치 |
+**새 항목 계약(설계서가 문구·순서를 확정):** id `egress` · 값 `runtime-only`(현재 런타임 프로바이더만) / `allow-listed`(프로파일·스캔이 허용한 프로바이더만) / `any` · **기본값 `allow-listed`, 허용 목록은 스캔에서 온다** — 현재 런타임 프로바이더 + 설치 탐지된 리뷰어 엔진의 프로바이더(HI7 `scanned` 출처 · ⑤ `assets` 와 같은 방식). 탐지는 `harness-intake.mjs` **내부 스캔**(`scanRuntime()` — 현재 소스 `:444` 는 `claude`·`codex`·`agy` 3종 · **설계서가 `gemini` 를 더해 4종으로 확장하기로 결정**(`check-review-tools.sh` 후보 집합과 동일하게 · 구현 단계는 **S3** — `scan` 골든 출력을 `catalog_version` 2·`normalizeAnswers` 와 같은 커밋에서 한 번만 갱신하려는 설계서 §11 결정) — 단 `SHADOWED`(PATH 밖)는 허용 근거가 아니다)으로 한다 — `questions`·`answer` 는 셸 스크립트를 부르지 않는다(설계서 §0-7 d). 이유: 외부리뷰 루프 자체가 codex·agy 로 OpenAI·Google 에 내용을 보내므로 `runtime-only` 를 기본으로 두면 **비대화 생성마다 외부리뷰가 조용히 꺼진다** — 이미 설치해 쓰는 리뷰어는 사용자가 반출을 허용한 증거로 본다. `runtime-only` 는 명시 선택(그러면 외부리뷰는 내부 QA 로 축소되고 결과서에 그 사유가 남는다 — 루프의 기존 "리뷰어 없음" 경로). 구 프로파일(항목 없음)은 `assumed: allow-listed(scanned)` 로 채우고 `ASSUMED:` 에 드러낸다 · `catalog_version` 1→2.
+
+**강제 지점(답이 장식이 되지 않게):** ① **L2 어댑터** — `egress` 밖 프로바이더의 조립 요청은 rc=2 `egress 위반: <provider>`(계약 테스트: `runtime-only` 프로파일 + OpenAI 조립 → rc=2) ② **리뷰어 선택** — **`run-review.sh` 한 곳**에서 `REVIEWERS:` 를 `egress` 로 거른다(`runtime-only` 면 `REVIEWERS: none` + `degraded` 사유 `egress` · 테스트로 고정). `check-review-tools.sh` 에는 넣지 않는다 — 항상 rc=0 인 순수 탐지기이고 정책 감사 #11·`selftest-review-tools.sh` 가 프로파일 없는 격리 환경에서 돌려 강제를 넣으면 팩토리 자체 가드가 상시 실패한다(설계서 §0-7 b). **`REVIEWERS_OVERRIDE` 도 같은 필터를 지난다** — `run-review.sh:182-185` 는 탐지 뒤에 override 토큰으로 `REVIEWERS` 를 덮어쓰므로, 탐지 결과만 거르면 override 로 우회된다. 규칙: override 토큰을 같은 매핑으로 정규화해 `egress` 밖이면 **실패 `egress 위반: <tool>`**(조용한 축소 금지). `run-review.sh` 의 실패 규약은 `die_launcher`(`:100-110`) — 락 보유 시 상태 JSON `failed` + **exit 0**(헤더 `:17` 계약: 상태는 status JSON 으로만) · 락 미소유 시 exit 1 — 이라 "rc=2" 가 아니라 **status `failed`** 로 판정한다(설계서 §0-7 h). 테스트 = `runtime-only` 프로파일 + `REVIEWERS_OVERRIDE=agy` → status `failed` · `degraded` 에 `egress 위반` ③ 두 지점이 같은 프로파일 필드를 읽는다(규칙의 두 구현 금지) — **소유 경계와 인터페이스:** `egress` **답**은 하네스별 인터뷰 프로파일 `.claude/skills/<오케스트레이터>/harness-profile.json`(항목 ⑥ · v1.7.6 스키마 그대로)이 소유하고, **프로바이더·티어·도구명 매핑**은 팩토리 데이터 파일(`model-profiles.json` 후보 · 설계서 확정)이 소유한다. 두 셸 스크립트가 JSON 두 개를 각자 읽지 않도록 **`harness-intake.mjs` 가 해석을 한 번 하고 다섯 줄로 낸다**(설계서 §3 확정 · 값 하나에 줄 하나 — 정본의 리뷰어 모델명 예시가 공백을 포함하므로(`run-review.sh:57` `"Gemini 3.5 Flash (High)"`) 한 줄에 두 값을 싣지 않는다) — `EGRESS: <runtime-only|allow-listed|any>` · `ALLOWED_TOOLS: <…>`(반출 허용 집합 — **러너 도구 포함** · 프로바이더 단위 · `degraded` 사유 문구용) · `REVIEWERS_ALLOWED: <…|none>`(허용 집합 − 러너 — **필터가 읽는 줄**; `runtime-only`+러너 `claude` 면 `ALLOWED_TOOLS: claude` / `REVIEWERS_ALLOWED: none`) · `REVIEW_MODEL_CODEX: <id|none>` · `REVIEW_MODEL_AGY: <id|none>`(리뷰어 티어→실제 ID · 등급은 `run-review.sh` 가 **env `REVIEW_GRADE`(필수 · 기본값 없음)** 로 받아 `--grade` 로 넘긴다 · `run-review.sh` 는 두 값을 `CODEX_MODEL`/`AGY_MODEL` 로 **대입**하고 기존 env 는 무시+경고 — R11 이월 해소) — 서브커맨드 이름은 설계서 · 프로파일 없으면 rc=2. `run-review.sh`(override 검증 포함)는 그 출력만 읽는다 — **항상 형제 `harness-intake.mjs` 를 1회 호출**해 두 줄을 얻는다(`run-review.sh:65-68` 의 형제 호출 선례). **env 는 정책 입력이 아니다** — `HARNESS_EGRESS_*` 같은 env 를 우선하면 호출자가 `runtime-only` 프로파일을 `any` 로 넓혀 fail-closed 가 우회된다(설계서 외부리뷰 R1 HIGH). 테스트는 env 가 아니라 **픽스처 프로파일**로 주입한다 · 호출 실패·프로파일 부재는 실패(필터 미적용 금지 · 실패 규약은 아래 h). ④ **도구명→프로바이더 정규화:** `REVIEWERS:` 는 도구명(`codex`·`agy`·`claude`·`gemini`)을 내고 `egress` 목록은 프로바이더다 → 프로파일 데이터 파일이 `tools: {codex: openai, agy: google, gemini: google, claude: anthropic}` 매핑을 소유하고 두 강제 지점이 그것으로 정규화한다. **계약 테스트:** `check-review-tools.sh` 가 낼 수 있는 도구명 집합(스크립트의 후보 목록) 전부가 매핑에 있어야 하고, 없는 도구명이 나오면 rc=2 로 멈춘다(조용히 허용/차단하지 않는다).
+
+| 항목 | 신규/기존 | 무엇을 결정하는가 | 소비하는 요구 |
+|---|---|---|---|
+| **외부 반출 가부**(`egress`) — 이 하네스가 다루는 내용을 현재 런타임 밖의 API 로 보내도 되는가 | **신규** | 가용 프로바이더 집합. `runtime-only` 면 현재 런타임 프로바이더만 | MA2 어댑터 · (후속 릴리스) 로컬 |
+| **실패 비용 비대칭**(`cost`) | **기존 ③ — 소비만** | `deep`/`standard`/`light` **배분 비율** | MA7 배치 |
 
 **소비처 없는 수집을 금지하는 이유:** 답을 받아놓고 아무도 읽지 않는 필드는 이 레포가 이미 겪은
 `REVIEWERS_OVERRIDE` 계열이다 — 런처가 export 했지만 `run-review.sh` 에 읽는 코드가 없어
 네 프로세스가 같은 산출물에 동시에 썼고 **R11 을 통째로 무효 처리**했다.
 "외부 반출 가부"는 나중에 물어도 소급이 되므로 v1.7.6 에서 묻지 않는다.
 
-**수용 기준:** ① 두 항목이 HI5 결선표에 소비처와 함께 등재된다
-② 기존 하네스(v1.7.6 에서 생성된 것)는 **재인터뷰 없이** 기본값으로 동작하고, 그 사실이 프로파일에 기록된다.
+**수용 기준:** ① 신규 `egress` 와 기존 ③ `cost` 가 HI5 결선표에 소비처와 함께 등재된다(신규 항목은 1개 — `ITEM_IDS` 5→6)
+② 기존 하네스(v1.7.6/1.8.0 에서 생성된 것)는 **재인터뷰 없이** 기본값으로 동작하고, **그 사실이 매 실행에서 관측 가능하게 보고된다** — `egress` 의 stderr note → `run-review.sh` 의 `degraded` 사유 → 결과서, 그리고 `verify` 의 `ASSUMED:` 줄. 프로파일 파일에 **영속 기록되는 시점은 사용자가 `answer` 를 돌릴 때**(`source: "assumed"`)다 — `egress`·`render`·`verify` 는 읽기 전용이 계약이라 파일을 쓰지 않는다(설계서 §3-5-1 · 설계 R11 정정) — **전제(실측):** 현재 `harness-intake.mjs:1229` 는 `render`·`verify` 에 **카탈로그 5항목 전부**를 요구해 하나라도 없으면 rc=2 다. 항목을 더하려면 (i) 스크립트가 **빠진 항목을 기본값 `assumed` 로 채우고 `SOURCES:`·`ASSUMED:` 에 드러내는** 규칙을 갖춰야 하고 (ii) `catalog_version` 을 올려야 하는데, 올리면 **모든 생성 하네스의 전 블록이 `stale`** 이 된다(S4 드라이런 ① 실측 · `references/harness-update.md` 「결선 재렌더」) ③ 따라서 이 릴리스의 `harness-update.sh apply` 뒤 절차에 재렌더가 들어가고, 릴리스 노트가 그것을 알린다.
 
 ---
 
@@ -280,7 +297,7 @@ v1.7.6 인터뷰(HI2)는 다섯 항목만 묻는다 — 완료 판정 · 비가�
 
 ### v1.8.3 포함 — **최신 클라우드 모델의 배치·활용**
 - **MA7 에이전트 자동 배치** ← 이번 릴리스의 중심. 성격 → 티어 → 프로파일
-- **MA15 인터뷰 모델 항목 2개 추가** — v1.7.6 인터뷰에 이 릴리스의 소비처가 생긴 만큼만 얹는다
+- **MA15 인터뷰 모델 항목 1개 추가(`egress`) + 기존 ③ 소비** — v1.7.6 인터뷰에 이 릴리스의 소비처가 생긴 만큼만 얹는다
 - MA1(라벨) · MA2(어댑터) · MA3(금지값) · MA4(파라미터 제거) · MA8(부패 감지)
 - 프로파일 초기 등록: Anthropic · OpenAI · Google · Qwen **클라우드** (확인된 것만)
 - `SKILL.md` ↔ `agent-design-patterns.md` **모순 해소**
@@ -298,15 +315,15 @@ v1.7.6 인터뷰(HI2)는 다섯 항목만 묻는다 — 완료 판정 · 비가�
 
 **v1.7.6 이 없으면 이 릴리스는 배분 기준을 지어내야 한다.** 순서를 되돌리지 않는다.
 
-### 비목표 (v1.7.8+ 이월)
+### 비목표 (후속 릴리스+ 이월)
 | 항목 | 사유 |
 |---|---|
 | MA5 행동 보정 **주입** | MA9 실측이 선행돼야 한다. 근거 없는 규칙 추가는 Fable 5 가이드가 정면으로 반대 |
 | MA6 소프트 스위치 | Qwen 런타임을 이 레포가 아직 쓰지 않는다 — 실사용 시점에 |
 | 프로바이더 SDK 직접 호출 | 하네스는 CLI 를 통해 모델을 쓴다. API 파라미터 조립은 **CLI 가 지원하는 범위**로 한정 |
 | 비용 최적화 자동화 | Qwen 반례(§3-2) 때문에 측정 없이 티어를 낮추면 역효과 |
-| **MA10~MA13 로컬/sLM 전체** | **사용자 범위 결정** — 한 번의 작업에 복잡도를 몰아넣지 않는다. 이 릴리스는 클라우드 배치·활용에 집중하고, 로컬은 **스키마가 담을 수 있는지만**(MA2 확장 슬롯) 확인한다. 실측 근거는 §10 에 보존(→ **v1.7.8**) |
-| 로컬 모델을 **외부 리뷰어 축**으로 | §10-4 부적합 판정 — 판정 신뢰도가 게이트 기준에 못 미친다(v1.7.8 에서도 유지) |
+| **MA10~MA13 로컬/sLM 전체** | **사용자 범위 결정** — 한 번의 작업에 복잡도를 몰아넣지 않는다. 이 릴리스는 클라우드 배치·활용에 집중하고, 로컬은 **스키마가 담을 수 있는지만**(MA2 확장 슬롯) 확인한다. 실측 근거는 §10 에 보존(→ **후속 릴리스**) |
+| 로컬 모델을 **외부 리뷰어 축**으로 | §10-4 부적합 판정 — 판정 신뢰도가 게이트 기준에 못 미친다(후속 릴리스 에서도 유지) |
 
 ---
 
@@ -335,7 +352,7 @@ v1.7.6 인터뷰(HI2)는 다섯 항목만 묻는다 — 완료 판정 · 비가�
 | Fable 5 "신선한 컨텍스트 검증자" | `external-review-loop` — 러너 엔진 제외 독립 판정 |
 | Astra "스킬 파일 감사" | `run-policy-audit.sh` · `check-behaviors.sh` |
 | Astra "지시 우선순위 명시" | ADR-001 D1 — 단일 정본 |
-| 양쪽 "위임·비동기" | `orchestrator-template.md` 패턴 A/B (블로킹 규정은 없음 → 보완 대상) |
+| 양쪽 "위임·비동기" | `orchestrator-template.md` 패턴 B 가 `run_in_background: true` 병렬 호출만 규정(`:271`) — **언제 블로킹해야 하는지** 규정은 없음 → 보완 대상 |
 | Astra "에이전트 간 메시지 가독성" | **없음** — 신설 대상 |
 
 ### 6-3. 소유 경계 결정 필요 (ADR)
@@ -362,7 +379,7 @@ Astra 가 경고한 "상충하는 지침"을 우리 손으로 만든다.
 | P2 | Grok 등 미확인 프로바이더 조사 | 범용성 요구 충족 |
 | P2 | ADR-002 소유 경계 | MA5 의 전제 |
 | P3 | MA9 실측 → MA5 주입 | 근거 확보 후 |
-| — | MA10~MA13 로컬/sLM | **v1.7.8 이월**(범위 결정). §10 실측이 그 계획서의 입력이다 |
+| — | MA10~MA13 로컬/sLM | **후속 릴리스 이월**(범위 결정). §10 실측이 그 계획서의 입력이다 |
 | — | HI9 에이전트 스캔 | **v1.7.6 선행**. 이 릴리스는 그 출력 계약을 소비만 한다 |
 
 ---
@@ -376,16 +393,28 @@ Astra 가 경고한 "상충하는 지침"을 우리 손으로 만든다.
 | **라벨 3단계가 부족할 수 있다** | 프로바이더가 4~5단계를 제공 | 라벨은 **하네스의 언어**다. 프로바이더 단계 수와 1:1 대응하지 않는다는 것을 명시 |
 | **측정 없이 티어를 낮춰 역효과**(§3-2) | 토큰·시간 오히려 증가 | MA9 선행. 비용 최적화는 비목표 |
 | **정본 변경 = 중대 blast-radius** | 전 생성 하네스 전파 | stabilizer 게이트(정책감사 + 외부리뷰 + 회귀 드라이런) |
-| **CLI 가 파라미터를 지원하지 않을 수 있다** | 조립해도 전달 불가 | v1.7.5 실측 교훈 — `--allowedTools` 는 아무것도 빼지 않았다. **CLI 실제 동작을 실측한 뒤에만 계약으로 삼는다** |
-| **스캔 스크립트 자체의 이식성** | Windows·macOS 에서 다른 결과 | Node `.mjs` 채택(MA14) · 3-OS CI 에서 **동일 출력**을 수용 기준으로 |
+| **CLI 가 파라미터를 지원하지 않을 수 있다** | 조립해도 전달 불가 | v1.7.5 실측 교훈 — `--allowedTools` 는 아무것도 빼지 않았다. **CLI 실제 동작을 실측한 뒤에만 계약으로 삼는다.** 2026-09-13 문서 확인: `model:`·`effort:`·`fallbackModel` 은 문서에 있음(실행 실측은 설계서) · `Agent` 도구 `model` 파라미터는 **문서에 없음** |
+| **스캔 스크립트 자체의 이식성** | Windows·macOS 에서 다른 결과 | Node `.mjs` 채택(HI9 · 1.8.0 출시) · **2-OS CI**(`factory-ci.yml` linux·windows)가 각 OS 에서 S1 테스트(`node --test`)로 계약을 검증한다 — 단 **OS 간 출력 동일성 비교 스텝은 CI 에 없다**(실측). 이 릴리스는 그 비교를 추가하지 않는다(비목표) · macOS 는 로컬 실측 |
 | **에이전트 정의 포맷·빌트인 목록이 버전 종속** | 스캔이 조용히 낡는다 | 런타임 버전 기록 · 모르는 필드 보고 · 빌트인은 `unknown` 으로 명시(추측 금지) — MA8·MA14 |
 
 ---
 
-## 10. 로컬 LLM · sLM — **v1.7.8 이월. 실측 근거만 보존한다**
+## 9. 출처 (확인일 2026-09-10 · 런타임 사실 2026-09-13)
+
+- Claude Fable 5 프롬프팅 가이드 — https://discuss.pytorch.kr/t/anthropic-claude-fable-5/11062 (원문: platform.claude.com prompting-claude-fable-5) — 2026-09-10
+- **Claude Code 런타임(2026-09-13 확인)** — alias 해석 실측 `claude -p --model <alias> --output-format json`(`modelUsage`) · 서브에이전트 frontmatter 필드 https://code.claude.com/docs/en/sub-agents · CLI `--effort`·`--fallback-model` https://code.claude.com/docs/en/cli-reference · alias 규칙·`fallbackModel`·프로바이더별 해석 https://code.claude.com/docs/en/model-config · `Agent` 도구 `model` enum 은 이 세션 도구 스키마(문서 없음)
+- GPT-6 Astra 공식 활용 가이드 — https://discuss.pytorch.kr/t/openai-gpt-6-astra/11846
+- Gemini 3.8 Flash — https://ai.google.dev/gemini-api/docs/latest-model · https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides/gemini-3-8-flash · https://ai.google.dev/gemini-api/docs/thinking
+- Qwen thinking/effort — https://docs.qwencloud.com/developer-guides/text-generation/thinking · https://qwen.readthedocs.io/en/latest/getting_started/quickstart.html
+- xAI Grok — **미확인**
+- 로컬 런타임·모델 — **이 개발 머신 직접 실측**(2026-09-10, §10-1). ollama 0.x · LM Studio · llama.cpp
+
+---
+
+## 10. 로컬 LLM · sLM — **후속 릴리스 이월. 실측 근거만 보존한다**
 
 > **이 절은 이 릴리스의 범위가 아니다.** 사용자 범위 결정(2026-09-10)에 따라 로컬/sLM 은 **고려만** 한다 —
-> v1.8.3 에서 하는 일은 **MA2 확장 슬롯 예약**(필드 자리만 두기)뿐이고, 아래 실측은 **v1.7.8** 계획서의 입력이다.
+> v1.8.3 에서 하는 일은 **MA2 확장 슬롯 예약**(필드 자리만 두기)뿐이고, 아래 실측은 **후속 릴리스** 계획서의 입력이다.
 > 실측을 먼저 해 둔 이유는 **스키마가 로컬을 담을 수 있는지 지금 판단해야** 하기 때문이다 — 답은 "담을 수 있다"이고(§10-1),
 > 그래서 v1.8.3 에서 구현하지 않아도 나중에 스키마를 갈아엎지 않는다.
 
@@ -441,27 +470,16 @@ B3(BEHAVIOR 홀드아웃 검증)는 **비용 때문에 막혀 있다.** v1.7.5 �
 
 ---
 
-## 9. 출처 (확인일 2026-09-10)
-
-- Claude Fable 5 프롬프팅 가이드 — https://discuss.pytorch.kr/t/anthropic-claude-fable-5/11062 (원문: platform.claude.com prompting-claude-fable-5)
-- GPT-6 Astra 공식 활용 가이드 — https://discuss.pytorch.kr/t/openai-gpt-6-astra/11846
-- Gemini 3.8 Flash — https://ai.google.dev/gemini-api/docs/latest-model · https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides/gemini-3-8-flash · https://ai.google.dev/gemini-api/docs/thinking
-- Qwen thinking/effort — https://docs.qwencloud.com/developer-guides/text-generation/thinking · https://qwen.readthedocs.io/en/latest/getting_started/quickstart.html
-- xAI Grok — **미확인**
-- 로컬 런타임·모델 — **이 개발 머신 직접 실측**(2026-09-10, §10-1). ollama 0.x · LM Studio · llama.cpp
-
----
-
 ## 다음 단계 참조
 
 - **P0 부터 착수한다** — 정본 모순 해소 + 라벨·어댑터. 이것만으로도 모델명 부패 방어가 된다.
 - MA5(행동 보정 주입)는 **ADR-002 소유 경계 결정과 MA9 실측 이후**다. 순서를 바꾸면 상충 지침을 우리가 만든다.
 - 설계서(`docs/v1.8.3/design/`)에서 프로파일 스키마·어댑터 계약·계약 테스트 목록을 확정한다.
 - 정본 변경이므로 **stabilizer 게이트**(정책감사 · 외부리뷰 no-high 2연속 · 회귀 드라이런) 통과 후 배포한다.
-- **스캔(HI9)은 v1.7.6 이 만든다.** 이 릴리스는 `AGENTS_PROJECT:`·`MODEL:` 출력을 읽어 `UNTIERED:` 를 파생한다(티어 개념은 MA1 이 도입).
-  스캔이 결정적이지 않으면 "같은 성격이면 같은 티어"가 성립하지 않으므로, v1.7.6 수용 기준 통과를 전제로 착수한다.
+- **스캔(HI9)은 1.8.0 이 만들었다**(`harness-intake.mjs scan` 15줄 계약 · 테스트 518 · 2-OS CI). 이 릴리스는 `AGENTS_PROJECT:`·`MODEL:` 출력을 읽어 `UNTIERED:` 를 파생한다(티어 개념은 MA1 이 도입). 결정성은 S1 회귀(같은 트리 → 같은 15줄)로 이미 고정돼 있다.
 - **이 릴리스의 성패는 MA7(배치)이다.** 라벨·어댑터는 수단이고, 목적은 "에이전트 성격에 맞는 모델이 자동으로 붙는가"다.
-- **로컬/sLM 은 v1.7.8 이다**(§10). 이 릴리스에서는 **확장 슬롯만 예약**하고 값을 채우지 않는다 —
+- **로컬/sLM 은 후속 릴리스 이다**(§10). 이 릴리스에서는 **확장 슬롯만 예약**하고 값을 채우지 않는다 —
   스키마가 담을 수 있음은 실측으로 확인됐으므로(OpenAI 호환 API), 나중에 갈아엎지 않는다.
   이월 시 첫 투입처는 **cheap-judge** 이고 그것이 B3 비용 제약을 푼다(§10-5). 외부 리뷰어로는 쓰지 않는다(§10-4).
+- **외부리뷰 이월 2건(임계 미만 MED · 설계서 필수):** ① 리뷰어 티어→실제 모델 ID 변환 주체 — `run-review.sh:280,290` 은 `CODEX_MODEL`/`AGY_MODEL` 을 CLI 인자로 그대로 넘기므로 intake 해석 서브커맨드가 `REVIEW_MODEL_CODEX:`/`REVIEW_MODEL_AGY:` 줄로 ID 를 내고 `run-review.sh` 가 대입한다(설계서 §6-3 · 해소됨) ② `pinned_id` 경로 — `Agent` 도구 `model` 은 alias enum 만 받아 전체 ID 를 호출에 못 넘기므로 pin 티어는 정의 파일 `model:` = ID + 호출 `model` 생략(정의 지배 여부는 계약 테스트/probe 실측 · 그때까지 프로파일에 `pinned_id` 를 넣지 않는다). `agent-design-patterns.md:226` 의 "호출 시 반드시 `model` 명시" 는 **단일 출처 규칙**(정의가 alias 면 같은 alias 명시 · 정의가 ID 면 생략)으로 교체한다(설계서 §0-7 f).
 - Grok·기타 프로바이더는 P2 로 조사한다 — 범용성 요구는 "스키마가 담을 수 있는가"로 충족하고, 등록은 확인된 것만 한다.
