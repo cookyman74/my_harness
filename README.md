@@ -74,13 +74,16 @@ claude   # start the Claude Code CLI (for Codex, use the codex command)
 | **Configuration interview** | Phase 0.5 asks for the harness premises up front — completion criteria · irreversibility · failure cost · approval points · existing assets — and records them in a profile. `scripts/harness-intake.mjs` (`scan`·`questions`·`answer`·`render`·`verify`) renders the answers into 5 wiring blocks (`completion`·`tier`·`approval`·`assets` in the orchestrator skill, `premise` in `CLAUDE.md`/`AGENTS.md`), and `verify` fails Phase 6 when any block is missing, stale, or hand-edited. Non-interactive runs fall back to safe defaults and report every `ASSUMED:` item. Contract: `references/harness-interview.md` |
 | **Agent teams by default** | Spawn teammates with the `Agent` tool, communicate directly via `SendMessage`, and self-coordinate through a shared task list (`TaskCreate`). Quality rises through shared findings and debating disagreements |
 | **Automatic skill generation** | Progressive Disclosure (staged loading: metadata → body → references) for context efficiency. Trigger descriptions are written aggressively |
-| **Two-layer quality gate** | Internal generate-and-verify QA **+** an external independent review loop. Details below |
+| **Two-layer quality gate** | Internal generate-and-verify QA **+** an external independent review loop. The launcher is a **script file**, `scripts/run-review.sh` (stage lock · `REVIEWERS_OVERRIDE` · `REVIEW_TIMEOUT`), never inline shell. Any shrinking of the reviewer set is recorded as `degraded` and the stage closes with an explicit label — `degraded-accepted` / `degraded-override` / `degraded-blocked` by risk tier — so a reduced review fails closed instead of passing quietly. Details below |
 | **Doctrine injection** | Injects TDD (`tdd-doctrine.md`) and dev rules (`dev-rules.md`) into the working principles of coding/editing agents via **real paths**. Includes **test-as-first-class-review-artifact** (RED verified before GREEN; only contract/schema/security tests go to external cross-review) and a **safe rollback discipline** (destructive `git reset --hard` dropped). Risk tiers (light/standard/critical) tune gate strength |
+| **Behavior specs (optional)** | The behavioral requirements of a definition can move into `.agents/behaviors/<name>/BEHAVIOR.md` — six dimensions (`Intent` · `Evidence` · `Decision` · `Execution` · `Recovery` · `Failure modes`) — with the definition's `behaviors:` frontmatter as the **single source of truth** for the reference. **Recommended, not required.** `scripts/check-behaviors.sh` validates frontmatter, name↔directory match, the required dimensions, broken references and orphans; the policy audit calls it automatically, and it exits 0 (skip) on a harness that hasn't adopted specs. Contract: `references/behavior-specs.md` |
 | **Document system** | Core artifacts (design docs, work plans, work results) live in `docs/{project}/` (durable, committed audit ledger); scratch lives in `_workspace/` (ephemeral) — two-layer split prevents result-doc loss (RAG knowledge cycle). Document tiers (light by default), git-staging promote, fail-fast. Independent of external review tools (internal QA if none) |
 | **Dual runtime** | A single source of truth (`skills/myharness/`) + a thin per-runtime adapter. Outputs both `CLAUDE.md` and `AGENTS.md`, with orchestration branching (Claude spawns `Agent` teammates ↔ Codex native subagents / `codex exec`). Phase 7 synchronization prevents drift |
-| **Built-harness update** | `/myharness update` (Codex `$myharness update`) — re-propagates the factory source of truth into an already-built harness while **protecting local edits**. `.harness-manifest.json` hash classification (SAME/auto/USER-MODIFIED held/NEW), with `*.local.*` keeping updates safe |
+| **Built-harness update** | `/myharness update` (Codex `$myharness update`) — re-propagates the factory source of truth into an already-built harness while **protecting local edits**. `.harness-manifest.json` hash classification (SAME/auto/USER-MODIFIED held/NEW), with `*.local.*` keeping updates safe. The managed set is 12 paths — 3 references (`dev-rules` · `tdd-doctrine` · `behavior-specs`) and 9 scripts — and `NEW_EXCLUDE_RELS` keeps the benchmark runner and grader out of *new-file* auto-deployment (a harness already using them still gets updates; adoption is an explicit opt-in copy) |
 | **Cost & concurrency control** | Model routing (high-reasoning → `opus`, simple → lightweight), a concurrency cap (default 3 / max 5) with backpressure, an external-review budget (skips when there's no change), and smoke/full test modes to keep large fan-out costs under control |
-| **Loop self-evaluation** | Each loop produces a `loop_scorecard.json` (alignment · verdict distribution · normalization rounds · cost). **Currently only the measurement logging is active**; the suggest → automatic loopback is experimental. anti-Goodhart guards (against metric gaming and overfitting) |
+| **Loop self-evaluation** | Each loop produces a `loop_scorecard.json` (alignment · verdict distribution · normalization rounds · cost). **Neither the measurement nor the loopback is automatic** — the scorecard is emitted only when the orchestrator actually runs `scripts/emit-loop-scorecard.sh`, and the suggest → loopback side is experimental. anti-Goodhart guards (against metric gaming and overfitting) |
+| **Artifact benchmark runner** | `scripts/run-benchmark.sh` (v0.2.0) runs one case against one arm (definition version) in isolation and records the trajectory; `scripts/grade-trajectory.sh` then scores the machine-checkable assertions (`tool_absent` · `tool_present` · `tool_count_min` · `report_matches_calls`) into a `grading.json`. Exit codes keep "couldn't measure" apart from "failed" (runner 0 ok / 3 unmeasurable / 4 partial; grader 0 ok / 1 failed / 3 unmeasurable / 4 partial / 5 vacuous / 6 eval-empty), so a partial run can't read as a pass. Both need `python3`. **Partially operational** — repeat-R aggregation, baseline caching and a CI non-overlap adoption rule are not implemented, so **the adoption decision stays manual**. Contract test: 138 checks |
+| **Policy conformance audit + factory CI** | `scripts/run-policy-audit.sh` holds the factory to its own rules: version coherence (plugin = marketplace = the three README badges = CHANGELOG) · reference links · body size and frontmatter · shell/JSON/JS syntax · BEHAVIOR specs · and **behavioral self-tests of the detector scripts themselves** (isolated PATH/HOME, randomized values) — 29 checks as of 1.8.0, all passing. **Node.js is required**: `node --check` and the intake self-test FAIL (not warn) when node is absent. `.github/workflows/factory-ci.yml` runs the audit plus the regression tests on **both Linux and Windows** |
 
 ### Two-Layer Quality Gate (code/design domains)
 
@@ -90,6 +93,8 @@ Internal QA runs in the same session and the same context, so it shares the **sa
 - **Direct verdict on every item** — external reviewers don't know the design decisions, frozen contracts, or actual measurements, so the orchestrator judges every reported issue against **the real code** as confirmed/partial/deferred/rejected. Consensus is not the answer; verdict authority stays with the orchestrator (no delegation).
 - **Convergence loop** — loop-until-dry (zero new issues for K consecutive rounds) + a round cap, a verdict ledger (`verdicts.json`, prevents reappearance), and re-review of the fix. Only confirmed items are fixed via TDD.
 - **Skip when tools are absent** — `check-review-tools.sh` produces a runner-excluded `REVIEWERS:` list; if no external reviewer exists, the gate shrinks to internal QA (avoids a non-functional skill).
+- **`SHADOWED:` — installed but off `PATH`** — the same script emits a four-line contract (`AVAILABLE:` · `RUNNER:` · `REVIEWERS:` · `SHADOWED:`), reporting a reviewer that *is* installed but sits outside `PATH` as `name=path` instead of silently calling it missing. It does **not** inject the path for you — that stays your decision.
+- **Reduced review is recorded, not hidden** — when the reviewer set shrinks (one reviewer only · a missing axis · an off-`PATH` install · a runtime failure · a failed self-verification), the reason is written into `_review_status.json` under `degraded` and carried through to the result document. A reviewer that exits 0 without the required verdict marker is counted as `suspect` — a failure, not a pass. The stage then closes with one of `degraded-accepted` / `degraded-override` / `degraded-blocked` according to risk tier.
 
 > This README is verified through that gate too — committed after an external audit by `codex` (consistency) + `agy` (performance & stability).
 
@@ -149,11 +154,14 @@ your-project/
 ├── .claude/
 │   ├── agents/          # agent definitions (analyst.md, builder.md, qa.md …)
 │   └── skills/          # skills (each SKILL.md + references/)
+│       └── <orchestrator>/harness-profile.json   # Phase 0.5 interview profile
+├── .agents/behaviors/   # <name>/BEHAVIOR.md (optional behavior specs)
+├── .harness-manifest.json   # file hashes used by /myharness update
 ├── CLAUDE.md            # Claude Code entry pointer
 └── AGENTS.md            # Codex entry pointer (when dual runtime)
 ```
 
-> **Dual-runtime output:** If Codex is also a target, `.agents/skills/<name>/` and `.codex/agents/<name>.toml` are emitted alongside the `.claude/` output (same source of truth). Details: `skills/myharness/references/runtime-adapters.md`.
+> **Dual-runtime output:** If Codex is also a target, `.agents/skills/<name>/` and `.codex/agents/<name>.toml` are emitted alongside the `.claude/` output (same source of truth). The interview profile stays at `.claude/skills/<orchestrator>/harness-profile.json` only — it is not duplicated into the `.agents/` copy. Details: `skills/myharness/references/runtime-adapters.md`.
 
 ## Dual Runtime (Claude Code + Codex)
 
@@ -230,10 +238,17 @@ my_harness/
 ├── .claude-plugin/plugin.json   # manifest (name: myharness)
 ├── skills/myharness/
 │   ├── SKILL.md                 # main skill (7-phase workflow)
-│   ├── references/              # factory-map · agent-design-patterns · orchestrator-template ·
-│   │                            #   external-review-loop · tdd-doctrine · dev-rules ·
-│   │                            #   runtime-adapters · harness-update · harness-interview · loop-self-eval, etc.
-│   └── scripts/                 # harness-intake · check-review-tools · build-scorecard · harness-update
+│   ├── references/              # 17 docs — factory-map · agent-design-patterns · orchestrator-template ·
+│   │                            #   external-review-loop · tdd-doctrine · dev-rules · behavior-specs ·
+│   │                            #   runtime-adapters · harness-update · harness-interview · loop-self-eval ·
+│   │                            #   self-improvement-loop · harness-scorecard · skill-writing-guide, etc.
+│   └── scripts/                 # 13 scripts — harness-intake.mjs · selftest-harness-intake.mjs ·
+│                                #   check-review-tools · selftest-review-tools · run-review ·
+│                                #   run-policy-audit · check-behaviors · check-artifacts ·
+│                                #   run-benchmark · grade-trajectory · build-scorecard ·
+│                                #   emit-loop-scorecard · harness-update
+├── tests/                       # contract & regression tests
+├── .github/workflows/factory-ci.yml   # policy audit + tests on Linux and Windows
 ├── AGENTS.md                    # Codex entry point
 ├── install.sh                   # dual-runtime install
 └── README.md / README_KO.md / README_JA.md
@@ -258,7 +273,7 @@ A local web app that **observes and controls** a built harness. It reads the fil
   - **v0.5 core** — supervisor · OS adapters · security · launcher (certified).
   - **v0.6** — F2 prefill New Run · F3 projectRoot edit · F4 history · F5 doc/artifact viewer · F6 observability · F7 definition editor · F8 Eval dashboard · F9 Docs sources · F10 harness context.
   - **v0.7–v0.8 multi-runtime** — F11 factory maintenance · F12 runtime-adapter registry · F13 multi-runtime read · F14 Gemini md edit · F15 Codex TOML edit (strict parse · injection-safe) · F16 tri-runtime skill sync · F17 install matrix (agy 4-state auth). Manage claude/codex/gemini harnesses from one tool.
-  - **v0.9** — **Eval v1** (4-axis artifact scoring, see below) + **batch remediation (M-y)**: turn `#/eval` findings into AI drafts across many definitions → review queue → bulk apply, capped by a global run governor. Each critical milestone converged under external audit (codex + agy, no-high twice).
+  - **v0.9** — **Eval v1** (4-axis artifact scoring, see below) + **batch remediation (M-y)**: turn `#/eval` findings into AI drafts across many definitions → review queue → bulk apply, capped by a global run governor. Adds **BEHAVIOR diagnostics** — a broken `behaviors:` reference surfaces as a `dead_link`, an unreferenced spec as an `orphan` with `subject_kind: "behavior"` (reusing the existing finding types, no new one) — and a **deletion-guard adapter** that blocks auto-applied deletions unless every layer agrees: required-section/constraint wording, the four preserved BEHAVIOR dimensions (`Evidence` · `Decision` · `Recovery` · `Failure modes`), a semantic judge that positively confirms "no correspondence", and a dynamic test gate. Missing any of them means uncertain → suggest only, never auto-apply. Each critical milestone converged under external audit (codex + agy, no-high twice).
   - Plus **config-centric self-evaluation** (harness_scorecard, adoption-stage gate) and **whole-harness auto-build**.
 - **Screens (11, grouped sidebar):** Overview · **Harness** / Agents / Skills / Context / History · Docs · Runs / Drift / Ops / Eval · Settings. Flow: domain → Harness auto-build (draft → create) or New Run → run created → observe (fire-and-observe).
 - **Security & scope:** local 127.0.0.1 only · token bootstrap → session · read-first (the only mutating paths are definition editing, projectRoot, eval config, and harness build — whitelisted, atomic, gated off by default; auto-build runs no-tools isolated exec with no auto-apply). History/stats reflect **UI-launched runs only**; terminal CLI runs are out of scope until v0.7 (CLI session-log observability).
@@ -291,7 +306,8 @@ The **Eval** screen grades every agent and skill on **four axes** plus **relatio
 ## Requirements
 
 - **Claude Code:** [enable agent teams](https://code.claude.com/docs/en/agent-teams) — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
-- **External review (optional):** at least one of the `codex`/`claude`/`agy` CLIs excluding the runner (if `agy` is missing it falls back to the legacy `gemini`; if none are present the gate is auto-skipped)
+- **Node.js 20+ (required):** the policy audit's `node --check` and the intake self-test **FAIL** (they are not downgraded to warnings) when node is absent, and the factory CI pins node 20
+- **External review (optional):** at least one of the `codex`/`claude`/`agy` CLIs excluding the runner (if `agy` is missing it falls back to the legacy `gemini`; if none are present the gate is auto-skipped). An installed CLI that sits outside `PATH` is reported as `SHADOWED:` rather than counted as missing
 
 > **⚠️ Cost warning:** In an agent team each teammate is an independent Claude instance, so by the nature of its parallel/shared-context structure the **API token cost can climb quickly compared to a single prompt**. In cost-sensitive environments, use sub-agent mode (returning only the `run_in_background` result) or turn agent teams off. myharness mitigates this with model routing, a concurrency cap, and an external-review budget.
 >

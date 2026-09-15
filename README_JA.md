@@ -74,13 +74,16 @@ claude   # Claude Code CLI 起動 (Codex は codex コマンド)
 | **構成インタビュー** | Phase 0.5 でハーネスの前提（完了基準・不可逆性・失敗コスト・承認ポイント・既存資産）を先に尋ね、プロファイルに記録します。`scripts/harness-intake.mjs`（`scan`·`questions`·`answer`·`render`·`verify`）が回答を結線ブロック 5 種（`completion`·`tier`·`approval`·`assets` はオーケストレータースキル、`premise` は `CLAUDE.md`/`AGENTS.md`）へレンダリングし、欠落・stale・手修正は `verify` が Phase 6 FAIL として検出。非対話環境では「安全な側」のデフォルトで進め、`ASSUMED:` 項目を全件報告。契約の単一出典: `references/harness-interview.md` |
 | **エージェントチーム基本** | チームメンバーを `Agent` ツールで spawn、`SendMessage` で直接通信、共有タスクリスト（`TaskCreate`）で自己調整。発見の共有・対立の議論で品質↑ |
 | **スキル自動生成** | Progressive Disclosure（メタデータ→本文→references の段階ロード）でコンテキスト効率化。トリガーの description は積極的に記述 |
-| **2 層品質ゲート** | 内部の生成-検証 QA **＋** 外部の独立レビューループ。詳細は下記 |
+| **2 層品質ゲート** | 内部の生成-検証 QA **＋** 外部の独立レビューループ。ランチャーはインラインシェルではなく **スクリプトファイル** `scripts/run-review.sh`（stage ロック · `REVIEWERS_OVERRIDE` · `REVIEW_TIMEOUT`）。レビュアー集合の縮小は `degraded` として記録され、段階はリスク等級別の終了ラベル（`degraded-accepted` / `degraded-override` / `degraded-blocked`）で閉じられます — 縮小されたレビューが静かに通過せず fail-closed。詳細は下記 |
 | **教義の注入** | コード／修正エージェントの作業原則に TDD（`tdd-doctrine.md`）・開発ルール（`dev-rules.md`）を **実パス** で注入。**テスト＝第一級レビュー成果物**（RED を GREEN 前に検証、契約・スキーマ・セキュリティのテストのみ外部クロスレビュー）・**安全なロールバック規律**（破壊的 `git reset --hard` を廃止）を含む。リスク等級（軽量／標準／重大）でゲート強度を調整 |
+| **行動仕様（任意）** | 定義の行動要求を `.agents/behaviors/<name>/BEHAVIOR.md`（6 次元 — `Intent` · `Evidence` · `Decision` · `Execution` · `Recovery` · `Failure modes`）へ移せます。参照の **単一の出典** は定義の `behaviors:` frontmatter です。**推奨であり必須ではありません。** `scripts/check-behaviors.sh` が frontmatter・name↔ディレクトリ一致・必須次元・切れた参照・孤立を検証し、ポリシー監査がこれを自動で呼び出します。未導入のハーネスでは終了コード 0（skip）。契約：`references/behavior-specs.md` |
 | **ドキュメント体系** | 中核成果物（設計書・作業計画書・結果書）は `docs/{project}/`（永続・コミットされる監査台帳）、一時物は `_workspace/`（揮発）に2層分離 — 結果書の揮発を防止（RAG 知識循環）。ドキュメントティア（基本は軽量）・git-staging promote・fail-fast。外部レビューツールに非依存（無ければ内部 QA） |
 | **デュアルランタイム** | 単一の正本（`skills/myharness/`）+ ランタイム別の薄いアダプター。`CLAUDE.md`／`AGENTS.md` の両方を出力し、オーケストレーションを分岐（Claude は `Agent` チームメンバー spawn ↔ Codex はネイティブ subagents／`codex exec`）。Phase 7 の同期で drift を防止 |
-| **ビルド済みハーネスの更新** | `/myharness update`（Codex は `$myharness update`） — ファクトリーの正本を既にビルドされたハーネスへ再伝播しつつ **ローカル修正を保護**。`.harness-manifest.json` のハッシュ分類（SAME／自動／USER-MODIFIED 保留／NEW）、`*.local.*` で更新を安全に |
+| **ビルド済みハーネスの更新** | `/myharness update`（Codex は `$myharness update`） — ファクトリーの正本を既にビルドされたハーネスへ再伝播しつつ **ローカル修正を保護**。`.harness-manifest.json` のハッシュ分類（SAME／自動／USER-MODIFIED 保留／NEW）、`*.local.*` で更新を安全に。管理対象は 12 パス — references 3 種（`dev-rules` · `tdd-doctrine` · `behavior-specs`）と scripts 9 種 — で、`NEW_EXCLUDE_RELS` がベンチランナーと採点器を *新規ファイル* の自動配備から除外します（すでに使っているハーネスは更新され続け、導入は明示的なオプトインのコピー） |
 | **コスト・並行性の制御** | モデルルーティング（高推論→`opus`、単純→軽量）、並行性 cap（デフォルト 3／最大 5）・バックプレッシャー、外部レビュー予算（変更がなければ skip）、smoke／full のテストモードで大規模 fan-out のコストを抑制 |
-| **ループ自己評価** | ループごとに `loop_scorecard.json`（整合度・判定分布・正規化ラウンド・コスト）を算出。**現在は測定ロギングのみ active**、提案→自動の還流は実験段階。anti-Goodhart ガード（指標の操作・過学習の防止） |
+| **ループ自己評価** | ループごとに `loop_scorecard.json`（整合度・判定分布・正規化ラウンド・コスト）を算出。**測定も還流も自動ではありません** — スコアカードはオーケストレーターが実際に `scripts/emit-loop-scorecard.sh` を実行したときにのみ発行され、提案→還流の側は実験段階です。anti-Goodhart ガード（指標の操作・過学習の防止） |
+| **成果物ベンチランナー** | `scripts/run-benchmark.sh`（v0.2.0）が 1 ケースを 1 arm（定義バージョン）で隔離実行して軌跡を残し、`scripts/grade-trajectory.sh` が機械検証可能な assertion（`tool_absent` · `tool_present` · `tool_count_min` · `report_matches_calls`）を `grading.json` として採点します。終了コードが「測定不能」と「失敗」を区別し（ランナー 0 ok / 3 unmeasurable / 4 partial、採点器 0 ok / 1 failed / 3 unmeasurable / 4 partial / 5 vacuous / 6 eval-empty）、部分実行が合格として読まれません。両方とも `python3` が必要。**部分稼働** — 反復 R 回の集計・baseline キャッシュ・CI 非重複の採用式は未実装のため、**採用の判断は手動**です。契約テスト：138 件 |
+| **ポリシー適合監査 + ファクトリー CI** | `scripts/run-policy-audit.sh` がファクトリーを自身のルールで検査します：バージョン整合（plugin = marketplace = README バッジ 3 種 = CHANGELOG）· references リンク · 本文サイズ・frontmatter · シェル／JSON／JS 構文 · BEHAVIOR 仕様 · そして **検出スクリプト自身の行動セルフテスト**（隔離 PATH／HOME · ランダム値）— 1.8.0 時点で 29 項目すべて通過。**Node.js が必須**：node が無いと `node --check` と intake セルフテストは warn ではなく FAIL になります。`.github/workflows/factory-ci.yml` が監査と回帰テストを **Linux・Windows の両方** で実行します |
 
 ### 2 層品質ゲート（コード／設計ドメイン）
 
@@ -90,6 +93,8 @@ claude   # Claude Code CLI 起動 (Codex は codex コマンド)
 - **全件の直接判定** — 外部レビュアーは設計上の決定・凍結された契約・実測値を知らないため、報告された課題をオーケストレーターが **実コードと照合** して確認／部分／繰越／棄却で判定。合意＝正解ではなく、判定の権威はオーケストレーター（委譲禁止）。
 - **収束ループ** — loop-until-dry（新規 0 件が K 回連続）+ ラウンド cap、判定台帳（`verdicts.json`、再出現防止）、修正版の再レビュー。確認分のみ TDD で修正。
 - **ツール不在時はスキップ** — `check-review-tools.sh` がランナー除外の `REVIEWERS:` を算出し、外部レビュアーがいなければゲートを内部 QA に縮小（動作不能なスキルを防止）。
+- **`SHADOWED:` — インストール済みだが `PATH` の外** — 同じスクリプトが 4 行の契約（`AVAILABLE:` · `RUNNER:` · `REVIEWERS:` · `SHADOWED:`）を出力し、インストールされているのに `PATH` の外にあるレビュアーを「未インストール」と混同せず `名前=パス` として報告します。パスを **自動で注入はしません** — 判断はユーザーに委ねます。
+- **縮小されたレビューは隠さず記録** — レビュアー集合が縮むと（レビュアー 1 種のみ · 軸の欠落 · `PATH` 外のインストール · ランタイム失敗 · セルフ検証の失敗）、その理由が `_review_status.json` の `degraded` に書かれ、結果書まで伝播します。レビュアーが rc 0 で終了しても判定マーカーが無ければ `suspect` — 合格ではなく失敗として集計されます。段階はリスク等級に応じて `degraded-accepted` / `degraded-override` / `degraded-blocked` のいずれかで閉じられます。
 
 > この README もこのゲートで検証されています — `codex`（整合性）+ `agy`（性能・安定性）の外部監査を経てコミット。
 
@@ -149,11 +154,14 @@ your-project/
 ├── .claude/
 │   ├── agents/          # エージェント定義 (analyst.md, builder.md, qa.md …)
 │   └── skills/          # スキル (各 SKILL.md + references/)
+│       └── <orchestrator>/harness-profile.json   # Phase 0.5 インタビュープロファイル
+├── .agents/behaviors/   # <name>/BEHAVIOR.md (任意 · 行動仕様)
+├── .harness-manifest.json   # /myharness update が使うファイルハッシュ
 ├── CLAUDE.md            # Claude Code エントリポインタ
 └── AGENTS.md            # Codex エントリポインタ (デュアルランタイム時)
 ```
 
-> **デュアルランタイム出力：** Codex も対象なら `.agents/skills/<name>/`・`.codex/agents/<name>.toml` を `.claude/` の成果物とともに出力（同じ正本）。詳細：`skills/myharness/references/runtime-adapters.md`。
+> **デュアルランタイム出力：** Codex も対象なら `.agents/skills/<name>/`・`.codex/agents/<name>.toml` を `.claude/` の成果物とともに出力（同じ正本）。インタビュープロファイルは `.claude/skills/<orchestrator>/harness-profile.json` にのみ置き、`.agents/` のコピーには複製しません。詳細：`skills/myharness/references/runtime-adapters.md`。
 
 ## デュアルランタイム (Claude Code + Codex)
 
@@ -228,10 +236,17 @@ my_harness/
 ├── .claude-plugin/plugin.json   # マニフェスト (name: myharness)
 ├── skills/myharness/
 │   ├── SKILL.md                 # メインスキル (7 ステップワークフロー)
-│   ├── references/              # factory-map · agent-design-patterns · orchestrator-template ·
-│   │                            #   external-review-loop · tdd-doctrine · dev-rules ·
-│   │                            #   runtime-adapters · harness-update · harness-interview · loop-self-eval など
-│   └── scripts/                 # harness-intake · check-review-tools · build-scorecard · harness-update
+│   ├── references/              # 17 種 — factory-map · agent-design-patterns · orchestrator-template ·
+│   │                            #   external-review-loop · tdd-doctrine · dev-rules · behavior-specs ·
+│   │                            #   runtime-adapters · harness-update · harness-interview · loop-self-eval ·
+│   │                            #   self-improvement-loop · harness-scorecard · skill-writing-guide など
+│   └── scripts/                 # 13 種 — harness-intake.mjs · selftest-harness-intake.mjs ·
+│                                #   check-review-tools · selftest-review-tools · run-review ·
+│                                #   run-policy-audit · check-behaviors · check-artifacts ·
+│                                #   run-benchmark · grade-trajectory · build-scorecard ·
+│                                #   emit-loop-scorecard · harness-update
+├── tests/                       # 契約・回帰テスト
+├── .github/workflows/factory-ci.yml   # ポリシー監査 + テスト (Linux · Windows)
 ├── AGENTS.md                    # Codex エントリポイント
 ├── install.sh                   # デュアルランタイムのインストール
 └── README.md / README_KO.md / README_JA.md
@@ -256,7 +271,7 @@ myharness は Claude Code エージェントエコシステムの **メタファ
   - **v0.5 コア** — supervisor · OS アダプター · セキュリティ · ランチャー（certified）。
   - **v0.6** — F2 プリフィル New Run · F3 projectRoot 編集 · F4 履歴 · F5 ドキュメント/artifact ビューア · F6 観測性 · F7 定義エディタ · F8 Eval ダッシュボード · F9 Docs ソース · F10 ハーネスコンテキスト。
   - **v0.7–v0.8 マルチランタイム** — F11 ファクトリー保守 · F12 ランタイムアダプターレジストリ · F13 マルチランタイム読み取り · F14 Gemini md 編集 · F15 Codex TOML 編集（strict parse · injection-safe）· F16 トライランタイムスキル同期 · F17 インストールマトリクス（agy 4-state 認証）。claude/codex/gemini ハーネスを 1 つのツールから管理。
-  - **v0.9** — **Eval v1**（4軸 成果物採点、下記参照）+ **バッチ反映（M-y）**：`#/eval` の指摘を複数の定義に AI ドラフトで → レビューキュー → 一括適用、グローバル run ガバナーで上限。各重大マイルストーンは外部監査（codex + agy, no-high 2連続）で収束。
+  - **v0.9** — **Eval v1**（4軸 成果物採点、下記参照）+ **バッチ反映（M-y）**：`#/eval` の指摘を複数の定義に AI ドラフトで → レビューキュー → 一括適用、グローバル run ガバナーで上限。**BEHAVIOR 診断**（切れた `behaviors:` 参照は `dead_link`、参照されない仕様は `subject_kind: "behavior"` の `orphan` — 既存の finding タイプを再利用し、新規タイプは作らない）と **削除ガードアダプター**（自動適用は全層が同意したときのみ：必須セクション・制約語彙、保存 4 次元 `Evidence` · `Decision` · `Recovery` · `Failure modes`、「対応なし」を積極的に確認した意味判定器、動的テストゲート — 一つでも欠ければ不確実 → 提案のみで自動適用しない）を追加。各重大マイルストーンは外部監査（codex + agy, no-high 2連続）で収束。
   - さらに **config-centric 自己評価**（harness_scorecard · 採用段階ゲート）と **ハーネス全体の自動ビルド**。
 - **画面（11 · グループサイドバー）：** Overview · **Harness** / Agents / Skills / Context / History · Docs · Runs / Drift / Ops / Eval · Settings。フロー：ドメイン → Harness 自動ビルド（ドラフト → create）または New Run → run 生成 → 観測（fire-and-observe）。
 - **セキュリティ・範囲：** ローカル 127.0.0.1 のみ · トークン bootstrap → セッション · 読み取り優先（mutating は定義編集・projectRoot・評価 config・ハーネスビルドのみ — ホワイトリスト・アトミック・既定 off ゲート、自動ビルドは no-tools isolated exec + no-auto-apply）。履歴・統計は **UI で実行した run のみ** 反映、ターミナル CLI 実行は v0.7（CLI セッションログ観測）まで範囲外。
@@ -289,7 +304,8 @@ myharness は Claude Code エージェントエコシステムの **メタファ
 ## 要件
 
 - **Claude Code：** [エージェントチームの有効化](https://code.claude.com/docs/en/agent-teams) — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
-- **外部レビュー（任意）：** `codex`／`claude`／`agy` CLI のうち、ランナーを除いた 1 つ以上（`agy` がなければ `gemini` legacy フォールバック、すべて無ければゲート自動スキップ）
+- **Node.js 20+（必須）：** node が無いとポリシー監査の `node --check` と intake セルフテストは warn に落とされず **FAIL** になり、ファクトリー CI は node 20 に固定されています
+- **外部レビュー（任意）：** `codex`／`claude`／`agy` CLI のうち、ランナーを除いた 1 つ以上（`agy` がなければ `gemini` legacy フォールバック、すべて無ければゲート自動スキップ）。インストール済みでも `PATH` の外にある CLI は未インストールではなく `SHADOWED:` として報告されます
 
 > **⚠️ コスト注意：** エージェントチームはチームメンバーごとに独立した Claude インスタンスのため、並列／共有コンテキストの構造上 **単一プロンプトと比べて API トークンコストが急増** することがあります。コストに敏感な環境ではサブエージェントモードを使う（`run_in_background` の結果のみ返す）か、エージェントチームを無効化してください。myharness はモデルルーティング・並行性 cap・外部レビュー予算でこれを緩和します。
 >
