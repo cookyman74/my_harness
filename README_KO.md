@@ -74,13 +74,16 @@ claude   # Claude Code CLI 시작 (Codex는 codex 명령)
 | **구성 인터뷰** | Phase 0.5에서 하네스의 전제(완료 기준·비가역·실패 비용·승인 지점·기존 자산)를 먼저 묻고 프로파일에 남깁니다. `scripts/harness-intake.mjs`(`scan`·`questions`·`answer`·`render`·`verify`)가 답을 결선 블록 5종(`completion`·`tier`·`approval`·`assets`는 오케스트레이터 스킬, `premise`는 `CLAUDE.md`/`AGENTS.md`)으로 렌더하고, 누락·stale·손수정은 `verify`가 Phase 6 FAIL로 잡습니다. 비대화 환경은 "안전한 쪽" 기본값으로 진행하되 `ASSUMED:` 항목을 전건 보고. 계약 단일 출처: `references/harness-interview.md` |
 | **에이전트 팀 기본** | 팀원을 `Agent` 도구로 spawn, `SendMessage`로 직접 통신, 공유 작업 목록(`TaskCreate`)으로 자체 조율. 발견 공유·상충 토론으로 품질↑ |
 | **스킬 자동 생성** | Progressive Disclosure(메타데이터→본문→references 단계 로딩)로 컨텍스트 효율. 트리거 description은 적극적으로 작성 |
-| **2층 품질 게이트** | 내부 생성-검증 QA **+** 외부 독립 리뷰 루프. 아래 상세 |
+| **2층 품질 게이트** | 내부 생성-검증 QA **+** 외부 독립 리뷰 루프. 런처는 인라인 셸이 아니라 **스크립트 파일** `scripts/run-review.sh`(stage 락 · `REVIEWERS_OVERRIDE` · `REVIEW_TIMEOUT`). 리뷰어 축소는 `degraded`로 기록되고, 단계는 리스크 등급별 종료 라벨(`degraded-accepted` / `degraded-override` / `degraded-blocked`)로 닫힙니다 — 축소된 리뷰가 조용히 통과하지 않고 fail-closed. 아래 상세 |
 | **교리 주입** | 코드/수정 에이전트의 작업 원칙에 TDD(`tdd-doctrine.md`)·개발 규칙(`dev-rules.md`)을 **실경로**로 주입. **테스트=1급 리뷰 산출물**(RED를 GREEN 전 검증, 계약·스키마·보안 테스트만 외부 교차리뷰) · **안전 롤백 규율**(파괴적 `git reset --hard` 폐기) 포함. 리스크 등급(경량/표준/중대)으로 게이트 강도 조절 |
+| **행동 명세(선택)** | 정의의 행동 요구를 `.agents/behaviors/<name>/BEHAVIOR.md`(6차원 — `Intent` · `Evidence` · `Decision` · `Execution` · `Recovery` · `Failure modes`)로 옮길 수 있고, 참조의 **단일 출처**는 정의의 `behaviors:` frontmatter입니다. **권장이지 필수는 아닙니다.** `scripts/check-behaviors.sh`가 frontmatter·name↔디렉토리 일치·필수 차원·끊긴 참조·고아를 검증하고, 정책 감사가 이를 자동 호출하며, 미적용 하네스에서는 종료코드 0(skip)입니다. 계약: `references/behavior-specs.md` |
 | **문서 체계** | 핵심 산출물(설계서·작업계획서·결과서)은 `docs/{project}/`(영속·커밋 감사 원장), 임시물은 `_workspace/`(휘발) 2층 분리 — 결과서 휘발 방지(RAG 지식 순환). 문서 티어(기본 경량)·git-staging promote·fail-fast. 외부 리뷰 도구와 무관(없으면 내부 QA) |
 | **듀얼 런타임** | 단일 정본(`skills/myharness/`) + 런타임별 얇은 어댑터. `CLAUDE.md`/`AGENTS.md` 둘 다 출력, 오케스트레이션 분기(Claude `Agent` 팀원 spawn ↔ Codex 네이티브 subagents/`codex exec`). Phase 7 동기화로 drift 방지 |
-| **빌드 하네스 업데이트** | `/myharness update`(Codex `$myharness update`) — 팩토리 정본을 이미 빌드된 하네스에 재전파하되 **로컬 수정 보호**. `.harness-manifest.json` 해시 분류(SAME/자동/USER-MODIFIED 보류/NEW), `*.local.*`로 업데이트 안전 |
+| **빌드 하네스 업데이트** | `/myharness update`(Codex `$myharness update`) — 팩토리 정본을 이미 빌드된 하네스에 재전파하되 **로컬 수정 보호**. `.harness-manifest.json` 해시 분류(SAME/자동/USER-MODIFIED 보류/NEW), `*.local.*`로 업데이트 안전. 관리 대상은 12개 경로 — references 3종(`dev-rules` · `tdd-doctrine` · `behavior-specs`)과 scripts 9종 — 이며, `NEW_EXCLUDE_RELS`가 벤치 러너·채점기를 *신규 파일* 자동 배포에서 제외합니다(이미 쓰는 하네스는 계속 갱신, 도입은 명시적 옵트인 복사) |
 | **비용·동시성 제어** | 모델 라우팅(고추론→`opus`, 단순→경량), 동시성 cap(기본 3/최대 5)·백프레셔, 외부 리뷰 예산(변경 없으면 skip), smoke/full 테스트 모드로 대규모 fan-out 비용 통제 |
-| **루프 자기평가** | 루프마다 `loop_scorecard.json`(정렬도·판정 분포·정규화 라운드·비용) 산출. **현재는 측정 로깅만 active**, 제안→자동 환류는 실험 단계. anti-Goodhart 가드(지표 조작·과적합 방지) |
+| **루프 자기평가** | 루프마다 `loop_scorecard.json`(정렬도·판정 분포·정규화 라운드·비용) 산출. **측정도 환류도 자동이 아닙니다** — scorecard는 오케스트레이터가 `scripts/emit-loop-scorecard.sh`를 실제로 돌려야 발행되고, 제안→환류 쪽은 실험 단계입니다. anti-Goodhart 가드(지표 조작·과적합 방지) |
+| **산출물 벤치 러너** | `scripts/run-benchmark.sh`(v0.2.0)가 한 케이스를 한 arm(정의 버전)으로 격리 실행해 궤적을 남기고, `scripts/grade-trajectory.sh`가 기계 검증 가능한 assertion(`tool_absent` · `tool_present` · `tool_count_min` · `report_matches_calls`)을 `grading.json`으로 채점합니다. 종료코드가 "측정 불가"와 "실패"를 구분해(러너 0 ok / 3 unmeasurable / 4 partial, 채점기 0 ok / 1 failed / 3 unmeasurable / 4 partial / 5 vacuous / 6 eval-empty) 부분 실행이 통과로 읽히지 않습니다. 둘 다 `python3` 필요. **부분 가동** — 반복 R회 집계·baseline 캐싱·CI 비중첩 채택식은 미구현이라 **채택 결정은 수동**입니다. 계약 테스트: 138건 |
+| **정책 정합 감사 + 팩토리 CI** | `scripts/run-policy-audit.sh`가 팩토리를 자기 규칙으로 검사합니다: 버전 정합(plugin = marketplace = README 뱃지 3종 = CHANGELOG) · references 링크 · 본문 크기·frontmatter · 셸/JSON/JS 문법 · BEHAVIOR 명세 · 그리고 **탐지 스크립트 자신의 행동 자기검증**(격리 PATH/HOME · 무작위 값) — 1.8.0 기준 29개 항목 전부 통과. **Node.js 필수**: node가 없으면 `node --check`와 intake 자기검증이 warn이 아니라 FAIL입니다. `.github/workflows/factory-ci.yml`이 감사와 회귀 테스트를 **Linux·Windows 양쪽**에서 돌립니다 |
 
 ### 2층 품질 게이트 (코드/설계 도메인)
 
@@ -90,6 +93,8 @@ claude   # Claude Code CLI 시작 (Codex는 codex 명령)
 - **전건 직접 판정** — 외부 리뷰어는 설계 결정·동결 계약·실측을 모르므로 보고 이슈를 오케스트레이터가 **실코드 대조**로 확인/부분/이월/기각 판정. 합의=정답 아님, 판정 권위는 오케스트레이터(위임 금지).
 - **수렴 루프** — loop-until-dry(신규 0건 K회 연속) + 라운드 cap, 판정 원장(`verdicts.json`, 재출현 방지), 수정본 재리뷰. 확인분만 TDD로 수정.
 - **도구 부재 시 생략** — `check-review-tools.sh`가 러너 제외 `REVIEWERS:`를 산출, 외부 리뷰어 없으면 게이트를 내부 QA로 축소(작동 불가 스킬 방지).
+- **`SHADOWED:` — 설치돼 있으나 `PATH` 밖** — 같은 스크립트가 4줄 계약(`AVAILABLE:` · `RUNNER:` · `REVIEWERS:` · `SHADOWED:`)을 출력해, 설치는 됐지만 `PATH` 밖에 있는 리뷰어를 '미설치'로 뭉개지 않고 `이름=경로`로 보고합니다. 경로를 **자동 주입하지는 않습니다** — 판단은 사용자 몫.
+- **축소된 리뷰는 숨기지 않고 기록** — 리뷰어 집합이 줄면(리뷰어 1종 · 축 부재 · `PATH` 밖 설치 · 런타임 실패 · 자기검증 실패) 그 사유가 `_review_status.json`의 `degraded`에 기록돼 결과서까지 전파됩니다. 리뷰어가 rc 0으로 끝나도 판정 마커가 없으면 `suspect` — 통과가 아니라 실패로 집계합니다. 단계는 리스크 등급에 따라 `degraded-accepted` / `degraded-override` / `degraded-blocked` 중 하나로 닫힙니다.
 
 > 이 README도 이 게이트로 검증됩니다 — `codex`(정합성) + `agy`(성능·안정성) 외부 감사 후 커밋.
 
@@ -149,11 +154,14 @@ your-project/
 ├── .claude/
 │   ├── agents/          # 에이전트 정의 (analyst.md, builder.md, qa.md …)
 │   └── skills/          # 스킬 (각 SKILL.md + references/)
+│       └── <orchestrator>/harness-profile.json   # Phase 0.5 인터뷰 프로파일
+├── .agents/behaviors/   # <name>/BEHAVIOR.md (선택 · 행동 명세)
+├── .harness-manifest.json   # /myharness update 가 쓰는 파일 해시
 ├── CLAUDE.md            # Claude Code 진입 포인터
 └── AGENTS.md            # Codex 진입 포인터 (듀얼 런타임 시)
 ```
 
-> **듀얼 런타임 출력:** Codex도 대상이면 `.agents/skills/<name>/`·`.codex/agents/<name>.toml`을 `.claude/` 산출물과 함께 출력(같은 정본). 상세: `skills/myharness/references/runtime-adapters.md`.
+> **듀얼 런타임 출력:** Codex도 대상이면 `.agents/skills/<name>/`·`.codex/agents/<name>.toml`을 `.claude/` 산출물과 함께 출력(같은 정본). 인터뷰 프로파일은 `.claude/skills/<orchestrator>/harness-profile.json`에만 두며 `.agents/` 복사본에는 두지 않습니다. 상세: `skills/myharness/references/runtime-adapters.md`.
 
 ## 듀얼 런타임 (Claude Code + Codex)
 
@@ -228,10 +236,17 @@ my_harness/
 ├── .claude-plugin/plugin.json   # 매니페스트 (name: myharness)
 ├── skills/myharness/
 │   ├── SKILL.md                 # 메인 스킬 (7단계 워크플로우)
-│   ├── references/              # factory-map · agent-design-patterns · orchestrator-template ·
-│   │                            #   external-review-loop · tdd-doctrine · dev-rules ·
-│   │                            #   runtime-adapters · harness-update · harness-interview · loop-self-eval 등
-│   └── scripts/                 # harness-intake · check-review-tools · build-scorecard · harness-update
+│   ├── references/              # 17종 — factory-map · agent-design-patterns · orchestrator-template ·
+│   │                            #   external-review-loop · tdd-doctrine · dev-rules · behavior-specs ·
+│   │                            #   runtime-adapters · harness-update · harness-interview · loop-self-eval ·
+│   │                            #   self-improvement-loop · harness-scorecard · skill-writing-guide 등
+│   └── scripts/                 # 13종 — harness-intake.mjs · selftest-harness-intake.mjs ·
+│                                #   check-review-tools · selftest-review-tools · run-review ·
+│                                #   run-policy-audit · check-behaviors · check-artifacts ·
+│                                #   run-benchmark · grade-trajectory · build-scorecard ·
+│                                #   emit-loop-scorecard · harness-update
+├── tests/                       # 계약·회귀 테스트
+├── .github/workflows/factory-ci.yml   # 정책 감사 + 테스트 (Linux · Windows)
 ├── AGENTS.md                    # Codex 진입점
 ├── install.sh                   # 듀얼 런타임 설치
 └── README.md / README_KO.md / README_JA.md
@@ -256,7 +271,7 @@ myharness는 Claude Code 에이전트 생태계의 **메타 팩토리** 계층 �
   - **v0.5 코어** — supervisor · OS 어댑터 · 보안 · 런처(certified).
   - **v0.6** — F2 프리필 New Run · F3 projectRoot 편집 · F4 이력 · F5 문서/artifact 뷰어 · F6 관측성 · F7 정의 편집기 · F8 Eval 대시보드 · F9 Docs 소스 · F10 하네스 컨텍스트.
   - **v0.7–v0.8 멀티런타임** — F11 팩토리 유지관리 · F12 런타임 어댑터 레지스트리 · F13 멀티런타임 읽기 · F14 Gemini md 편집 · F15 Codex TOML 편집(strict parse · injection-safe) · F16 트리런타임 스킬 동기 · F17 설치 매트릭스(agy 4-state 인증). claude/codex/gemini 하네스를 한 도구에서 관리.
-  - **v0.9** — **Eval v1**(4축 산출물 채점, 아래 참조) + **배치 반영(M-y)**: `#/eval` 지적을 여러 정의에 AI 초안으로 → 검토 큐 → 일괄 적용, 전역 run 거버너로 상한. 각 중대 마일스톤은 외부감사(codex + agy, no-high 2연속)로 수렴.
+  - **v0.9** — **Eval v1**(4축 산출물 채점, 아래 참조) + **배치 반영(M-y)**: `#/eval` 지적을 여러 정의에 AI 초안으로 → 검토 큐 → 일괄 적용, 전역 run 거버너로 상한. **BEHAVIOR 진단**(끊긴 `behaviors:` 참조는 `dead_link`, 참조되지 않는 스펙은 `subject_kind: "behavior"`인 `orphan` — 기존 finding 타입 재사용, 신규 타입 없음)과 **삭제 가드 어댑터**(자동 적용은 모든 층이 동의해야 허용: 필수 섹션·제약 어휘, 보존 4차원 `Evidence` · `Decision` · `Recovery` · `Failure modes`, "대응 없음"을 적극 확인한 의미 판정기, 동적 테스트 게이트 — 하나라도 없으면 불확실 → 제안만, 자동 적용 금지)를 추가. 각 중대 마일스톤은 외부감사(codex + agy, no-high 2연속)로 수렴.
   - 그리고 **config-centric 자기평가**(harness_scorecard · 채택단계 게이트)와 **하네스 전체 자동빌드**.
 - **화면(11 · 그룹 사이드바):** Overview · **Harness** / Agents / Skills / Context / History · Docs · Runs / Drift / Ops / Eval · Settings. 흐름: 도메인 → Harness 자동빌드(초안 → create) 또는 New Run → run 생성 → 관찰(fire-and-observe).
 - **보안·범위:** 로컬 127.0.0.1 전용 · 토큰 bootstrap → 세션 · 읽기 우선(mutating은 정의 편집·projectRoot·평가 config·하네스 빌드뿐 — 화이트리스트·원자·기본 off 게이트, 자동빌드는 no-tools isolated exec + no-auto-apply). 이력·통계는 **UI로 실행한 run만** 반영, 터미널 CLI 실행은 v0.7(CLI 세션 로그 관측)까지 범위 밖.
@@ -289,7 +304,8 @@ myharness는 Claude Code 에이전트 생태계의 **메타 팩토리** 계층 �
 ## 요구사항
 
 - **Claude Code:** [에이전트 팀 활성화](https://code.claude.com/docs/en/agent-teams) — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
-- **외부 리뷰(선택):** `codex`/`claude`/`agy` CLI 중 러너 제외 1개 이상 (`agy` 없으면 `gemini` legacy 폴백, 전부 없으면 게이트 자동 생략)
+- **Node.js 20+ (필수):** node가 없으면 정책 감사의 `node --check`와 intake 자기검증이 warn으로 낮춰지지 않고 **FAIL** 처리되며, 팩토리 CI는 node 20으로 고정돼 있습니다
+- **외부 리뷰(선택):** `codex`/`claude`/`agy` CLI 중 러너 제외 1개 이상 (`agy` 없으면 `gemini` legacy 폴백, 전부 없으면 게이트 자동 생략). 설치는 됐지만 `PATH` 밖에 있는 CLI는 미설치가 아니라 `SHADOWED:`로 보고됩니다
 
 > **⚠️ 비용 주의:** 에이전트 팀은 팀원마다 독립 Claude 인스턴스라, 병렬/공유 컨텍스트 구조상 **단일 프롬프트 대비 API 토큰 비용이 빠르게 증가**할 수 있습니다. 비용 민감 환경은 서브 에이전트 모드를 쓰거나(`run_in_background` 결과만 반환), 에이전트 팀을 끄세요. myharness는 모델 라우팅·동시성 cap·외부 리뷰 예산으로 이를 완화합니다.
 >
