@@ -1,6 +1,6 @@
 # 설계서 — 모델 인지 하네스 (model-aware harness) v1.8.3
 
-> 상태: **재검토 반영 · 확인 라운드 진행 중** — `v183-design` R1~R21 수렴 → **2026-09-16 내부 재검토 21항목**(검토자 4명 · 소스 대조) → **R22~R25 반영 · 수렴 쌍 재시작**. 라운드별 트리 해시·판정은 검토 원장이 갖는다(**헤더에는 해시를 박지 않는다** — 라운드마다 바뀐다) · 상위: [`docs/v1.8.3/prd/model-aware-harness-prd.md`](../prd/model-aware-harness-prd.md)(MA1~MA9·MA15) · 검토 원장: [`docs/v1.8.3/working_history/prd-review.md`](../working_history/prd-review.md)(외부리뷰 R1~R12 수렴) · 작성일 2026-09-13 · 팩토리 버전 1.8.0(`.claude-plugin/plugin.json:4`)
+> 상태: **시나리오 재검토 반영 · 교차검증 확인 라운드 미완**(2026-09-18) — R1~R21 수렴 → 내부 재검토 21항목(R22~R32 수렴) → **사용자 시나리오 재검토**(검토자 4명 실행 기반 59건 → 확인 36건 반영) → R33 전파 수정 → **R34 는 codex 사용량 한도로 단일 출처(축소)라 수렴 카운트에 넣지 않았다**. **다음 세션에서 양 엔진 HIGH 0 2연속을 확인해야 구현(S0) 착수 조건이 선다** — `v183-design` R1~R21 수렴 → **2026-09-16 내부 재검토 21항목**(검토자 4명 · 소스 대조) → **R22~R25 반영 · 수렴 쌍 재시작**. 라운드별 트리 해시·판정은 검토 원장이 갖는다(**헤더에는 해시를 박지 않는다** — 라운드마다 바뀐다) · 상위: [`docs/v1.8.3/prd/model-aware-harness-prd.md`](../prd/model-aware-harness-prd.md)(MA1~MA9·MA15) · 검토 원장: [`docs/v1.8.3/working_history/prd-review.md`](../working_history/prd-review.md)(외부리뷰 R1~R12 수렴) · 작성일 2026-09-13 · 팩토리 버전 1.8.0(`.claude-plugin/plugin.json:4`)
 > 이 문서가 확정하는 것(PRD 「다음 단계 참조」·검토 결과서 §4 가 설계서로 넘긴 7항목):
 > **프로파일 데이터 파일의 경로·형식·스키마 전체** · **어댑터 서브커맨드 계약(인자·출력 줄·rc)** · **MA7 매핑표(성격 6종·키워드·경계 행 승강)** · **MA7 ④ 배선 방식(a/b 중 택1)** · **MA15 `egress` 카탈로그 항목과 `:1229` 규칙 변경** · **정본 배선 치환표(배치 12줄 + 리뷰 엔진 5줄)** · **계약 테스트·probe 목록**.
 > 작성 원칙(v1.7.6 설계서와 동일): **모든 설계 근거는 소스·실행이다.** 확인하지 못한 것은 추정으로 채우지 않고 **"미실측"** 으로 표기하고 측정 항목(probe/계약 테스트)으로 올린다. 이 문서는 모델을 실행하지 않았다 — 런타임 실측이 필요한 항목은 전부 §9-2 probe 로 이월했다.
@@ -277,7 +277,7 @@ PRD §6-1 의 3층을 이 릴리스의 구현 경계로 내린다.
 | `providers.<id>.drop` | MA4. `params`(+`effort_field` 키)에서 **실제로 제거할** 키 목록. **`params` 에도 `effort_field` 에도 없는 키가 들어 있으면 rc=2**(오타가 조용히 무효가 되는 것을 막는다) · **`effort_field` 키를 `drop` 에 넣어도 rc=2**(추론 강도를 제거하는 것은 MA2 위반) |
 | `providers.<id>.soft_switch` | MA6 **예약 슬롯 — 이 릴리스의 코드는 읽지 않는다**(PRD §5 비목표). 기본은 `null` 이고, 값이 있어도 `assemble` 출력은 **바이트 동일**해야 한다(**T-D3**). Qwen 행에 `{"on":"/think","off":"/no_think"}` 를 적어 둔 것은 **스키마가 담을 수 있음을 보이는 예시**이지 소비되는 값이 아니다 |
 | `tiers.<deep\|standard\|light>` | `{ family_alias, pinned_id?, effort }`. **`effort` 는 Claude Code 5단 어휘를 저장**하고 API 3단은 후속 어댑터가 내린다(R5). `family_alias: "runtime-default"` = 그 런타임의 기본을 쓴다(Codex — `SKILL.md:125` 정책) |
-| **`deep` 기본이 `opus` 인 이유(재검토 O-2)** | `fable` alias 해석은 **이 계정에서만** 실측됐다(PRD MA7 · 2026-09-13). 접근 권한이 없는 계정에서 `fallbackModel` 이 **권한 거부**까지 덮는지는 **미실측**이다(P2 는 "존재하지 않는 alias" 경로만 본다). "검증 못 한 것을 검증했다고 쓰지 않는다 · 기본값은 안전한 쪽" 원칙에 따라 **기본은 정본 현재값 `opus`** 로 두고, `fable` 은 **프로파일 1줄 편집 옵트인**이다. 이 릴리스는 **배치 기구**를 바꾸지 실제로 도는 모델을 바꾸지 않는다 — blast radius 를 하나로 묶지 않는다. 옵트인 시 근거는 **probe P2b**(§8-3) |
+| **`deep` 기본이 `opus` 인 이유(재검토 O-2)** | `fable` alias 해석은 **이 계정에서만** 실측됐다(PRD MA7 · 2026-09-13). 접근 권한이 없는 계정에서 `fallbackModel` 이 **권한 거부(403)** 까지 덮는지는 **미실측이고 P2b 로도 확정되지 않는다**(P2b 는 "없는 모델 ID" 거부의 *대리 관측*이다 — 시나리오 B-9). **그래서 이 결정의 주 근거는 probe 가 아니다**: "검증 못 한 것을 검증했다고 쓰지 않는다 · 기본값은 안전한 쪽" 원칙과 아래 blast-radius 논거에 따라 **기본은 정본 현재값 `opus`** 로 두고, `fable` 은 **프로파일 1줄 편집 옵트인**이다. 이 릴리스는 **배치 기구**를 바꾸지 실제로 도는 모델을 바꾸지 않는다 — blast radius 를 하나로 묶지 않는다. 옵트인 시 근거는 **probe P2b**(§8-3) |
 | `tiers.*.pinned_id` | **사람이 명시할 때만** 존재(자동 채움 없음). 있으면 그 티어의 생성 `model:` 이 ID 가 되고 MA8·감사 #13 대상이 된다. **`pinned_id` 가 있으면 같은 티어에 `pinned_confirmed_at`(ISO) 필수** — 없으면 감사 #13 FAIL |
 | `confirmed_at` · `source_url` | MA8 필수. ISO `YYYY-MM-DD` · URL 은 빈 문자열 불가 |
 | `local.{base_url,start_cmd}` | **sLM 확장 슬롯(MA2)** — 이 릴리스는 전부 `null`. 로컬은 OpenAI 호환 API 를 노출하므로(PRD §10-1 실측) 후속에서 값만 채우면 스키마 변경이 없다. **`null` 이 아닌 항목이 있으면 `place` 가 rc=2**(범위 밖을 조용히 쓰지 않는다) |
@@ -312,9 +312,10 @@ PRD §6-1 의 3층을 이 릴리스의 구현 경계로 내린다.
 | `place --verify` | 위와 같음 + `--verify`(플래그) | `PLACE:` · `PLACED:` | 0 / 1 / 2 |
 | `assemble` | `--orchestrator <이름>`(req) · `--provider <id>`(req) · `--tier deep\|standard\|light`(req) · **`--runtime claude\|codex`(req — R25-1)** · `--root <dir>` | `PROVIDER:` · `MODEL:` · `PARAMS:` · `DROPPED:` | 0 / 2 |
 | `egress` | `--orchestrator <이름>`(req) · `--runner claude\|codex`(req) · `--root <dir>` · `--grade light\|standard\|critical` | `EGRESS:` · `ALLOWED_TOOLS:` · `REVIEWERS_ALLOWED:` · `REVIEW_MODEL_CODEX:` · `REVIEW_MODEL_AGY:` | 0 / 1 / 2 |
-| `settings` | `--orchestrator <이름>`(req) · `--set-fallback`(req · 플래그) · `--root <dir>` · `--now <ISO>` · `--approve` | `SETTINGS:` · `FALLBACK:` · `BACKUP:` · (`NEEDS_APPROVAL:`) | 0 / 2 |
+| `settings` | `--orchestrator <이름>`(req) · `--set-fallback`(req · 플래그) · **`--runtime claude\|codex`(req — R33)** · `--root <dir>` · `--now <ISO>` · `--approve` | `SETTINGS:` · `FALLBACK:` · `BACKUP:` · (`NEEDS_APPROVAL:`) · **Codex 면 `SETTINGS: skipped runtime=codex` 한 줄만** | 0 / 2 |
 
 - **읽기 전용 셋**(`place`·`assemble`·`egress`)은 `--now` 를 받지 않는다(시각을 쓰지 않는다 — `render`·`verify` 선례 `ARG_SPEC:1434` 주석). 받으면 rc=2. **파일도 쓰지 않는다** — 에이전트 정의 파일은 모델이 쓰고 `place` 출력이 그 내용을 정한다.
+- **`--root` 는 네 종 모두에 붙인다(시나리오 B-1).** `SKILL.md:35` 의 "`--root` 를 모든 호출에" 규칙은 현재 **다섯 서브커맨드만** 열거한다(실측) → §7-6 치환 행으로 새 4종을 더한다. `place`·`assemble`·`egress` 는 대상을 못 찾으면 fail-loud 지만 **유일한 쓰기 명령 `settings` 는 rc=0 으로 엉뚱한 디렉토리에 `.claude/settings.json` 을 만든다** — 그래서 `settings` 에 가드를 둔다: **`--root` 없으면 rc=2**(cwd 추정 금지) · `--root` 아래 `.claude/skills/<--orchestrator>/harness-profile.json` 이 **없으면 rc=2**("대상 루트가 기대와 다르다").
 - **`settings` 만 파일을 쓴다**(§7-4). 백업 파일명에 시각이 들어가므로 `--now <ISO>` 를 **받는다**(테스트 결정성 — `answer` 선례와 같은 규약).
 - **결정성:** 같은 roster + 같은 프로파일 + 같은 데이터 파일 → **바이트 동일** 출력. `AGENT:` 줄은 에이전트 이름 **코드포인트 정렬**(기존 목록 정렬 규약).
 
@@ -340,10 +341,14 @@ PRD §6-1 의 3층을 이 릴리스의 구현 경계로 내린다.
 | `mode` | `team`\|`sub`\|`hybrid` — `SKILL.md:70-76` 2-1 의 세 모드 |
 | `agents[].name` | `^[a-z0-9][a-z0-9-]{0,63}$`(`ORCH_RE:653` 와 같은 규칙) · **중복 금지**(rc=1) |
 | `agents[].role` | 역할 **한 줄**(제어문자 금지 · 빈 문자열 금지). MA7 키워드 매칭 입력 |
+| `agents[].tier_override` | **선택** — `deep`\|`standard`\|`light`. 있으면 **키워드·③ 승강을 건너뛰고 그 값**이 티어가 된다. **`tier_override_why` 필수**(한 줄 · 없으면 rc=1) — 근거 없는 수동 배치를 막는다. `place` 는 `via=override` 로 내고 `RATIONALE:` 에도 그 사유가 들어가므로 **`--verify` 의 기대값이 사용자 의도와 같아진다**(시나리오 A-4) |
+| `agents[].placed` | **선택 · `false` 면 배치·검증 대상에서 뺀다**(기본 `true`). Phase 3-0 이 **재사용**하기로 한 기존 정의(⑤ `reuse` 기본 · 시나리오 C-1)와 **`run: orchestrator` 행**(스킬이라 정의 파일이 없다 · C-2)에 쓴다 |
 | `agents[].run` | `teammate`\|`orchestrator` = **멀티턴** · `sub-oneshot` = **단발**(PRD MA7 "팀 모드 팀원 = 멀티턴 · 서브 모드 `run_in_background` 1회 호출 = 단발"). 다른 값 rc=1 |
 
 - **위치: `<대상>/.claude/skills/<오케스트레이터>/team-roster.json`**(프로파일 옆 · **사용자 파일** · `MANAGED_RELS` 밖). **영속 계층에 둔다(재검토 D-M7).** 앞선 판의 `_workspace/02_team-roster.json` 은 휘발 계층(`SKILL.md:243-245` 2층 분리)이라 **다른 세션의 7-5 운영 감사가 `place --verify --roster` 를 부를 때 파일이 없다** → rc=2 로 감사 자체가 불가했다. `_workspace/` 는 새 실행마다 시각 접미사로 옮겨지기까지 한다(`orchestrator-template.md:59-61`).
 - 프로파일과 **같은 디렉토리**에 두는 이유: 하네스와 함께 이동하고, `harness-update.sh` 가 건드리지 않으며(사용자 소유), `--orchestrator` 이름 하나로 둘 다 찾을 수 있다(`profilePaths:864-867` 과 같은 규칙).
+- **기존 하네스에는 roster 가 없다(시나리오 B-6).** roster 는 사용자 파일이라 `apply` 가 만들지 않고 생성 경로는 Phase 2-5 하나뿐인데 **확장 매트릭스는 Phase 2 를 건너뛴다**. 규칙: **부재(`ENOENT`)는 손상과 구분해 `place`·`place --verify` 가 rc=2 + 해소법**(`Phase 2-5 로 team-roster.json 을 만든다`)을 낸다(조용한 실패 금지 · `egress` 의 스냅샷 부재와 같은 어투) · `harness-update.md` `apply` 후 절차와 **확장 분기(Phase 0 → 2-5)** 에 **roster 생성 1항**을 넣는다.
+- **확장 시 기존 정의를 roster 에 넣는가(시나리오 B-6 둘째).** **넣는다 — 단 `placed: false` 로**(§3-2). 그러면 ① 손대지 않은 재사용 정의가 전원 `mismatch` 로 확장을 막지 않고 ② roster 가 **팀 전체의 명부**로 남아 나중에 `placed: true` 로 바꾸기만 하면 배치 대상이 된다. 커버리지 손실은 **그 행이 명시적으로 제외돼 있다는 사실이 파일에 보이는 것**으로 대체한다(조용한 누락이 아니다).
 - **경로 기본값이 생겼으므로 `--roster` 는 선택 인자다** — 주지 않으면 위 경로. 테스트는 `--root` 임시 트리로 자유롭게 바꾼다.
 - 왜 JSON 인가: `place` 가 결정적으로 읽어야 하고, 이 스크립트는 이미 JSON 프로파일을 원자적으로 읽고 쓴다(참조 문서 7절). 표 파싱기를 새로 만들지 않는다.
 
@@ -383,14 +388,18 @@ PLACED: qa-verifier=ok scope-collector=mismatch spec-planner=missing
 | 판정 | 조건 |
 |---|---|
 | `ok` | `.claude/agents/<name>.md` frontmatter 의 `model:`·`effort:` 와 **티어 근거 `#` 주석 한 줄**이 `place` 출력과 **전부 일치** |
+| `na` | **`--runtime codex`**(R33 · 시나리오 C-16) — 배치값이 `runtime-default`/`effort=-` 라 정의 파일에 쓸 값이 없다. 대조하지 않고 `na` 로 낸다(`.codex/agents/*.toml` 의 `model` 은 S4 이월 ④ 뒤). **`--runtime` 없이 듀얼 하네스를 감사하면 Codex 쪽이 Claude 기준으로 오판정된다** |
 | `missing` | 정의 파일이 없다 |
 | `unreadable` | UTF-8 이 아니다(`readTarget:1331` 의 어휘를 그대로 쓴다) |
 | `malformed` | frontmatter `---` 블록이 없다 |
 | `mismatch` | 파일은 읽히는데 `model:`·`effort:`·근거 주석 중 하나라도 다르다 |
 
-- **rc:** 전부 `ok` → `0` · 하나라도 아니면 `1`(내용 판정 실패) · 사용·환경 오류는 `2`. `verify` 의 rc 규약(`cmdVerify:1426`)과 같다.
+- **rc:** 전부 `ok` **또는 `na`** → `0` · 하나라도 그 밖이면 `1`(내용 판정 실패) · 사용·환경 오류는 `2`. `verify` 의 rc 규약(`cmdVerify:1426` — `ok`/`na` 를 함께 통과로 본다)과 같다. **`--runtime codex` 는 전원 `na` 라 rc=0 이어야 한다**(R34 — `na` 를 실패로 세면 듀얼 감사가 상시 FAIL).
 - 판정 순서는 `missing → unreadable → malformed → mismatch → ok`(`verify` 우선순위 규약과 같은 모양 — 참조 문서 10-4).
 - **근거 주석도 대조 대상이다.** `place` 가 **`RATIONALE:` 줄로 직접 내는** 그 문자열과 정의 파일의 주석 줄을 바이트 단위로 비교하므로(형식은 §3-3 `RATIONALE:` 행이 고정 — 재검토 D-H1) "티어는 맞는데 근거는 안 적었다"가 통과하지 못한다 — 그것이 MA7 ① 이 요구한 것이다.
+- **`tier_override` 가 있으면** 기대값이 그 값이다(`via=override`) — 사용자가 고른 티어가 **데이터로 표현**되므로 `mismatch` 가 나지 않는다(시나리오 A-4).
+- **`placed: false` 행은 판정에서 제외**한다(`PLACED:` 에 나오지 않는다) — 재사용 정의·오케스트레이터 행이 전원 `mismatch` 로 Phase 6 을 막는 것을 방지한다(시나리오 C-1·C-2).
+- **`mismatch`·`missing` 복구 절차(어느 문서에도 없던 것 — 시나리오 A-4).** 순서: ① `place --verify` 출력에서 문제 에이전트를 고른다 ② **같은 실행의 `AGENT:`·`RATIONALE:` 줄이 곧 기대값**이다(따로 계산하지 않는다) ③ 정의 파일의 `model:`·`effort:` 를 `AGENT:` 값으로, 주석 줄을 **`RATIONALE:` 줄과 바이트 동일**하게 바꾼다 ④ 사용자가 **일부러 다른 티어를 쓰고 싶으면** 정의를 고치지 말고 **roster 에 `tier_override`+`tier_override_why`** 를 넣고 ②부터 다시 한다 ⑤ 재실행해 전부 `ok` 확인. **`place --write` 는 두지 않는다** — 에이전트 정의는 사용자 파일이고, 이 설계는 `settings`·`CLAUDE.md` 에서 이미 "스크립트가 사용자 파일을 쓰는 경로는 최소로" 를 원칙으로 세웠다(§7-4). ②가 복사-붙여넣기라 수동 비용이 낮다.
 - **roster 에는 없는데 정의 파일이 있는 경우**는 이 서브커맨드의 대상이 아니다(배치 대상이 아닌 기존 에이전트일 수 있다). 중복·고아 판정은 Phase 3-0 과 `scan` 의 `AGENTS_PROJECT:` 몫이다.
 - **왜 별도 서브커맨드가 아니라 `--verify` 플래그인가.** 입력(roster + 프로파일 + 데이터 파일)도 계산(성격→티어→값)도 `place` 와 **완전히 같다**. 따로 만들면 같은 배치 규칙의 두 구현이 생긴다 — 이 레포의 지배적 실패 계열이다.
 - **모델이 파일을 쓰는 것은 유지한다**(결선 블록과 같은 규범) — 바뀌는 것은 **검증이 사람·모델이 아니라 기계**라는 점이다.
@@ -462,6 +471,7 @@ REVIEW_MODEL_AGY: none
 | 언제 쓰나 | `answer` 가 ⑥ 을 기록할 때 **그 시점의 내부 재스캔**(`runtimeValues()`)에서 `absent` 가 아닌 도구명 |
 | 선례 | `assets.scanned`(`checkedAnswers:1235-1239` 검증 · `hashFields:936-940`). **모양만 다르다** — `assets` 는 `{agents:[],skills:[]}` 두 축이고 ⑥ 은 축이 하나라 **평평한 배열**이다 |
 | 누가 읽나 | **`egress` 서브커맨드만.** 스냅샷이 **있으면** 그 자리에서 재스캔하지 않는다 — 스냅샷이 스냅샷인 이유다(§6-2 「스냅샷 한계」와 정합). **없으면(구 프로파일) 그때만 현재 스캔으로 대체**한다(R11-A · 아래 표) |
+| **사람이 보는 경로(시나리오 B-3)** | R30 에서 `{tools}` 라벨 치환을 뺀 뒤 **허용 도구 목록이 사람 눈에 닿는 지점이 0** 이었다(`SOURCES:`·`ASSUMED:`·`degraded` 어디에도 없고 ⑥ 은 블록도 안 만든다 — 실측). → **`answer` 가 ⑥ 을 기록할 때 stdout 에 한 줄 추가: `SCANNED: egress=<도구 공백구분\|none>`**(무프로브 · 내부 재스캔이 이미 가진 값이라 새 실행 비용 0 · `PROFILE:`·`SOURCES:` 와 같은 `KEY: value` 규약) |
 | 검증 | `normalizeAnswers` 가 `assets.scanned` 와 같은 강도로 본다 — 문자열 배열이 아니거나 제어문자가 있으면 **rc=2**(손상) |
 | **해시 필드인가** | **아니다.** 참조 문서 8절의 원칙은 "**렌더 내용에 들어가는 값은 전부 해시 입력에 넣는다**" 이고, `assets.scanned` 가 해시 필드인 이유는 `assets` **블록이 그 이름들을 렌더하기** 때문이다. ⑥ 은 **블록을 만들지 않으므로**(§6-5) 렌더에 들어가는 값이 없다 → 넣지 않는다. `hashFields:936-940` 의 `if (id === "assets")` 조건은 **그대로 둔다**(코드 변경 0) |
 | 해시에서 빼는 두 번째 이유 | 넣으면 **리뷰어를 하나 설치·삭제하는 것만으로** 전 블록이 `stale` 이 되고, ⑥ 이 `assumed` 일 때는 `premiseSig:943-949` 를 타고 **`factory_version` 갱신까지** 유발한다 — 답이 바뀌지 않았는데 결선이 흔들린다 |
@@ -471,7 +481,7 @@ REVIEW_MODEL_AGY: none
 | 진입점 | 동작 | 근거 |
 |---|---|---|
 | `render` · `verify` | **rc=2 가 아니다.** ⑥ 은 블록을 만들지 않으므로 `scanned` 가 **렌더에 필요 없다** → `value`·`other`·`source`·`at` 만 채우면 된다(§6-4). T-I2a 가 요구하는 "크래시 없이 `stale` 판정" 이 성립한다 |
-| `egress` | **rc=0 — 재인터뷰 없이 돈다**(PRD MA15 수용 기준 ②). ⑥ 이 없으면 카탈로그 기본값 `allow-listed` 를 `source: assumed` 로 채우고, **스냅샷이 없으므로 그 시점의 `runtimeValues()` 실측**으로 허용 목록을 계산한다(`SHADOWED` 제외 규칙 동일 — §6-2). 출력 5줄은 형식 그대로이고, **stderr 에 한 줄**을 낸다: `note: egress 는 assumed(구 프로파일 · 스냅샷 없음 → 현재 스캔)`. `run-review.sh` 는 그 note 를 **`degraded` 사유에 싣는다** — 조용히가 아니라 기록으로 남긴다 |
+| `egress` | **rc=0 — 재인터뷰 없이 돈다**(PRD MA15 수용 기준 ②). **note 조건은 "항목 부재" 가 아니라 `source === "assumed"` 다(시나리오 B-2)** — 항목이 **없어서 채운 경우**와 **`--defaults` 로 무응답 기록된 경우**를 똑같이 알린다(후자는 값이 있어 note 가 안 뜨던 **역전**: 사람이 한 번도 승인하지 않은 반출 허용이 선언분과 **똑같이 중대 게이트를 통과**했다). ⑥ 이 없으면 카탈로그 기본값 `allow-listed` 를 `source: assumed` 로 채우고, **스냅샷이 없으므로 그 시점의 `runtimeValues()` 실측**으로 허용 목록을 계산한다(`SHADOWED` 제외 규칙 동일 — §6-2). 출력 5줄은 형식 그대로이고, **stderr 에 한 줄**을 낸다: `note: egress 는 assumed(구 프로파일 · 스냅샷 없음 → 현재 스캔)` · **`--defaults` 무응답이면 `note: egress 는 assumed(무응답 기본값 · 사람이 승인한 적 없다)`**. `run-review.sh` 는 그 note 를 **`degraded` 사유에 싣는다** — 조용히가 아니라 기록으로 남긴다 |
 
 **왜 rc=2 가 아닌가(R11-A).** 앞선 판은 `egress` rc=2 + `answer --mode extend` 강제였는데, 그러면 구 하네스의 리뷰 게이트가 **죽는다**(`egress` rc≠0 → `die_launcher` → `status: failed`). PRD MA15 수용 기준 ②(현행 `:292`)는 정확히 그 반대를 요구한다 — *"기존 하네스(v1.7.6/1.8.0 에서 생성된 것)는 **재인터뷰 없이** 기본값으로 동작하고, 그 사실이 **매 실행에서 관측 가능하게 보고된다** — 영속 기록은 `answer` 때."* 스냅샷 부재는 **답의 부재**이지 손상이 아니므로 §6-4 의 채움 규칙(부재≠손상)과도 같은 결론이다.
 
@@ -486,7 +496,7 @@ REVIEW_MODEL_AGY: none
 
 → **PRD 수용 기준 ②(현행 `:292`)의 "관측 가능하게 보고된다" 는 앞 두 층으로 충족하고, 파일 기록은 `answer` 가 소유한다** — PRD 는 이미 이 방향으로 **정정됐다**(R11 제안 반영분).
 
-→ **이행 절차(§11 S0·릴리스 노트):** 구 하네스는 **아무것도 하지 않아도 리뷰 게이트가 돈다**(허용 목록 = 현재 스캔 · `degraded` 에 assumed 가 표시된다). `answer --mode extend` 로 ⑥ 을 답하는 것은 **권장**이고, **중대 등급 게이트를 쓰는 하네스에서는 사실상 필수**다(§12 — `degraded` 가 `no-high 2연속` 수렴을 막는다). 답하면 허용 목록이 그 시점으로 **고정**되어 나중에 설치한 도구가 조용히 들어오지 않는다. `harness-update.md` 의 `apply` 후 절차에 그 **권장** 한 줄을 넣는다(재렌더 절차 옆 · 필수 단계가 아니다).
+→ **이행 절차(§11 S0·릴리스 노트):** 구 하네스는 **아무것도 하지 않아도 리뷰 게이트가 돈다**(허용 목록 = 현재 스캔 · `degraded` 에 assumed 가 표시된다). `answer --mode extend --only egress` 로 ⑥ 을 답하는 것은 **권장**이고, **중대 등급 게이트를 쓰는 하네스에서는 사실상 필수**다(§12 — `degraded` 가 `no-high 2연속` 수렴을 막는다). 답하면 허용 목록이 그 시점으로 **고정**되어 나중에 설치한 도구가 조용히 들어오지 않는다. `harness-update.md` 의 `apply` 후 절차에 그 **권장** 한 줄을 넣는다(재렌더 절차 옆 · 필수 단계가 아니다).
 
 **프로바이더 단위 허용(중요).** 허용은 **도구가 아니라 프로바이더** 단위다 — `scanned` 에 `agy` 만 있어도 `google` 이 허용되므로 `ALLOWED_TOOLS:` 에는 `gemini` 도 들어간다. 같은 회사로 같은 내용을 보내는 두 경로를 다르게 취급하는 것이 오히려 허점이기 때문이다.
 
@@ -560,6 +570,7 @@ PRD MA7 이 기구(입력 2종 · 키워드 표 매칭 · 멀티턴/단발 = 실
 | `via` | 조건 |
 |---|---|
 | `matched` | 키워드가 걸렸고 그 성격이 **비경계 행**이다(§4-1 「경계 행」 = 아니오) — 티어는 ③ `cost` 와 무관 |
+| `override` | roster 에 `tier_override` 가 있다 — **키워드·③ 승강을 건너뛴다**. `RATIONALE:` 의 `why=` 는 `tier_override_why` 값 |
 | `boundary` | 키워드가 걸렸고 그 성격이 **경계 행**이다 — 현재 유일한 경우는 **`trait=build` + `run=sub-oneshot`**(§4-3). `build` 라도 멀티턴이면 `matched`(항상 `deep`) |
 | `ambiguous` | 키워드가 하나도 안 걸렸다 — §4-3 「매칭 없음」 행을 따르고 `UNMATCHED:` 에 어휘가 실린다 |
 
@@ -715,7 +726,7 @@ skills: [security-review]
 → **허용 목록은 intake 스캔 기준**이고, PATH 밖에만 설치된 `gemini` 는 intake 에서 `absent` 라 **허용 목록에 들어가지 않는다**. 이것은 결함이 아니라 §6-2 의 "SHADOWED 는 허용 근거가 아니다" 와 **같은 판정**이다 — 지금 쓸 수 없는 도구로는 반출이 일어나지 않는다. 반대 방향(허용 목록엔 없는데 `REVIEWERS:` 엔 있다)은 §6-3 강제 ②가 `degraded` 사유와 함께 **거른다**(조용한 통과 없음).
 
 - **`SHADOWED`(PATH 밖 설치)는 허용 근거가 아니다.** `check-review-tools.sh:9-13` 이 "설치돼 있으나 PATH 밖"을 별도 줄로 보고하는 이유는 그것이 **지금 쓸 수 없는 도구**이기 때문이다(`:20-22` 실측 사례). 반출 허용은 "사용자가 실제로 쓰는 도구"에 근거하므로 PATH 기준 탐지를 그대로 쓴다. 이 판단을 §12 미결에 남기지 않는 이유: `REVIEWERS:` 계산도 같은 기준이라 두 집합이 갈라지지 않는다.
-- **스냅샷 한계:** 허용 목록은 **⑥ 을 답한 시점**의 `answers.egress.scanned` 다(§3-5-1 — `scan.runtime` 이 아니다. 그 키는 `answer` 마다 다시 쓰여 허용 목록이 조용히 넓어진다). 뒤에 새 리뷰어를 설치하면 허용 목록 밖이라 제외된다 — **조용히가 아니라** `degraded` 사유 `egress: <tool> 은 REVIEWERS_ALLOWED 밖`으로 드러나고(§6-3), 사용자는 `answer --mode extend` 로 ⑥ 을 다시 답하면 된다.
+- **스냅샷 한계:** 허용 목록은 **⑥ 을 답한 시점**의 `answers.egress.scanned` 다(§3-5-1 — `scan.runtime` 이 아니다. 그 키는 `answer` 마다 다시 쓰여 허용 목록이 조용히 넓어진다). 뒤에 새 리뷰어를 설치하면 허용 목록 밖이라 제외된다 — **조용히가 아니라** `degraded` 사유 `egress: <tool> 은 REVIEWERS_ALLOWED 밖`으로 드러나고(§6-3), 사용자는 `answer --mode extend --only egress` 로 ⑥ 을 다시 답하면 된다.
 - **구 프로파일 예외(R11-A):** ⑥ 을 **아직 답하지 않은** 하네스에는 스냅샷 자체가 없다 → 그동안은 **현재 스캔**이 허용 목록이다(재인터뷰 없이 도는 대가로 목록이 고정되지 않는다). `egress` 가 매번 stderr note 를 내고 `run-review.sh` 가 그것을 `degraded` 에 실어, "고정되지 않은 상태" 가 결과서에 계속 보인다. ⑥ 을 한 번 답하면 그 시점으로 고정되고 note 가 사라진다.
 
 ### 6-3. 강제 지점 — ① `assemble`/`place` · ② `run-review.sh` **한 곳**
@@ -776,7 +787,7 @@ INTAKE="$REPO_ROOT/.claude/skills/$HARNESS_ORCHESTRATOR/scripts/harness-intake.m
 EG="$(node "$INTAKE" egress \
        --orchestrator "$HARNESS_ORCHESTRATOR" \
        --runner "$RUNNER" --root "$REPO_ROOT" --grade "$REVIEW_GRADE" 2>"$EGERR")" \
-  || { cat "$EGERR" >&2; die_launcher "egress 미해석 — 반출 정책을 확인하지 못했다(필터 미적용으로 진행하지 않는다)"; }
+  || { cat "$EGERR" >&2; die_launcher "egress 미해석 — 해소: 프로파일 없음→answer · 손상→prev.json 복구(§12) · 데이터 파일 없음→Phase 5 번들(§7-6-1) · node 없음→설치. 필터 미적용으로 진행하지 않는다"   # 원인별 해소법(시나리오 C-9); }
 cat "$EGERR" >&2                                                 # 사람이 보는 로그에도 그대로 남긴다
 
 # ── 계약 줄 검증(R6 MED-2) — rc=0 을 그대로 믿지 않는다 ──────────────────────
@@ -829,6 +840,11 @@ if [ "$EG_REV" != "none" ]; then                                 # ③ 리뷰어
     esac
   done
 fi
+
+case "$RUNNER" in
+  claude|codex) ;;                                               # 오타·미치환 {러너} 차단(시나리오 C-17)
+  *) die_launcher "RUNNER 부적합: '$RUNNER' (claude|codex) — 런처 줄의 {러너} 치환을 확인하라" ;;
+esac
 
 # ── 리뷰어 모델 대입(R10 HIGH ③) — 프로파일이 단일 출처, 기존 env 는 무시+경고 ──
 for _v in CODEX_MODEL AGY_MODEL; do
@@ -929,6 +945,19 @@ fi
 - **빈 값인가 `none` 문자열인가 — `REVIEWERS=""`(빈 값)로 통일한다.** `:205` 는 `[ -z "$REVIEWERS" ] || [ "$REVIEWERS" = "none" ]` 로 **둘 다** 받지만, 앞 단계가 만드는 값과 모양을 맞춘다(override 치환 `:184` 는 공백 패딩 문자열을 넣고, 이 필터는 토큰 누적이라 **비면 빈 문자열**이 자연스럽다). `n_rev` 집계(`:190`)도 빈 문자열에서 0 이 된다.
 - `:201-202` 의 기존 경고("override 치환은 no-reviewers 분기보다 **앞**이어야 한다")와 충돌하지 않는다 — 필터는 `:185` 뒤 · `:205` 앞이다.
 
+**`harness-update.sh` 의 관리 대상을 디렉토리 종류로 가른다(시나리오 A-2).**
+
+**실측한 결함:** `MANAGED_RELS`(`harness-update.sh:52`) 12개는 **스킬 디렉토리 하나**를 받는데 실제 배치는 **두 곳**으로 갈린다 — 런처 계열 4개(`check-review-tools.sh`·`run-review.sh`·`build-scorecard.sh`·`emit-loop-scorecard.sh`)는 `external-review-loop/scripts/`(`SKILL.md:202`), 해석기·교리·데이터는 오케스트레이터 스킬(`SKILL.md:225`·Phase 3-1). 오케스트레이터 스킬에 `plan` 을 돌리면 런처 4종이 `[NEW] 자동 적용` 으로 **죽은 사본**이 되고 **실제 실행 사본은 갱신되지 않는다**(검토자 실행 출력). → §11-2 `LAUNCHER:` 의 전제("`apply` 로 `run-review.sh` 는 갱신된다")가 **성립하지 않는다**.
+
+| 항목 | 결정 |
+|---|---|
+| 상수 분리(R33 확정 — 정본 복사 지시에서 유도) | **`MANAGED_RELS_REVIEW`** = `SKILL.md:202` 가 열거한 **4개 그대로**(`scripts/{check-review-tools,run-review,build-scorecard,emit-loop-scorecard}.sh`) · **`MANAGED_RELS_ORCH`** = 나머지 **9개**(`references/{dev-rules,tdd-doctrine}.md` ← `SKILL.md:142` · `references/behavior-specs.md` · **`references/model-profiles.json`**(신설 · §7-6-1) · `scripts/{harness-intake.mjs,check-artifacts.sh}` ← `SKILL.md:225` · `scripts/check-behaviors.sh` · `scripts/{run-benchmark,grade-trajectory}.sh`(`NEW_EXCLUDE_RELS` 유지)). **판정은 대상 디렉토리 basename** — `external-review-loop` 면 REVIEW 셋, 그 밖이면 ORCH 셋(유도식이 아니라 `SKILL.md:202` 가 하드코딩한 정본 상수라 안전하다). 듀얼이면 `.claude`·`.agents` × 두 스킬 = **4회**. **뒤 네 개(`behavior-specs`·`check-behaviors`·`run-benchmark`·`grade-trajectory`)는 정본에 복사 지시가 없다** — 현행대로 ORCH 셋에 두고, S5 가 `SKILL.md` 에 복사 지시를 넣을지 여기서 뺄지 그때 확정한다(추측으로 배열을 고정하지 않는다) |
+| 대상 판정 | `<skill_dir>` 의 **basename 이 `external-review-loop` 면 review 셋, 아니면 orch 셋**. 근거: 그 디렉토리 이름은 `SKILL.md:202` 가 **하드코딩**한다(생성 규약) — 유도 규칙이 아니라 정본 상수다 |
+| 듀얼 런타임 | 실행이 **4회**가 된다(`.claude`·`.agents` × 오케스트레이터·external-review-loop). `harness-update.md` 절차에 그 목록을 적는다 |
+| 회귀 | `tests/test-harness-update.sh` 가 현재 단일 목록을 전제로 돈다 → **케이스 2종 추가**(orch 디렉토리에 런처가 NEW 로 오지 않는다 · review 디렉토리에 해석기가 NEW 로 오지 않는다) |
+| **동반 갱신 제약(시나리오 B-4)** | **해석기(`harness-intake.mjs`)와 런처(`run-review.sh`)는 같이 적용하거나 같이 보류한다.** 하나가 USER-MODIFIED 로 보류되고 다른 하나만 자동 적용되면 **새 런처가 `egress` 를 부르는데 구 해석기는 그 서브커맨드를 모른다**(rc=2) → **전 리뷰 `failed`** 이고 env 우회는 설계가 의도적으로 제거했다. `plan` 출력에 **`PAIR: harness-intake.mjs+run-review.sh = hold(<사유>)`** 를 적고 `apply` 가 둘 다 건너뛴다 |
+| S 단계 | **S5**(정본 배선과 같은 커밋) · 테스트 **T-U3**(디렉토리 분리) · **T-U4**(동반 갱신 제약) |
+
 **기존 하네스의 런처 줄은 `apply` 로 오지 않는다 — `LAUNCHER:` 점검을 신설한다(재검토 A-H4).**
 
 `run-review.sh` 는 `MANAGED_RELS:52` 에 있어 `apply` 로 갱신되지만, 그것을 부르는 **런처 호출 줄**은 생성 하네스의 `.claude/skills/external-review-loop/SKILL.md`(정본 `external-review-loop.md:144` 의 사본)에 있고 **그 파일은 전파 대상이 아니다** — `harness-update.sh:10` 이 "external-review-loop 스킬은 **재생성 경로**" 라고 못 박는다. 그래서 `apply` 만 하면 새 `run-review.sh` 는 `REVIEW_GRADE`·`HARNESS_ORCHESTRATOR` 를 **필수로 요구**하는데 옛 런처 줄은 그것을 넘기지 않아 **update 한 모든 기존 하네스의 리뷰가 `status: failed`** 가 된다.
@@ -953,7 +982,7 @@ fi
 **B 가 성립하는 소스 근거:** 프로파일 경로 해석은 `profilePaths:864-867` 이 `path.join(ctx.root, ".claude", "skills", orch)` 로 계산한다 — **`--root` 와 `--orchestrator` 이름만 쓰고 스크립트 위치와 무관**하다. 그래서 해석기를 어디서 실행하든 프로파일은 같은 파일을 가리킨다. 데이터 파일은 `SELF`(`:31` `fileURLToPath(import.meta.url)`) 기준 `../references/model-profiles.json` 이므로, 해석기가 오케스트레이터 스킬에 있으면 `MANAGED_RELS` 의 `references/model-profiles.json` 이 `harness-update.sh` 로 **같은 스킬 디렉토리에 배달된다**(§2-1) — 경로가 저절로 맞는다.
 
 **영향 셋.**
-1. **전파:** `harness-update.sh` 대상은 오케스트레이터 스킬 디렉토리 하나 그대로다(`MANAGED_RELS` 13항 변경 없음). external-review-loop 스킬은 기존 4개만 받는다 — `SKILL.md:202` 를 고치지 않는다.
+1. **전파(R33 정정):** 앞선 판은 "오케스트레이터 스킬 하나 · `MANAGED_RELS` 13항 변경 없음" 이라 적었는데, 그러면 **`apply` 가 죽은 사본을 만들고 실제 실행되는 런처는 갱신되지 않는다**(시나리오 A-2 실측). `MANAGED_RELS` 는 **`_ORCH`/`_REVIEW` 로 분리**하고 대상 디렉토리 basename 으로 고른다(§11-3 상수 분리 행) — `SKILL.md:202` 의 복사 목록 자체는 고치지 않는다.
 2. **듀얼 런타임:** 폴백을 두지 **않는다** — 듀얼이어도 해석기·프로파일은 **`.claude` 쪽**을 본다(R19-1). 근거 둘: ① 프로파일은 `.claude` 에만 둔다는 것이 인터뷰 계약이다(`harness-interview.md:220` "듀얼 런타임의 `.agents/skills/<오케스트레이터>/` 복사본에는 프로파일을 **두지 않는다**" · `profilePaths:864-867` 도 `.claude` 고정) ② 스킬은 생성 시 **양쪽에 출력**되므로(`runtime-adapters.md:39`) 듀얼 하네스에는 `.claude` 쪽이 **항상 있다**. `.agents` 폴백을 두면 **프로파일이 없어 어차피 실패할 레이아웃을 지원하는 것처럼** 말하게 된다.
 3. **테스트:** `tests/test-run-review.sh` 픽스처는 임시 트리에 `.claude/skills/<이름>/{scripts/harness-intake.mjs,references/model-profiles.json,harness-profile.json}` 을 만들고 `HARNESS_ORCHESTRATOR=<이름>` 을 준다(앞선 판의 "형제로 복사" 는 폐기 — §11 S4 선행 수리 ⓐ 수정).
 
@@ -998,6 +1027,19 @@ fi
 | 해시 | 채운 값이 블록 해시 입력에 들어간다. 어차피 `catalog_version` 2 라 구 하네스의 모든 블록은 `stale` 이다 |
 | 새 항목의 블록 | **없다.** `egress` 는 블록을 만들지 않는다(§6-5) — `BLOCK_IDS` 는 5 그대로 |
 
+#### 6-4-0. `answer --only <id>[,<id>…>` 신설 — 확장이 선언 답을 조용히 덮지 않게(시나리오 A-3)
+
+**재현된 결함:** `answer --mode extend --set assets=reuse --defaults` → `irreversible` 이 **`[force-push,external-send] declared` → `[unknown] assumed`** 로 바뀌고 **rc=0**, 신호는 stdout `SOURCES:` 한 줄뿐이다. `unknown` 이면 등급 규칙상 **모든 단계가 중대**로 올라가 **갱신 전보다 나빠진다**. v1.7.6 동작이지만 **이 릴리스가 "⑥ 을 답하라" 며 이 명령을 상시 경로로 만든다**(§3-5-1·§7-6 안내).
+
+| 결정 | 내용 |
+|---|---|
+| **ⓐ `--only` 채택** | `answer --mode extend --only egress --set egress=allow-listed` — **나열한 항목만** 새 답으로 받고 **나머지는 기존 프로파일에서 그대로 이월**한다(`--defaults` 가 있어도 건드리지 않는다). 모르는 id·`--only` 에 없는데 `--set` 으로 온 항목 → **rc=2** |
+| ⓑ(`--defaults` 가 `declared` 를 안 덮는다) **기각** | `--defaults` 의 의미를 바꾸면 **비대화 경로**(`--from-env --defaults`)의 기존 계약과 v1.7.6 테스트까지 흔든다. 이 릴리스가 건드릴 범위가 아니다 |
+| ⓒ(안내 문구로만) **기각** | 사람이 실수하지 않기를 기대하는 방식이다 |
+| **안전망(동작 변경 없음)** | `--mode extend` + `--defaults` 인데 **`--only` 가 없고** 기존 프로파일에 `declared` 항목이 있으면 **stderr 경고 1줄**: `WARN: extend + --defaults 는 선언 답 N개를 기본값으로 덮는다 — --only <id> 를 쓰라`. rc 는 그대로 |
+| 배선 | §3-5-1·§7-6 의 ⑥ 재답 안내를 **전부 `answer --mode extend --only egress …` 로** 바꾼다(맨손 `--defaults` 를 권하지 않는다) |
+| 테스트 | **T-I5**(§9-1) — 선언 답 보존 |
+
 #### 6-4-1. 흐름 재작성 — 보정본이 `render` 와 `verify` **양쪽**에 같은 경로로 간다 (R1 HIGH-1)
 
 **현재 흐름(소스 확인 2026-09-13):**
@@ -1021,6 +1063,7 @@ fi
 | `loadForS3` | `normalizeAnswers` 를 **1회** 호출하고 `{ p, rel, prof, ans, filled, blocks: renderBlocks(ans, prof.factory_version, rel, p.file) }` 를 돌려준다 |
 | `cmdVerify` | `prof.answers` 대신 **`ans`** 를 쓴다(`:1420` 치환). `dated("assumed")` 가 채운 항목을 자동으로 싣는다 |
 | `cmdRender` | 변경 없음(`blocks` 만 쓴다) |
+| **`premiseLine()`**(누락 — 시나리오 C-8) | `questions --mode update\|maintain` 의 stderr **전제 요약 한 줄**도 `prof.answers` 를 직접 읽는다 → 보정본을 안 쓰면 ⑥ 없는 프로파일에서 **`assumed=none` 거짓 보고**. 그 분기는 **⑥ 을 답할 수단이 없는 경로**(문항 빈 배열)라 그 줄이 **유일한 사람 대상 신호**다 → `normalizeAnswers` 출력을 쓰게 같이 고친다 |
 
 **불변식:** `render` 와 `verify` 는 **같은 `normalizeAnswers` 출력 하나**를 본다 — 블록 해시와 `ASSUMED:` 가 서로 다른 답을 근거로 계산되는 경로가 구조적으로 사라진다. 이것이 "같은 규칙의 두 구현" 을 만들지 않는 방식이다.
 
@@ -1030,7 +1073,7 @@ fi
 
 | 항목 | 블록 | 소비처 | 무엇이 "물어놓고 안 씀"을 막나 |
 |---|---|---|---|
-| ③ `cost`(기존) | `tier`(등급 하한) **+ 블록 없음**(배치) | `place` 경계 행 승강(§4-3) · 5-6 게이트 하한(`SKILL.md:300`) | `tier` 블록은 `verify` 가 검사 · 배치는 **계약 테스트 T-P3 벡터 3종** |
+| ③ `cost`(기존) | `tier`(등급 하한 · **표시 어휘와 기계 키 병기** — `중대(critical)` 식. 런처는 기계 키를 요구하는데 블록은 표시 어휘만 내서 첫 게이트가 `die_launcher` 날 수 있었다 · 시나리오 C-6 · 전 블록 `stale` 이라 **비용 0**) **+ 블록 없음**(배치) | `place` 경계 행 승강(§4-3) · 5-6 게이트 하한(`SKILL.md:300`) | `tier` 블록은 `verify` 가 검사 · 배치는 **계약 테스트 T-P3 벡터 3종** |
 | ⑥ `egress`(신규) | **블록 없음** | `assemble`/`place` 조립 차단 · `run-review.sh` 리뷰어 필터 | **`run-review.sh` 가 해석 실패 시 `die_launcher`** — 소비가 기계적으로 강제된다(§6-3) |
 
 > 두 신규 소비처 모두 `verify` 가 아니라 **실행 경로가 강제**한다. v1.7.6 이 블록·해시로 막은 것은 "문서에 넣었다고 말만 하는 것"이고, 여기서는 소비처가 스크립트라 **안 읽으면 실행이 멈춘다** — 더 강한 강제다. 참조 문서 9절 결선표에 이 두 행을 "블록 없음 / 강제 수단" 열과 함께 등재한다.
@@ -1060,13 +1103,14 @@ fi
 | # | 위치 | before | after |
 |---|---|---|---|
 | 13 | `external-review-loop.md:183` | 등급별 `AGY_MODEL="Gemini 3.5 Flash (High)"` / `"Gemini 3.1 Pro (High)"` · `CODEX_MODEL`=고추론 모델 | "오케스트레이터는 **등급을 `REVIEW_GRADE` 로, 하네스 이름을 `HARNESS_ORCHESTRATOR` 로 넘기기만 한다**(정본 런처 `:144` 가 생성 시 박는다). `egress` 호출·모델 선택은 **`run-review.sh` 가 한 번** 한다(§6-3) — 문서·오케스트레이터에 모델명을 적지 않는다. **모델명은 프로파일 `review_tiers` 에만 둔다.**" |
-| **13b** | **`external-review-loop.md:144`**(정본 런처 명령) | `bash "{스킬scripts}/run-review.sh" "{단계ID}" "{러너}"` | `REVIEW_GRADE={등급-기계키} HARNESS_ORCHESTRATOR={오케스트레이터} bash "{스킬scripts}/run-review.sh" "{단계ID}" "{러너}"` — **`{러너}` 와 같은 생성 시 치환**(`:143` 주석 규약). **`{등급-기계키}`** 는 `external-review-loop.md:27` 의 `{등급}`(표시 어휘 경량/표준/중대)과 **같은 값의 기계 키**(`light`\|`standard`\|`critical`)다 — 오케스트레이터가 자기 `## 리스크 등급` 블록 규칙으로 판정한 **기계 키**를 넘긴다 — 표시 어휘(경량/표준/중대)를 그대로 넣으면 **T-R3 가 `die_launcher` 로 잡는다**(어휘 밖) |
+| **13b** | **`external-review-loop.md:144`**(정본 런처 명령) | `bash "{스킬scripts}/run-review.sh" "{단계ID}" "{러너}"` | `REVIEW_GRADE={등급-기계키} HARNESS_ORCHESTRATOR={오케스트레이터} bash "{스킬scripts}/run-review.sh" "{단계ID}" "{러너}"` — `{러너}` 는 생성 시 치환이지만 **`{등급-기계키}` 는 다르다 — 오케스트레이터가 `## 리스크 등급` 블록 규칙으로 *단계마다* 판정한 값을 그 호출에 채운다**(시나리오 C-5) · 정본 문구도 "**호출할 때 채운다**" 로 적는다. **`{등급-기계키}`** 는 `external-review-loop.md:27` 의 `{등급}`(표시 어휘 경량/표준/중대)과 **같은 값의 기계 키**(`light`\|`standard`\|`critical`)다 — 오케스트레이터가 자기 `## 리스크 등급` 블록 규칙으로 판정한 **기계 키**를 넘긴다 — 표시 어휘(경량/표준/중대)를 그대로 넣으면 **T-R3 가 `die_launcher` 로 잡는다**(어휘 밖) |
 | **13c** | 같은 파일 **env 표(`:153-161`)** | `REVIEW_TIMEOUT`·`REVIEWERS_OVERRIDE`·`CODEX_MODEL`·`AGY_MODEL`·`AGY_PRINT_TIMEOUT` 5행(전부 "선택") | 위 5행 중 `CODEX_MODEL`·`AGY_MODEL` 행에 **"프로파일이 이긴다 — 설정해도 무시되고 경고가 남는다"**(§6-3)를 덧붙이고, **필수 2행을 신설**: `REVIEW_GRADE`(**필수** · `light\|standard\|critical` · 없거나 어휘 밖이면 `status: failed`) · `HARNESS_ORCHESTRATOR`(**필수** · 어느 하네스의 반출 정책·모델 정책인가 — **정책값이 아니라 신원**). 표 제목 "환경 변수(선택)" → **"환경 변수(필수 2 · 선택 5)"** |
 | 14 | `external-review-loop.md:190` | "모델은 `agy models`로 확인(Gemini 3.1 Pro / 3.5 Flash 등). 가용 모델명으로 치환." | "가용 모델은 `agy models`·`codex --help` 로 확인하고 **프로파일 `review_tiers` 를 고친다**(문서에 모델명을 적지 않는다)." |
 | 15 | `external-review-loop.md:191` | "성능 리뷰어를 경량 모델(`Gemini 3.5 Flash`)로" | "성능 리뷰어를 **경량 등급**(`REVIEW_GRADE=light`)으로" |
 | 16 | `run-review.sh:57` | `AGY_MODEL="${AGY_MODEL:-}"   # 지정 시 Gemini 계열만. 경량 "Gemini 3.5 Flash (High)" / 중대 "Gemini 3.1 Pro (High)"` | `AGY_MODEL="${AGY_MODEL:-}"   # 지정 시 Gemini 계열만. 값은 run-review.sh 가 부른 egress 의 REVIEW_MODEL_AGY: 줄에서 온다(모델명을 여기 적지 않는다)` |
 | 17 | `run-review.sh:60` | `#   예: CODEX_MODEL="gpt-5.4-mini" CODEX_REASONING=high  ← 사용량 절약 + 고추론` | `#   값은 run-review.sh 가 부른 egress 의 REVIEW_MODEL_CODEX: 줄에서 온다(REVIEW_GRADE 필수). CODEX_REASONING 은 별개 노브.` |
 | **17b** | `run-review.sh:193` | `*) DEG="일반/정합성 리뷰어(codex\|claude) 부재 — 성능축만" ;;` — **대입**이다(누적 아님) | `*) DEG="${DEG:+$DEG; }일반/정합성 리뷰어(codex\|claude) 부재 — 성능축만" ;;` — 같은 파일의 누적 관용구(`:183`·`:188`·`:195`·`:197`)와 맞춘다. **이유:** 남은 리뷰어가 `agy` 뿐인 흔한 구성에서 이 대입이 구간 B 가 쌓은 `egress assumed: …`·`egress: <tool> 제외` 사유를 **통째로 지운다** → T-E10·T-E2 의 `degraded` 단정이 거짓이 된다 |
+| **18b** | `external-review-loop.md:181`(등급별 축소 정책 — 복구 조치) | "① 리뷰어 복구(PATH/설치) ② 복구 불가면 **사용자 명시 승인(override)**" | 같은 자리에 **세 번째 갈래 추가**: "③ **축소 사유가 `egress` 면 ①②가 둘 다 틀린 조치다**(설치해도 허용 목록 밖 · override 는 `die_launcher` 로 막힌다) — 올바른 조치는 **`answer --mode extend --only egress` 로 ⑥ 을 다시 답해 허용 목록을 넓히는 것**이다(시나리오 B-7) |
 | **18** | `external-review-loop.md:184` | "⚠️ **엔진 다양성 가드:** `AGY_MODEL`은 **Gemini 계열만**. agy는 **Claude/GPT-OSS 모델**도 실행 가능하나, …" | "…agy는 **다른 엔진의 모델**도 실행 가능하나, …" — 나머지(`Gemini 계열만` · `agy를 Claude로 돌리면` · `codex≠claude≠agy_gemini`)는 **엔진명이라 그대로 둔다**(§7-1 수용 기준 인용문). 이 한 줄을 고치면 `grep -rni` 와 `grep -rn` 결과가 같아진다(T-C1 ②) |
 | **17c** | `run-review.sh:206-207` | `printf '{"status":"no-reviewers",…,"degraded":"리뷰어 0종%s",…}'` + `SHADOWED` 인자 하나 — **`DEG` 를 버린다** | 포맷을 `"리뷰어 0종%s%s"` 로 넓히고 **두 번째 인자에 `DEG`** 를 넣는다: `"$([ -n "$DEG" ] && printf '; %s' "$(json_esc "$DEG")")"`(빈 값이면 생략 · `; ` 구분은 `DEG` 누적 관용구와 같다). **이유:** 구간 B 가 `EG_REV=none` 에서 `REVIEWERS=""` + `DEG` 사유를 넣어도 상태 파일에 `egress` 가 남지 않아 T-E2 가 거짓이 된다. `:209` 의 `exit 0` 계약(상태는 JSON 으로만)은 그대로 |
 
@@ -1096,7 +1140,7 @@ fi
 정본에 `settings.json` 을 쓰는 코드는 현재 **0** 이다(§0-5). **쓰기는 절차가 아니라 스크립트가 한다** — `SKILL.md` Phase 5(5-0 뒤 「결선 블록·스크립트 번들」 `:225` 옆)에 호출 한 줄을 신설한다.
 
 ```
-node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fallback --orchestrator {오케스트레이터}
+node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fallback --orchestrator {오케스트레이터} --runtime {러너} --root <대상>
 ```
 
 - 계약(병합·백업·멱등·심링크·`NEEDS_APPROVAL:`)의 단일 출처는 **§3-6** 이다. Phase 5 는 ① 호출 ② `NEEDS_APPROVAL:` 줄이 있으면 **before/after 를 사용자에게 보이고 승인받아** `--approve` 로 재실행 ③ rc=2 면 멈추고 보고 — 세 가지만 규범으로 적는다.
@@ -1106,7 +1150,7 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fall
 | 보장 | 주체 | 어떻게 검증하나 |
 |---|---|---|
 | ① `settings.json` **무변경** · `NEEDS_APPROVAL:` 줄 형식 · **rc=0** | **스크립트**(`settings`) | **T-S4**(오프라인·결정적) |
-| ② 그 줄(before/after)을 **결과서에 기록** · ③ 대상 `CLAUDE.md` 하네스 섹션에 **"`fallbackModel` 미배선 — 승인 대기"** 한 줄 | **모델**(Phase 5 절차) | **정본 문장**(`SKILL.md` Phase 5 — §7-6) + **7-5 감사 항목**(아래) |
+| ② 그 줄(before/after)을 **결과서에 기록** · ③ 대상 `CLAUDE.md` 하네스 섹션에 **"`fallbackModel` 미배선 — 승인 대기 · 단종 시 자동 전환 없음"** 한 줄 | **모델**(Phase 5 절차) | **정본 문장**(`SKILL.md` Phase 5 — §7-6) + **7-5 감사 항목**(아래) |
 | ②③ 의 사후 점검 | 7-5 Step 1 | `CLAUDE.md` 에 그 줄이 **있고** `settings.json` 에 `fallbackModel` 이 **없으면 정상(승인 대기)** · **둘 다 없으면 보고**(절차 누락) · 그 줄이 있는데 `fallbackModel` 도 있으면 **줄을 지우라고 보고**(낡은 표식) |
 
 > 이 분리가 R24-2 의 요점이다: **스크립트가 못 하는 일을 계약 테스트가 하는 척하지 않는다.** ②③ 은 오프라인 테스트 대상이 아니라 **정본 절차 + 기계 감사**로 닫는다. 대안 (b)(`settings --record <경로>` 로 스크립트가 `CLAUDE.md` 한 줄을 쓰게)는 기각했다 — 사용자 소유 마크다운에 **두 번째 쓰기 경로**를 여는 비용이 얻는 것(테스트 한 줄)보다 크고, §7-4 가 이미 "건드리는 키는 `fallbackModel` 하나뿐" 을 봉쇄로 삼았다.
@@ -1116,9 +1160,11 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fall
 
 `SKILL.md:436-440` Step 1 현황 감사에 두 줄을 더한다.
 
-- `node .claude/skills/{오케스트레이터}/scripts/harness-intake.mjs place --verify --orchestrator {이름}` 을 실행해 `PLACED:` 에서 `ok` 가 아닌 항목을 불일치 목록에 넣는다(roster 는 프로파일 옆 영속 파일이라 인자가 필요 없다 — §3-2 · 대조를 손으로 하지 않는다 — §3-3-1).
+- `node .claude/skills/{오케스트레이터}/scripts/harness-intake.mjs place --verify --orchestrator {이름} **--runtime {러너}**`(듀얼이면 두 런타임 모두 · R33) 을 실행해 `PLACED:` 에서 `ok` 가 아닌 항목을 불일치 목록에 넣는다(roster 는 프로파일 옆 영속 파일이라 인자가 필요 없다 — §3-2 · 대조를 손으로 하지 않는다 — §3-3-1).
+- **`LAUNCHER:` 점검을 7-5 정기 감사에도(시나리오 C-11).** 지금은 7-7 에만 있다. 대상 경로 **`<root>/.claude/skills/external-review-loop/SKILL.md`**(듀얼이면 `.agents` 쪽도 — `SKILL.md:202` 가 이름을 하드코딩하므로 유도식이 아니다). **검사 강도:** 토큰 존재만 보면 구 런처도 `ok` 가 되므로 **`run-review.sh` 를 부르는 줄 자체**를 찾아 두 env 가 **모두** 있는지 본다 · 파일 없으면 `LAUNCHER: na`.
+- **듀얼 런타임 본문 동일성 1줄(시나리오 B-11).** `cmdVerify` 는 `profilePaths`(`:864-867`)가 준 **`.claude` 디렉토리의 `SKILL.md` 만** 읽는다(`:1410-1412`) → **`.agents` 오케스트레이터 본문에 블록이 0개여도 `WIRED:` 전부 `ok` · rc=0** 이다(Codex 가 실제로 로드하는 본문이 미배선인데 통과한다). → 7-5 Step 1 에 **`diff .claude/skills/<orch>/SKILL.md .agents/skills/<orch>/SKILL.md` 1줄**(심링크면 자동 동일 · 다르면 보고). **`verify` 가 `.agents` 도 보게 하는 스크립트 확장은 이 릴리스 범위 밖 — §12 미결**.
 - **`PLACED:` 가 `UNTIERED:` 를 대체한다.** `scan` 의 `MODEL:` 줄과 별도로 대조하지 **않는다** — 배치의 정본은 **에이전트 정의 파일**이고 `place --verify` 가 그 파일을 직접 본다(§5 (b)). 같은 판정을 두 경로로 내지 않는다. 에이전트 정의는 **사용자 파일이라 `harness-update.sh apply` 로 바뀌지 않는다** — 사용자가 승인해야 바뀐다(PRD MA7 전환 규칙).
-- 대상 `.claude/settings.json` 의 `fallbackModel` 이 프로파일 `session_fallback` 과 같은지, **그리고 `CLAUDE.md` 의 "`fallbackModel` 미배선 — 승인 대기" 표식과 짝이 맞는지** 확인한다(표식 있고 키 없음 = 정상 · **둘 다 없음 = 절차 누락 보고** · 표식 있고 키 있음 = 낡은 표식 삭제 보고). 자동 수정 금지 — 사용자 파일.
+- 대상 `.claude/settings.json` 의 `fallbackModel` 이 프로파일 `session_fallback` 과 같은지, **그리고 `CLAUDE.md` 의 "`fallbackModel` 미배선 — 승인 대기 · 단종 시 자동 전환 없음" 표식과 짝이 맞는지** 확인한다(**표식 있고 키 없음 = 승인 대기 — `단종 시 자동 전환 없음` 을 그대로 보고**(시나리오 B-10: "정상" 이 아니라 **단종 내성이 꺼진 상태**다) · **둘 다 없음 = 절차 누락 보고** — 단 `.claude/settings.json` 이 **gitignore** 대상인 레포(이 레포 `.gitignore:10`)는 클론마다 오탐이라 **추적 제외 여부를 먼저 본다**(시나리오 C-19) · 표식 있고 키 있음 = 낡은 표식 삭제 보고 · **키는 있는데 값이 `session_fallback` 과 다름 = 보고**(자동 수정 금지 — 시나리오 D-7)). 자동 수정 금지 — 사용자 파일.
 
 ### 7-6. 그 밖 정본 문서
 
@@ -1126,14 +1172,27 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fall
 |---|---|
 | `SKILL.md` Phase 2 | **2-5 팀 구성표 확정** 신설(§3-2) — 4줄 |
 | `SKILL.md` Phase 3 | 3-0 뒤에 "배치 실행" 2줄 — `place` 호출 · `UNMATCHED:` 보고 |
-| `SKILL.md` Phase 5 | `settings --set-fallback` 호출 **1줄**(§7-4) — 같은 줄에 "**비대화면 `NEEDS_APPROVAL:` 을 결과서와 `CLAUDE.md` 에 남긴다**" 를 붙인다(줄 수 +0 · R24-2 ②③ 의 정본 근거) |
+| **`SKILL.md:225`**(Phase 5 번들) | **번들 목록에 `references/model-profiles.json` 추가**(같은 문장 안 · **줄 수 +0**) — 현재 `scripts/harness-intake.mjs`·`scripts/check-artifacts.sh` **둘뿐**이라(실측) 갓 만든 하네스에 **데이터 파일이 배달되지 않는다**. 듀얼이면 `.agents/skills/{오케스트레이터}/references/` 에도. 상세는 **§7-6-1** |
+| **`SKILL.md:35`** | **`--root` 규칙에 새 4종 추가**(현재 다섯 서브커맨드만 열거 — 실측) · 줄 수 +0(같은 문장 확장) |
+| `SKILL.md` Phase 5 | `settings --set-fallback --root <대상>` 호출 **1줄**(§7-4) — 같은 줄에 "**비대화면 `NEEDS_APPROVAL:` 을 결과서와 `CLAUDE.md` 에 남긴다**" 를 붙인다(줄 수 +0 · R24-2 ②③ 의 정본 근거) |
 | `SKILL.md` 5-6 | 단계 게이트 호출 시 **`REVIEW_GRADE={등급-기계키}`·`HARNESS_ORCHESTRATOR={이름}` 를 넘긴다** 1줄 — `egress` 는 `run-review.sh` 가 부른다(오케스트레이터가 직접 부르지 않는다 · §6-3) |
 | `SKILL.md` 6-7 | `verify` 옆에 **`place --verify` 동반 호출** 1줄(§3-3-1 · `WIRED:`+`PLACED:` 둘 다 `ok` 가 아니면 Phase 6 FAIL) — **실행 경로 주의:** 프로파일은 `--root`+이름으로 찾아 스크립트 위치와 무관하지만(`profilePaths:864-867` · 실측: `.agents` 사본으로 `verify` 를 돌려도 `.claude` 프로파일을 읽어 rc=0) **데이터 파일 `references/model-profiles.json` 은 `SELF` 상대**(`:31`)라 실행하는 사본 옆에 있어야 한다 — 듀얼 런타임은 `harness-update.sh` 를 **두 스킬 디렉토리 모두**에 돌리거나 `.claude` 쪽 해석기를 쓴다 |
 | **`SKILL.md` Phase 0.5 `:56`·`:57`**(R27·R28 · 양 엔진) | **치환 — 줄 수 불변.** `:56` 은 **세 곳**이다 — ⓐ `new` 흐름 "`--after irreversible=…` 로 넘겨 **④ 를 받는다**" → "**④⑥ 을 받는다**" ⓑ `extend`=②⑤ → **②⑤⑥**(①③④ 만 `carried`) ⓒ ② 답이 바뀌어 ④ 를 다시 받는 경로 "**④ 선택지만 받아**" → "**④⑥ 이 오지만 ④ 만 반영한다**". `:57` 대화형 배분 `1차(①②③⑤)·2차(④)` → **`2차(④⑥)`**. **extend 재질문 결정(R28):** `--after` 는 항상 ④⑥ 을 내지만, **extend 의 ② 재답 경로에서는 ⑥ 을 다시 묻지 않는다** — 그 경로의 목적은 `before:*` 키가 깨진 ④ 의 복구이고(`SKILL.md:56` 원문), ⑥ 은 같은 실행의 ②⑤⑥ 질문에서 이미 받았다. 두 번 묻는 것은 같은 값을 두 번 저장해 `at` 만 흔든다. **이 두 줄을 고치지 않으면 스크립트가 ⑥ 을 내도 오케스트레이터가 정본 지시대로 묻지 않는다** — R26 에서 고친 것은 코드 배선이고, 사람·모델이 읽는 지시는 여기다 |
 | `references/harness-interview.md` | 2절 카탈로그 블록에 ⑥ 추가 + `catalog_version: 2` · 3절 기본값에 ⑥ · **5-1 호출 배분(1차 ①②③⑤ / 2차 ④⑥)** · **`:118` "④ 만 나온다" → "④⑥ 가 나온다"** · **`:124` `carried` 규칙 — `extend` 는 ②⑤⑥ 를 묻고 ①③④ 만 `carried`** · **`:136` 표 「2차 · ④」 → 「2차 · ④⑥」** · 9절 결선표에 §6-5 두 행 · 10절 `ASSUMED` 채움 규칙 |
-| `references/harness-update.md` | 「결선 재렌더」 6항은 그대로 · `MANAGED_RELS` 13 반영 · **`apply` 후 절차에 안내 2줄 추가**: ⑥ 답하기 — 일상 실행엔 무마찰이지만 **중대 등급 게이트를 쓰면 사실상 필수**(§12 · `degraded` 가 수렴 카운트를 막는다) · **런처 줄 갱신**(§11-2 `LAUNCHER:`) — 재렌더 단계와 별개 항목 |
+| `references/harness-update.md` | 「결선 재렌더」 6항에 **교체 전 보호 1줄 추가**(시나리오 B-5): `stale` 블록을 `render` 로 교체하기 **전에 기존 블록 내용을 보관**(`<파일>.bak-<압축시각>` 또는 보고에 diff)하고 **교체 전후 diff 를 사용자에게 보인다**. 근거: 같은 손수정 블록이 `catalog_version` 2 에서는 `drift`(보호됨 · `harness-update.md:41`), 3 에서는 **`stale`** 로 분류돼 "stale 만 있으면 교체" 절차가 **손수정을 diff 없이 소실**시킨다 — 이 릴리스가 `catalog_version` 을 올리기 때문에 생기는 구멍이다. 테스트 **T-I6** · `MANAGED_RELS` 13 반영 · **`apply` 후 절차에 안내 2줄 추가**: ⑥ 답하기 — 일상 실행엔 무마찰이지만 **중대 등급 게이트를 쓰면 사실상 필수**(§12 · `degraded` 가 수렴 카운트를 막는다) · **런처 줄 갱신**(§11-2 `LAUNCHER:`) — 재렌더 단계와 별개 항목 |
 | `references/runtime-adapters.md` §1 매핑표 | 행 신설 — "모델·추론 강도 지정": Claude Code `model:`/`effort:` frontmatter + settings `fallbackModel` / Codex `.codex/agents/*.toml` `model`(스키마 부재 — S4 이월 ④) / 이식성 🟡 |
 | `references/agent-design-patterns.md` 「에이전트 정의 구조」 | frontmatter 예시에 `effort:` 와 티어 근거 주석 한 줄 |
+
+#### 7-6-1. 데이터 파일 배달 경로 — 전파(`MANAGED_RELS`)와 **생성**(Phase 5 번들)은 다른 길이다(시나리오 A-1)
+
+**실측한 구멍:** 설계서는 데이터 파일 전파를 `MANAGED_RELS` 13 으로만 닫았는데 그것은 **`harness-update.sh` 전용**(기존 하네스 갱신)이고, **생성 직후 절차는 `manifest`(기준선 기록 — 복사하지 않는다)** 다. Phase 5 번들 목록(`SKILL.md:225`)에 데이터 파일이 없으면 **갓 만든 하네스**는 ① 6-7 `place --verify` **rc=2** ② 첫 게이트 `egress` 해석 실패 → `status: failed`. 더 나쁜 것은 **`verify` 는 데이터 파일을 읽지 않아 rc=0** 이라 **결선만 초록으로 보인다**.
+
+| 무엇 | 결정 | 근거 |
+|---|---|---|
+| 배달 위치 | **오케스트레이터 스킬 `references/model-profiles.json`**(스킬 안 · 별도 `references/` 배달이 아니다) | 해석기가 `SELF`(`harness-intake.mjs:31`) 기준 `../references/model-profiles.json` 을 읽는다(§2-1) — 해석기가 `scripts/` 에 있으니 **같은 스킬의 `references/` 가 유일하게 맞는 자리**다. 게다가 `MANAGED_RELS` 의 rel 이 **정확히 그 경로**라 나중 `apply` 가 **같은 파일**을 갱신한다(생성·갱신 경로 일치) |
+| 듀얼 런타임 | `.agents/skills/{오케스트레이터}/references/` 에도 복사 | 기존 번들 규약과 같다(`SKILL.md:225` 가 `scripts/` 에 대해 이미 그렇게 적는다) |
+| 줄 예산 | **+0** — `:225` 의 ② 항목 문장에 파일 하나를 더하는 편집이다 | |
+| 테스트 | **T-E11**(§9-1) — 생성 트리 픽스처에서 `egress`·`place --verify` 가 **rc=0** · 데이터 파일을 지우면 **rc=2**(`verify` 는 여전히 rc=0 이라는 것도 함께 단정해 "결선만 초록" 위장을 고정) | |
 
 - **`SKILL.md` 줄 예산(재계산 · 2026-09-16 `wc -l`/`sed -n` 실측).** 현재 **494/500**(감사 #1 이 `≤500` 을 FAIL 로 강제 — `run-policy-audit.sh:17-19`).
 
@@ -1169,7 +1228,7 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fall
 | 판정 | 조건 |
 |---|---|
 | **FAIL**(`no`) | 파일 없음 · JSON 파싱 실패 · `schema` ≠ `model-profiles/1` · 필수 키 누락(`stale_after_days`·`session_fallback`·`runtime_provider`·`tools`·`providers`·`review_tiers`·`placement`·`behavior`) · `tools` 에 `check-review-tools.sh` 후보 4종 중 빠진 것 · 프로바이더 항목에 `confirmed_at`/`source_url` 없음 · `tiers.*.effort` 가 그 프로바이더 `effort_forbidden` 에 있음 · `pinned_id` 가 있는데 `pinned_confirmed_at` 없음 · `behavior` 가 비어 있지 않음 · `local.*` 가 `null` 이 아님 · 객체 키가 코드포인트 정렬이 아님 |
-| **WARN**(`wn`) | `confirmed_at`(그리고 `pinned_confirmed_at`)이 `stale_after_days` 를 넘김 — **차단하지 않는다**(가이드 갱신은 사람 일 · PRD MA8 ①) |
+| **WARN**(`wn`) | `confirmed_at`(그리고 `pinned_confirmed_at`)이 `stale_after_days` 를 넘김 — **차단하지 않는다**(가이드 갱신은 사람 일 · PRD MA8 ①) · **팩토리 심링크 파손**(R33 · C-18): 이 레포에서만 — `.claude/skills/repo-maintainer/scripts` 가 **심링크가 아니면** WARN(`core.symlinks=false` 체크아웃에서 33바이트 텍스트가 된다 · 판별 = `[ -L <경로> ]` · 생성 하네스에는 그 경로가 없으므로 **경로 부재는 검사 대상 아님**) |
 
 - **현재 날짜 주입:** `run-policy-audit.sh` 는 인자를 파싱하지 않는다(§0-7 g). **env `HARNESS_AUDIT_NOW=<YYYY-MM-DD>`** 로 받는다 — 없으면 시스템 날짜. 인자 파서를 신설하면 12개 기존 항목 전체의 호출 규약이 바뀐다(회귀면 확대). 형식이 틀리면 **FAIL**(조용히 시스템 날짜로 떨어지면 테스트가 비결정적이 된다).
 - **검사 구현:** `node -e` 로 JSON 을 읽는다. 감사 #9·#12 가 이미 node 를 필수로 요구하므로(`run-policy-audit.sh:98-102`·`:139-154`) 새 의존이 아니다. node 부재는 이미 #9 에서 FAIL 한다.
@@ -1179,7 +1238,7 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fall
 
 | 대상 | 이 릴리스의 대응 |
 |---|---|
-| 모델 ID | 감사 #13 WARN + probe P1 |
+| 모델 ID | **정기 감지 수단이 없다(정직 기록 · 시나리오 B-8).** 감사 #13 은 `confirmed_at` **날짜**만 본다(부패 기록의 신선도이지 alias 생사가 아니다) · P1/P2c 는 **옵트인**이고 7-5·CI 에 배선이 없다 · `place --verify` 는 **프로파일↔정의 대조**라 **둘 다 낡으면 `ok`** 다. → 이 릴리스의 감지는 **① 확인일 신선도(감사 #13 WARN) ② 실행 중 실패(리뷰어 CLI 오류 → `degraded`) ③ 옵트인 probe** 셋뿐이고 **정기 자동 감지는 없다**(§12) |
 | 가이드 처방 | `source_url`·`confirmed_at` 필수 — 의역 금지(PRD §8) |
 | 런타임 도구 목록 | `scan` 의 `RUNTIME:`(1.8.0 제공) — **소비만** |
 | 에이전트 정의 포맷 | `scan` 의 `UNKNOWN_FIELDS:`(1.8.0 제공) — **소비만**. 단 `effort:` 는 기준 키 집합에 **이미 있다**(`harness-intake.mjs:203` `AGENT_KEYS` = `name description model skills behaviors tools color effort initialPrompt`) → 새 필드를 더할 필요가 없다 |
@@ -1195,7 +1254,8 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fall
 | **P2** | 자동 복구(폴백) | **주 모델은 CLI `--model` 로 주입한다** — `settings.json` 에는 `fallbackModel` 만 있고 주 모델은 거기 없다: `claude -p --model <존재하지 않는 alias> --fallback-model <session_fallback 을 `,` 로 직렬화> --output-format json` **1턴** → `modelUsage` 에 **폴백 체인의 다음 군** 모델이 찍히는가 | PRD MA7 4항(자동 복구) 실측 |
 | **P3** | `Agent` 도구 `model` 우선순위 | 정의 파일 `model:` = A, `Agent(model: B)` 호출 → 어느 쪽이 `modelUsage` 에 찍히는가. 정의 = 전체 ID 이고 호출 `model` 생략도 함께 | §7-3 의 미결 — **pin 이 Claude 런타임에서 가능한가** |
 | **P4** | `effort` 관측 채널 | `--output-format stream-json` 이벤트·`usage` 필드에 effort 관련 값이 있는가(탐색) | MA7 ⑥ 의 "적용 여부". **없으면 "정의 파일 값까지 검증 · 적용은 미검증" 을 결과서에 쓴다**(검증 못 한 것을 검증했다고 쓰지 않는다) |
-| **P2b** | **권한 거부 폴백** | 프로파일 `deep` 을 `fable` 로 바꾼 뒤(옵트인) 그 제품군 **접근 권한이 없는 계정**에서 1턴 → `fallbackModel` 체인이 **권한 거부도 덮는지** `modelUsage` 로 본다 | `deep → fable` 을 기본으로 올릴 수 있는가(§2-2). **권한 없는 계정이 없으면 실측 불가 — 그때는 "미실측" 으로 남기고 기본을 `opus` 로 유지한다** |
+| **P2b** | **거부 응답 폴백**(실행 가능하게 재정의 — 시나리오 B-9) | `--model` 에 **존재하지 않는 전체 모델 ID**(예: `claude-nonexistent-9`)를 주고 `--fallback-model <체인>` 으로 1턴 → **거부 응답을 `fallbackModel` 이 받는지** `modelUsage` 로 본다 | 앞선 판은 "**권한 없는 계정**" 을 요구해 **사실상 영구 미실측**이었다. **단 이것은 권한 거부(403)의 *대리 관측*이지 같은 사건이 아니다** — 403 자체는 여전히 **미실측**이고, 그래서 기본 `deep` 결정의 근거를 **probe 에서 분리**했다(§2-2) |
+| **P2c** | **정의 파일 경로 단종 복구** | 에이전트 정의 frontmatter `model:` 을 **존재하지 않는 alias** 로 둔 픽스처 하네스에서 **서브에이전트를 1회 spawn** → `fallbackModel` 이 받아 폴백 군이 `modelUsage` 에 찍히는가 | **PRD 운영자 약속("단종돼도 죽지 않는다")의 유일한 실측 경로**. P1 은 세션 `--model`, P3 은 `Agent` 도구라 **정의 파일 경로를 재는 probe 가 없었다**(시나리오 B-8) |
 | **P5** | 금지값 400 재현 | 프로바이더 CLI·API 로 `effort_forbidden` 값을 **실제로** 요청해 400(또는 동등 거부)이 나는지 | **MA3 의 근거 갱신** — 가이드 처방이 바뀌면(금지가 풀리거나 새 금지가 생기면) `effort_forbidden` 을 고치는 신호. 오프라인 계약(T-A2)은 이 결과와 **독립**이다 |
 
 - **오프라인 계약 테스트와 역할이 다르다.** PRD MA7 수용 기준: 프로파일에서 alias 하나를 없는 값으로 바꾸면 **계약 테스트(오프라인)는 통과하고 probe 가 실패**해야 한다 → 계약 테스트 **T-P7** 이 그 분리 자체를 고정한다(오프라인 조립은 문자열을 검증하지 않는다).
@@ -1224,9 +1284,10 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fall
 | **T-P5** | 티어 근거 `#` 주석이 든 정의 파일을 `scan` 이 `UNKNOWN_FIELDS:` 에 올리지 **않는다**(2026-09-16 실측으로 현재 동작 확인 — 이 테스트는 **회귀 가드**다) | §4-6 |
 | **T-P6** | `FALLBACK:` 줄 = `session_fallback` 의 `,` 직렬화이고 `settings.json` 에 쓸 값과 같다 | **MA7 수용 기준(추가)** |
 | **T-P7** | 프로파일 alias 를 없는 값(`fabel`)으로 바꿔도 **오프라인 조립은 rc=0**(문자열 검증 안 함) — 실패는 probe 몫 | MA7 4항 "둘의 역할이 다르다" |
-| **T-P9** | `place --verify`(**`--roster` 없이** — 기본 경로 `.claude/skills/<orch>/team-roster.json` 을 쓴다 · §3-2) — 배치대로 쓴 정의 → 전부 `ok` rc=0 · 정의 하나의 `effort:` 를 바꾸면 그 에이전트만 `mismatch` rc=1 · **근거 주석(`RATIONALE:` 줄과 바이트 동일)을 한 글자 바꿔도 `mismatch`** · 정의 삭제 → `missing` · frontmatter 없는 파일 → `malformed` | **MA7 ①**(구현 편차 차단) |
+| **T-P9** | **Codex 대조군(R34):** `--runtime codex` 로 돌리면 전 에이전트가 **`na`** 이고 **rc=0**(정의 파일을 대조하지 않는다) · 같은 트리를 `--runtime claude` 로 돌리면 아래 판정이 그대로 난다. `place --verify`(**`--roster` 없이** — 기본 경로 `.claude/skills/<orch>/team-roster.json` 을 쓴다 · §3-2) — 배치대로 쓴 정의 → 전부 `ok` rc=0 · 정의 하나의 `effort:` 를 바꾸면 그 에이전트만 `mismatch` rc=1 · **근거 주석(`RATIONALE:` 줄과 바이트 동일)을 한 글자 바꿔도 `mismatch`** · 정의 삭제 → `missing` · frontmatter 없는 파일 → `malformed` | **MA7 ①**(구현 편차 차단) |
 | **T-P8** | `pinned_id` 를 **한 티어에만** 넣으면 그 티어 에이전트의 `MODEL:`/`model=` 만 ID 로 바뀐다 | **MA7 2항**(R10) |
 | **T-W1** | 생성 오케스트레이터의 `Agent(...)` 호출 `model` ↔ `.claude/agents/<name>.md` `model:` 일치(정의가 ID·`inherit` 면 호출 생략) | **R7 단일 출처** |
+| **T-S5** | **런타임 축(시나리오 C-15 · R33)** — `--runtime codex` 면 **파일을 만들지도 열지도 않는다**(`SETTINGS: skipped runtime=codex` · rc=0 · 대상 디렉토리에 `.claude/settings.json` **미생성**) · `--runtime` 누락 → **rc=2** · `--runtime claude` 는 기존 T-S1~T-S4 그대로 | **C-15** |
 | **T-S1** | `settings --set-fallback` 병합 — 기존 키 3개가 **값·순서 그대로** 보존되고 `fallbackModel` 1개만 추가 · `BACKUP:` 경로의 백업 파일이 실재 · `--now 2026-09-13T00:00:00Z` 주입 시 파일명이 정확히 **`settings.json.bak-20260913T000000Z`**(**`:` 없음 — windows 잡에서도 생성된다**) · 두 번 실행하면 두 번째는 **아무것도 쓰지 않는다**(멱등 · `BACKUP: none`) | **R8** · §3-6 · 2-OS |
 | **T-S2** | 값 상이 → **rc=0 + `NEEDS_APPROVAL:` 줄** + 파일 **무변경** · `--approve` 재실행 시 백업 후 교체 · JSON 파싱 실패 → **rc=2 · 파일 무변경 · 백업 없음** · `settings.json` 이 심링크 → rc=2 | **R8** · §3-6 |
 | **T-S4** | **비대화 승인 부재 — 스크립트 계약만**(재검토 R24-2) — `NEEDS_APPROVAL:` 상태에서 `--approve` 없이 실행하면 ① **rc=0** ② `settings.json`·백업 **무변경**(바이트 동일) ③ `NEEDS_APPROVAL:` 줄이 §3-6 형식(`fallbackModel before="…" after="…"`)이고 ④ **`--approve` 를 주지 않는 한 두 번, 세 번 실행해도 계속 무변경**(자동 승인 없음). **결과서·`CLAUDE.md` 기록(②③)은 모델의 일이라 이 테스트가 단정하지 않는다** — 정본 절차 + 7-5 감사가 닫는다(§7-4) | **A-M8** · §7-4 |
@@ -1235,6 +1296,8 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fall
 | **T-E2** | `egress: runtime-only` **픽스처 프로파일**(임시 루트 · env 주입 아님 · `answers.egress.scanned: ["agy","claude","codex"]`) + `--runner claude` → **`ALLOWED_TOOLS: claude` · `REVIEWERS_ALLOWED: none`**(러너는 허용 집합에 있고 리뷰어 후보만 빈다) → `run-review.sh` 가 `REVIEWERS=""` → **`_review_status.json` 의 `status: no-reviewers` 이고 `degraded` 에 `egress` 사유가 실제로 들어 있다**(치환표 17c 가 `DEG` 를 직렬화한다 — 고치지 않으면 이 단정이 거짓) | **MA15 강제 ②** · R15-3 |
 | **T-E3** | `egress: runtime-only`(→ `REVIEWERS_ALLOWED: none`) + `REVIEWERS_OVERRIDE=agy` → **`die_launcher`**(상태 `failed` · 리뷰어 미실행). override 는 탐지 뒤에 오므로 필터가 그 **뒤**에 있어야 잡힌다(`run-review.sh:182-185`) | **R6** |
 | **T-E7** | **스냅샷이 있을 때의 계산과 손상 경계** — ① `answers.egress.scanned: ["agy","claude"]` + `allow-listed` + `--runner claude` → `ALLOWED_TOOLS: agy claude gemini`(**프로바이더 단위** — `agy`=google 이므로 `gemini` 도 포함) · `REVIEWERS_ALLOWED: agy gemini` ② **손상 경계**: `answers.egress` 객체는 있는데 `scanned` 가 **문자열 배열이 아니거나 제어문자 포함** → `egress` **rc=2**(부재≠손상 — 부재는 T-E10 의 rc=0 폴백, 손상은 T-I2c 와 같은 경계) | **R5 HIGH** · §3-5-1 · R12-1 |
+| **T-E12** | **무응답 ⑥ 도 드러난다(시나리오 B-2 · R33)** — `--defaults` 로 기록돼 **값은 있지만 `source: assumed`** 인 ⑥ 픽스처에서 ① `egress` stderr 에 **note 가 뜬다**(부재 픽스처와 같은 문구 계열) ② `run-review.sh` 의 `degraded` 에 `egress assumed` 가 실린다 ③ **대조군:** `source: declared` 면 note 도 `degraded` 도 **없다**(사람이 승인한 반출과 구분된다) | **B-2** |
+| **T-E11** | **데이터 파일이 생성 하네스에 배달된다(시나리오 A-1)** — Phase 5 번들 결과를 본뜬 생성 트리 픽스처에서 ① `egress` **rc=0** ② `place --verify` **rc=0** ③ `references/model-profiles.json` 을 **지우면 둘 다 rc=2** ④ **그 상태에서도 `verify` 는 rc=0**(결선만 초록으로 보이는 위장을 고정) | **A-1** · `SKILL.md:225` |
 | **T-E10** | **구 프로파일 무마찰 동작(R11-A)** — `catalog_version` 1 픽스처(⑥ 없음) + 스텁 PATH 에 `agy` 만 → `egress --runner claude` **rc=0** · `EGRESS: allow-listed` · `ALLOWED_TOOLS: agy claude gemini` · `REVIEWERS_ALLOWED: agy gemini` · **stderr note**(`assumed · 스냅샷 없음 → 현재 스캔`) · 같은 픽스처에서 `answer --mode extend` 로 ⑥ 을 답한 뒤에는 **note 가 사라지고 스냅샷이 쓰인다** · **`run-review.sh` 를 돌리면 `_review_status.json` 의 `degraded` 에 `egress assumed` 문자열이 실제로 들어간다**(stdout 캡처가 아니라 `_egress.err` 경유 — §6-3) · 이전 실행의 `.err` 가 남아 있어도 정리 목록(`:168`)이 지우므로 **지난 note 가 이번 `degraded` 에 섞이지 않는다** · **`REVIEWERS` 가 `agy` 뿐인 구성에서도 `degraded` 에 `egress assumed` 가 남는다**(치환표 17b 의 누적 전환이 없으면 `:193` 대입이 지운다) | **PRD MA15 수용 기준 ②** · R12-2 · R15-2 |
 | **T-E8** | **`scanned` 는 해시 필드가 아니다 · 그러나 `at` 은 갱신된다(R28·R29)** — `answers.egress.scanned` 만 바꿔 `answer` 를 다시 돌리면 ① **모든 블록 해시가 같다**(리뷰어 설치·삭제가 결선을 흔들지 않는다 — `hashFields` 불변) ② **`answers.egress.at` 은 새 시각으로 바뀐다**(`atFields` 비교 · "⑥ 을 답한 시점" 기록이 참이 된다) ③ `value`·`source` 까지 같고 `scanned` 도 같으면 `at` 이 **보존된다**(대조군 — ②가 항상 갱신하는 구현을 FAIL 시킨다) | §3-5-1 · 참조 문서 8절 |
 | **T-E4** | `tools` 매핑에서 한 도구를 빼면 `egress` **rc=2** · `check-review-tools.sh:66` 후보 4종 전부가 매핑에 있어야 한다 | **R5** |
@@ -1250,13 +1313,18 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fall
 | **T-I2a** | **픽스처: `catalog_version` 1 로 만든 구 프로파일(⑥ 없음) + `catalog_version` 2 스크립트 · 블록은 구 해시 그대로.** ① `render` **rc=0**(블록이 나온다) ② **`verify` 가 크래시하지 않는다**(TypeError 회귀 가드 — `cmdVerify` 가 보정본을 본다) ③ `WIRED:` 가 **전부 `stale`** 이고 **rc=1**(T-I3 과 일치 — 재렌더 전이므로 통과가 아니다) ④ `ASSUMED:` 에 `egress(<날짜>)` · 날짜 = 프로파일 항목별 `at` 최신값 ⑤ `render`↔`verify` 가 같은 보정본을 본다(같은 실행에서 얻은 블록 해시가 `verify` 의 기대 해시와 동일) | **MA15 ②** · `:1229` 규칙 변경 · §6-4-1 |
 | **T-I2b** | 위 픽스처에서 `render` 출력으로 **블록을 교체한 뒤** 다시 `verify` → **rc=0 · `WIRED:` 전부 `ok`** · `ASSUMED:` 에는 여전히 `egress`(답을 바꾼 것이 아니다) | `harness-update.md:39-42` 재렌더 절차가 실제로 닫히는가 |
 | **T-I2c** | 형식이 깨진 항목(값이 있는데 타입 위반)·`assets.scanned` 부재는 **여전히 rc=2**(부재와 손상은 다르다) · **대조군(R30):** 기존 다섯 항목 중 하나(예: `answers.completion`)를 **지우면 rc=2**(⑥ 만 자동 채움 대상이다 — 채움 범위가 넓어지면 사람이 지운 답을 조용히 복구한다) | §6-4 채움 대상 경계 |
+| **T-I7** | **`--only` 가 선언 답을 보존한다(시나리오 A-3 · R33)** — `completion`~`assets` 가 전부 `declared` 인 프로파일에서 ① `answer --mode extend --only egress --set egress=allow-listed` → **⑥ 만 새로 쓰이고 나머지 다섯의 `value`·`source`·`at` 이 바이트 그대로** ② `--only` **없이** `--defaults` 로 돌리면 기존 동작대로 덮이되 **stderr `WARN:` 이 뜬다**(안전망) ③ `--only` 에 카탈로그 밖 id → **rc=2** | **A-3** |
+| **T-I8** | **`SCANNED:` 가시 경로(시나리오 B-3 · R33)** — ⑥ 을 답하면 `answer` stdout 에 `SCANNED: egress=<도구 공백구분>` 한 줄이 나오고(허용 목록이 사람 눈에 닿는 유일한 지점) 그 값이 `answers.egress.scanned` 와 **같다** | **B-3** |
+| **T-I6** | **재렌더가 손수정을 말없이 덮지 않는다(시나리오 B-5)** — 손수정 블록이 `catalog_version` 상향으로 `stale` 이 된 픽스처에서 ① 교체 전 원본이 **보관**되고 ② **교체 전후 diff 가 보고**된다 · `catalog_version` 불변이면 같은 블록이 `drift` 로 분류돼 **자동 교체 대상이 아니다** | **B-5** · `harness-update.md:41` |
 | **T-I3** | `catalog_version` 2 로 올리면 기존 블록이 전부 `stale`(`missing`/`drift` 아님) | 재렌더 절차 전제 |
 | **T-I4** | `scan` 의 `RUNTIME:` 이 4쌍(`agy claude codex gemini`)이고 골든 출력이 갱신됐다 · **`gemini` 버전 파싱이 실패해 `unknown` 이어도 "설치됨" 으로 다룬다(R27)** — `unknown` 픽스처에서 `answers.egress.scanned` 에 `gemini` 가 **들어간다**(버전 문자열은 허용 목록 판정에 쓰지 않는다 · `gemini --version` 출력 형식이 미실측이라 조용한 축소를 막는 단정이다) | §6-2 |
 | **T-I5** | **⑥ 이 실제로 질문된다(R26 · 양 엔진 HIGH).** 카탈로그에 ⑥ 을 더하는 것만으로는 **아무도 묻지 않는다** — `questions` 의 세 분기가 각각 하드코딩돼 있다(`harness-intake.mjs:975-982` `--after` 는 `irreversible` 만 받고 **④ 한 문항만** 반환 · `:983` `new` 1차는 `["completion","irreversible","cost","assets"]` · `:993-1000` `extend` 는 `irreversible|assets` 만 묻고 나머지는 `carriedItem()`). 단정: ⓐ `questions --mode new` 1차 = **①②③⑤**(불변) ⓑ `questions --mode new --after irreversible=<토큰>` = **④⑥ 두 문항**(PRD MA15 배분) ⓒ `questions --mode extend` 가 **⑥ 을 질문한다**(이월하지 않는다 — §6-1(⑥ 질문 규칙 · `:669`)) ⓓ **⑥ 이 없는 구 프로파일**에 `--mode extend` → **rc=0**(⑥ 은 질문 대상이라 `carriedItem` 을 타지 않는다 — 부재가 오류가 되지 않는다) ⓔ `answer` 로 ⑥ 을 저장한 뒤에도 `extend` 는 여전히 **질문**한다(⑤ `assets` 와 같은 계열) ⓕ **무프로브 단정(R30):** ⑥ 이 생긴 뒤에도 `questions` 는 **도구를 실행하지 않는다** — `s2-questions.test.mjs:136` 의 마커 bin 픽스처가 그대로 통과하고(실행 0), ⑥ 라벨에 **치환 토큰(`{…}`)이 하나도 없다**(도구 목록은 `answer` 가 `scanned` 에 적는다) | **MA15** · §6-1(⑥ 질문 규칙 · `:669`) |
 | **T-U2** | **런처 줄 점검(재검토 A-H4)** — 픽스처 대상 프로젝트에 옛 런처 줄(`bash …/run-review.sh "{단계ID}" "{러너}"`)만 있는 `external-review-loop/SKILL.md` 를 두면 `harness-update.sh plan` 이 **`LAUNCHER: needs-update`** + 붙일 줄을 내고, 두 env 가 든 줄이면 **`LAUNCHER: ok`** · 그 파일이 **없으면** 점검을 건너뛴다(비-코드 도메인) · **`apply` 가 그 파일을 고치지 않는다**(사용자 소유) | **A-H4** · `harness-update.sh:10`·`MANAGED_RELS:52` |
+| **T-U3** | **디렉토리별 관리 대상 분리(시나리오 A-2)** — 오케스트레이터 스킬에 `plan` → 런처 4종이 **NEW 로 뜨지 않는다** · `external-review-loop` 스킬에 `plan` → 해석기·데이터 파일이 **NEW 로 뜨지 않는다** | **A-2** · `harness-update.sh:52` |
+| **T-U4** | **동반 갱신 제약(시나리오 B-4)** — 해석기 USER-MODIFIED(보류) + 런처 UPDATABLE 트리에서 `plan` 이 **`PAIR: … = hold`** 를 내고 `apply` 가 **런처도 건너뛴다** | **B-4** |
 | **T-U1** | `harness-update.sh plan` 이 `references/model-profiles.json` 을 NEW 로 분류(`tests/test-harness-update.sh` 에 1케이스) | §2-1 전파 |
 | **T-PB1** | **probe 가드**(`tests/test-probe-guard.sh` 신규) — **세 단정**: ① `MODEL_PROBE_ALLOW_EXEC` **없이** `bash skills/myharness/scripts/probe-model-profiles.sh` 실행 → **rc=2 즉시 종료**하고 **임시 루트에 새 파일이 0개**(실행 전후 `find <tmp> -type f` 목록 diff 가 비어 있다 — 로그·캐시·결과 파일도 만들지 않는다) ② PATH 앞 스텁 **4종**(`agy`·`claude`·`codex`·`gemini` — `check-review-tools.sh:66` 집합)이 **0회 호출**(스텁이 호출 때마다 카운터 파일에 한 줄을 덧붙이고, 그 파일이 없음을 단정 — `tests/test-run-review.sh:11` 의 codex 스텁 선례) ③ `MODEL_PROBE_ALLOW_EXEC=1` 이면 **스텁이 호출된다**(가드가 스크립트를 통째로 죽여놓고 통과하는 가짜 PASS 차단) | §8-3 옵트인 · 비용 사고 방지 · **R5 MED**(파일·명령·호출 0) |
-| **T-13** | 감사 #13 — stale 프로파일 → WARN(차단 아님) · 스키마 결함 → FAIL · `HARNESS_AUDIT_NOW` 주입으로 결정적 · 형식 오류면 FAIL | **MA8 ①** |
+| **T-13** | 감사 #13 — stale 프로파일 → WARN · 스키마 결함 → FAIL · `HARNESS_AUDIT_NOW` 결정적 · 형식 오류 FAIL · **팩토리 `.claude/skills/repo-maintainer/scripts` 가 심링크가 아니면 WARN**(시나리오 C-18) | **MA8 ①** |
 
 - **픽스처는 결함 하나씩**(v1.7.6 §11 교훈 — 여러 결함을 한 픽스처에 넣으면 앞 단정이 뒤 결함을 가린다).
 - 테스트 파일: `tests/harness-intake/s4-place.test.mjs` · `s4-assemble.test.mjs` · `s4-egress.test.mjs` · `s4-profiles-doc.test.mjs` · `s4-settings.test.mjs` · `s4-wiring.test.mjs` · 기존 `t11-audit.test.mjs` 에 T-13 추가 · `tests/test-run-review.sh` 에 **T-E2·T-E3·T-E5·T-E6·T-E9·T-R1·T-R2·T-R3·T-R4·T-R5** 추가(셸 대상 — `run-review.sh` 를 실제로 실행해야 판정되는 것들) · **`tests/test-probe-guard.sh` 신규(T-PB1)**. 픽스처: `tests/fixtures/model-profiles/**` · `tests/fixtures/team-roster/**`.
@@ -1269,7 +1337,8 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fall
 |---|---|---|
 | **P1** alias 해석 | `claude -p` 1턴 × alias 수 | 최소(1턴) |
 | **P2** 자동 복구(폴백) | `claude -p --model <없는 alias> --fallback-model <체인>` 1턴 | 최소(폴백 군에서 1턴) |
-| **P2b** 권한 거부 폴백 | 권한 없는 계정 1턴(없으면 **실행 불가 — 미실측 기록**) | 최소 |
+| **P2b** 거부 응답 폴백 | 없는 모델 ID 1턴(**실행 가능** · 403 의 대리 관측) | 최소 |
+| **P2c** 정의 파일 경로 복구 | 픽스처 하네스에서 **서브에이전트 1회 spawn** | 소 |
 | **P3** `Agent` model 우선순위 | `claude -p` 1턴(서브에이전트 1회 spawn 포함) | 소 |
 | **P4** `effort` 관측 채널 | `claude -p --output-format stream-json` 1턴 · **탐색이라 반복 가능** | 소~중 |
 | **P5** 금지값 400 재현 | **프로바이더 CLI·API 직접 호출**(`codex`·`agy` 등) — 이 릴리스에서 하네스가 API 를 부르는 **유일한 지점**이다 | 소 · 단 **거부 응답이라 토큰은 거의 안 든다** |
@@ -1319,29 +1388,39 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fall
 
 | 단계 | 내용 | 완료 판정 |
 |---|---|---|
-| **S0 선행** | ① `SKILL.md` 축소 **단독 커밋**(§7-6 줄 예산 — 현재 494/500) ② **팩토리 자신의 번들 배달 + 프로파일 생성**(§11-1) — 심링크 `.claude/skills/repo-maintainer/scripts -> ../../../skills/myharness/scripts` + `answer --orchestrator repo-maintainer` ③ `references/model-profiles.{json,md}` 초안 + T-D1·T-D2 | 감사 PASS(≤500) · 이관 전후 내용 대조 · T-D1·T-D2 |
+| **S0 선행** | ⓪ **팩토리 `external-review-loop` 스킬 재생성**(§11-0 — 현재 101줄 구버전) ① `SKILL.md` 축소 **단독 커밋**(§7-6 줄 예산 — 현재 494/500) ② **팩토리 자신의 번들 배달 + 프로파일 생성**(§11-1) — 심링크 `.claude/skills/repo-maintainer/scripts -> ../../../skills/myharness/scripts` + `answer --orchestrator repo-maintainer` ③ `references/model-profiles.{json,md}` 초안 + T-D1·T-D2 | 감사 PASS(≤500) · 이관 전후 내용 대조 · T-D1·T-D2 |
 | **S1** | `assemble` + MA2·MA3·MA4 — T-A1~T-A4 · **T-D3**(비목표 슬롯 · `assemble` 출력 불변) · **T-P7**(없는 alias 도 오프라인 조립은 rc=0) | `node --test` green(2-OS) |
 | **S2** | `place` + MA7 매핑표 + roster + **`settings --set-fallback`**(`session_fallback` 직렬화를 `place` 와 공유) — T-P1·T-P3·T-P4·T-P5·T-P6·T-P8·**T-P9** · **T-S1·T-S2·T-S3·T-S4** | 벡터 3종 통과 · 병합 멱등·승인 대기·비대화 규칙 통과 |
-| **S3** | MA15 — `CATALOG` ⑥ · `catalog_version` 2 · **`questions` 세 분기 배선(R26)** — `--after` 반환을 ④→**④⑥**(`:975-982`) · `new` 1차 세트는 ①②③⑤ 유지(`:983`) · `extend` 의 **질문 집합에 ⑥ 추가**(`:993-1000` — 이월 집합이 아니다) · **§6-4-1 흐름 재작성**(`normalizeAnswers`·`renderBlocks` 시그니처·`loadForS3`·`cmdVerify`) · **`runtimeValues` 4종 + `VERSION_RE.gemini` + 연쇄 13곳**(§6-2 표 — `selftest:120`·참조 문서 `:228` 포함) · `egress` — T-I1~T-I4 · T-E1·T-E4 · **T-E7·T-E8·T-E10**(스냅샷 계산·해시 제외·구 프로파일 폴백) · **T-I5**(⑥ 질문 배선) · **T-P2**(`place`+`egress` 양쪽 필요) | 골든 갱신 · `s2-doc-catalog` 통과 · **T-I2a 크래시 가드 · T-I2b 재렌더 통과** · **`run-policy-audit.sh` PASS(fail 0 — #12 가 `selftest:120` 을 잡는다)** · **팩토리 프로파일에 `answer --mode extend` 로 ⑥ 을 답한다**(아래 교착 근거) |
+| **S3** | MA15 — `CATALOG` ⑥ · `catalog_version` 2 · **`answer --only <id>[,<id>…]` 신설**(§6-4-0 — `ARG_SPEC`·`USAGE`·`answer` 이월 분기 · 안전망 `WARN:`) · **`SCANNED:` 출력 줄**(§3-5-1) · **`questions` 세 분기 배선(R26)** — `--after` 반환을 ④→**④⑥**(`:975-982`) · `new` 1차 세트는 ①②③⑤ 유지(`:983`) · `extend` 의 **질문 집합에 ⑥ 추가**(`:993-1000` — 이월 집합이 아니다) · **§6-4-1 흐름 재작성**(`normalizeAnswers`·`renderBlocks` 시그니처·`loadForS3`·`cmdVerify`) · **`runtimeValues` 4종 + `VERSION_RE.gemini` + 연쇄 13곳**(§6-2 표 — `selftest:120`·참조 문서 `:228` 포함) · `egress` — T-I1~T-I4 · T-E1·T-E4 · **T-E7·T-E8·T-E10**(스냅샷 계산·해시 제외·구 프로파일 폴백) · **T-I5**(⑥ 질문 배선) · **T-P2**(`place`+`egress` 양쪽 필요) · **T-I5**·**T-I6** | 골든 갱신 · `s2-doc-catalog` 통과 · **T-I2a 크래시 가드 · T-I2b 재렌더 통과** · **`run-policy-audit.sh` PASS(fail 0 — #12 가 `selftest:120` 을 잡는다)** · **팩토리 프로파일에 `answer --mode extend --only egress` 로 ⑥ 을 답한다**(아래 교착 근거) |
 | **S4** | 셸 배선 — `run-review.sh` 가 **항상** `egress` 를 1회 호출(env 무시·경고) · 리뷰어 필터(구간 B) · override 필터 · 라벨 가드 · **이름 가드**(R17-1). **선행 수리:** `tests/test-run-review.sh` 에 ⓐ **오케스트레이터 스킬 레이아웃**(`.claude/skills/<이름>/{scripts/harness-intake.mjs,references/model-profiles.json}`) 생성 — 형제 복사가 아니고(R13-1) **`.agents` 폴백도 없다**(R19-1) ⓑ 픽스처 프로파일 ⓒ `REVIEW_GRADE`·`HARNESS_ORCHESTRATOR` 추가(없으면 기존 케이스 전부 `die_launcher`) · **`factory-ci.yml` 두 잡에 스텝 추가** — T-E2·T-E3·T-E5·T-E6·**T-E9**·T-R1·**T-R2·T-R3·T-R4·T-R5** | 2-OS CI green(**windows `python3` 가용 실측 포함**) · 기존 test-run-review 케이스 회귀 0 |
-| **S5** | 정본 배선 — §7 치환표 **17행/22지점** · `SKILL.md` 신설 절(2-5 roster · Phase 3 배치 · Phase 5 `settings` 호출 · 5-6 게이트 env · **6-7 `place --verify` 동반 호출** · 7-5 감사 · **체크리스트 1항**) — §7-6 줄 예산표 7항목과 같은 집합 · `MANAGED_RELS` 13 · 감사 #13 · **`LAUNCHER:` 점검**(§6-3) — T-C1·T-W1·T-U1·**T-U2**·T-13 | 감사 PASS(fail 0) · 외부리뷰 no-high 2연속 · `harness-update.sh plan` 회귀 |
+| **S5** | 정본 배선 — §7 치환표 **17행/22지점** · `SKILL.md` 신설 절(2-5 roster · Phase 3 배치 · Phase 5 `settings` 호출 · 5-6 게이트 env · **6-7 `place --verify` 동반 호출** · 7-5 감사 · **체크리스트 1항**) — §7-6 줄 예산표 7항목과 같은 집합 · `MANAGED_RELS` 13 · 감사 #13 · **`LAUNCHER:` 점검**(§6-3) — T-C1·T-W1·T-U1·**T-U2·T-U3·T-U4·T-E11**·T-13 | 감사 PASS(fail 0) · 외부리뷰 no-high 2연속 · `harness-update.sh plan` 회귀 |
 | **S6**(조건부) | **`scripts/probe-model-profiles.sh` 작성**(§8-3) + probe **P1~P2b·P3~P5** 실행(비용 승인 후) · P3 결과에 따라 §7-3 `pinned_id` 결론 확정 · P4 결과에 따라 MA7 ⑥ 문구 확정 · **P5 결과에 따라 `effort_forbidden`·`confirmed_at` 갱신**(MA8) | **T-PB1**(`tests/test-probe-guard.sh` · 2-OS CI 스텝) 통과 · 결과서에 실측값·**probe 별 예상/실제 비용** 기록 |
 
-**테스트 분할 대조(§9-1 전체 48개 · 누락 0 · 교차 중복 0 — R16-2 · 재검토 반영분 T-S4·T-U2 포함).**
+**테스트 분할 대조(§9-1 전체 52개 · 누락 0 · 교차 중복 0 — R16-2 · 재검토 반영분 T-S4·T-U2 포함).**
 
 | 단계 | 개수 | 테스트 |
 |---|---|---|
 | S0 | 2 | T-D1 T-D2 |
 | S1 | 6 | T-A1 T-A2 T-A3 T-A4 T-D3 T-P7 |
-| S2 | 11 | T-P1 T-P3 T-P4 T-P5 T-P6 T-P8 T-P9 T-S1 T-S2 T-S3 T-S4 |
-| S3 | 13 | T-E1 T-E4 T-E7 T-E8 T-E10 T-I1 T-I2a T-I2b T-I2c T-I3 T-I4 T-I5 T-P2 |
+| S2 | 12 | T-P1 T-P3 T-P4 T-P5 T-P6 T-P8 T-P9 T-S1 T-S2 T-S3 T-S4 T-S5 |
+| S3 | 17 | T-E1 T-E4 T-E7 T-E8 T-E10 T-I1 T-I2a T-I2b T-I2c T-I3 T-I4 T-I5 T-I6 T-P2 T-I7 T-I8 T-E12 |
 | S4 | 10 | T-E2 T-E3 T-E5 T-E6 T-E9 T-R1 T-R2 T-R3 T-R4 T-R5 |
-| S5 | 5 | T-C1 T-U1 **T-U2** T-W1 T-13 |
+| S5 | 8 | T-C1 T-E11 T-U1 T-U2 T-U3 T-U4 T-W1 T-13 |
 | S6 | 1 | T-PB1 |
-| **합계** | **48** | — |
+| **합계** | **56** | — |
 
 - **셸 전용 테스트(T-E2·T-E3·T-E5·T-E6·T-E9·T-R1~T-R5)는 S4 에만 둔다** — 전부 `run-review.sh` 를 실제로 실행해야 판정되므로 셸 배선 단계 밖에서는 돌 수 없다(앞선 판의 T-R2 S3·S4 중복 제거).
 - `place`(S2)와 `egress`(S3) 양쪽이 필요한 **T-P2 는 S3**(§9-1 표에 같은 근거).
+
+#### 11-0. S0 ① 선행 — 팩토리 자신의 `external-review-loop` 스킬 재생성(시나리오 A-5)
+
+**실측(2026-09-18):** 이 레포의 `.claude/skills/external-review-loop/` 에는 **`SKILL.md` 101줄 하나뿐**이다(정본 `references/external-review-loop.md` 는 257줄) — `run-review.sh` **0건** · `agy` **0건** · `REVIEWERS` **0건** · `scripts/` 디렉토리 **없음** · 본문이 `codex exec …&` **인라인**(2026-07-16 생성분).
+
+**이것이 뒤집는 것 둘.**
+1. §11-1 의 "S4 뒤 이 레포의 외부리뷰가 **멈춘다**" 는 **성립하지 않는다** — 멈추는 대신 **필터·등급 가드·라벨 가드를 한 번도 지나지 않는 낡은 인라인 경로로 계속 돈다**(더 나쁜 상태다: 실패가 보이지 않는다).
+2. §11-2 의 `degraded` 교착 논증(R25-2)도 전제가 틀렸다 — 그 스킬에는 `DEG` 를 만드는 경로 자체가 없다.
+
+**S0 ① 신설(가장 앞):** 팩토리 자신의 `external-review-loop` 스킬을 **Phase 4-6 경로로 재생성**한다 — 정본 `references/external-review-loop.md` 를 `SKILL.md` 로 생성하고 **`scripts/` 4종**(`check-review-tools.sh`·`run-review.sh`·`build-scorecard.sh`·`emit-loop-scorecard.sh`)을 복사한다(`SKILL.md:202`). 그 전까지 **이 레포의 게이트는 "낡은 인라인 codex 호출" 이고 이 설계서의 어떤 보장도 적용되지 않는다** — §12 에 그대로 적는다.
 
 #### 11-1. S0 ② — 팩토리 자신의 번들 배달(재검토 O-1/D-H2 결정)
 
@@ -1369,6 +1448,23 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fall
 
 ---
 
+### 11-3. 시나리오 재검토에서 드러난 절차 규칙(C 계열)
+
+| # | 규칙 | 근거 |
+|---|---|---|
+| **C-1** | **roster 확정(Phase 2-5)은 Phase 3-0 재사용 판정보다 앞선다** → 그 시점엔 어떤 정의를 재사용할지 모른다. 규칙: **Phase 3-0 이 재사용으로 판정한 에이전트는 roster 행을 `placed: false` 로 되돌린다**(Phase 3-0 산출에 그 1단계를 둔다). 안 하면 ⑤ 기본 `reuse` 에서 **손대지 않은 정의가 전원 `mismatch`** → Phase 6 FAIL | ⑤ 기본이 `reuse`(참조 문서 §4) |
+| **C-2** | roster `run: orchestrator` 행은 **정의 파일이 없다**(오케스트레이터는 스킬) → **항상 `placed: false`**. `place` 가 `placed: true` + `run: orchestrator` 를 보면 **rc=1** | 시나리오 A-4(SC-A) |
+| **C-3** | 비대화 `fallbackModel` 미배선 표식은 **`premise` 블록 밖**(그 위·아래)에 둔다. 블록 **안**에 넣으면 `premise.claude=drift` → **Phase 6 정지**이고, drift 처방("답을 바꾸고 재렌더")은 **이 경우에 쓸 수 없다**(답이 바뀐 게 아니다) | §7-1 블록 해시 규약 |
+| **C-4** | `questions --mode new --after irreversible=<keys>` 2차가 **④⑥ 을 함께** 내는데 "④ 만 반영" 이 산문뿐이었다 → **`answer --only`(§6-4-0)로 표현**한다(같은 기구 · 산문 규범 제거) | 시나리오 A-8 |
+| **C-7** | ⑥ 해소 강도를 **한 문장으로 통일**: "**일상 실행에는 무마찰(R11-A) · 중대 등급 게이트를 쓰면 사실상 필수(§12)**". 문서 안 "권장"/"사실상 필수" 혼재를 이 문장으로 대체 | 시나리오 B-10(SC-B) |
+| **C-10** | **감사 #13 은 팩토리에서만 돈다** — `model-profiles.json` 은 `MANAGED_RELS` 로 전 하네스에 가지만 `run-policy-audit.sh` 는 **번들 대상이 아니다**(`SKILL.md:202`·`:225` 어디에도 없다) → **생성 하네스의 데이터 부패는 감지되지 않는다**. 이 비대칭을 §12 에 명시하고, 생성 하네스 쪽 감지는 **실행 시 실패**(`assemble` rc=2)에 의존한다 | 시나리오 D-9 |
+| **C-12** | `apply` 뒤 런처 줄 수동 갱신까지의 **다운타임 창**에 경고를 낸다 — `LAUNCHER: needs-update` 줄에 "**이 상태에서는 모든 외부리뷰가 `failed` 다**" 를 함께 적는다 | 시나리오 D-12 |
+| **C-13** | probe 는 **사전 비용 표시**를 낸다 — 실행 전 "예상 호출 N턴 · 직접 API 호출 여부(P5)" 를 stdout 에 찍고 `MODEL_PROBE_ALLOW_EXEC=1` 확인 뒤 진행 | 시나리오 D-13 |
+| **C-15** | `settings --set-fallback` 은 **`--runtime claude\|codex` 를 받는다**(필수) — `fallbackModel` 은 **Claude Code 세션 키**라 `--runtime codex` 면 **아무것도 쓰지 않고 `SETTINGS: skipped(codex 런타임 — fallbackModel 은 Claude 전용)`** 을 낸다. 지금은 축이 없어 **Codex 하네스에도 `.claude/settings.json` 을 쓴다**(PRD 운영자 약속이 런타임 단서 없이 걸려 있다 — 과대 약속) | §0-5 CLI 사실 |
+| **C-16** | **Codex 배치의 기록·검증 대상**: `place --runtime codex` 는 `model=runtime-default effort=-` 를 내고 **`.codex/agents/*.toml` 에는 `model` 키를 쓰지 않는다**(S4 이월 ④ — toml 스키마 부재). 따라서 **`place --verify --runtime codex` 는 `PLACED:` 를 내지 않고 `PLACED: na(codex — 런타임 기본)`** 한 줄이다. 7-5 감사도 `--runtime` 축을 받아 같은 판정을 쓴다 | `SKILL.md:125` 정책 |
+| **C-18** | §11-1 심링크가 `core.symlinks=false` 로 **텍스트 파일이 되어도 정책 감사는 PASS** 다(탐지 없음) → **감사 #13 에 1항 추가**: `.claude/skills/repo-maintainer/scripts` 가 **심링크가 아니면 WARN**(팩토리 레포에서만 · 차단 아님) | 시나리오 C-18 |
+| **C-20** | `prev.json` **1세대 복구를 사용자 경로로 안내**한다 — 프로파일 손상 시 `egress`·`render` 의 rc=2 메시지와 §12 에 "`harness-profile.prev.json` 을 되돌린다(1세대만 보관 — 참조 문서 7절)" 를 적는다 | 시나리오 B-14 |
+
 ## 12. 위험 · 미결
 
 | 항목 | 내용 | 대응 |
@@ -1384,6 +1480,12 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fall
 | **`catalog_version` 2 전파** | 모든 생성 하네스 전 블록 `stale` | 기존 재렌더 절차(`harness-update.md:39-42`)로 충분 — **재렌더 단계**는 새로 만들지 않는다(안내 2줄은 별개 · §7-6) |
 | **`MANAGED_RELS` 첫 JSON** | 데이터 파일 전파 선례가 없다 | sha 분류는 확장자 무관(`harness-update.sh` 헤더) · **T-U1** 로 고정 · 사용자 수정은 USER-MODIFIED 로 승인 대기 |
 | **⑥ 미답 하네스의 중대 단계 게이트** | ⑥ 을 답하지 않으면 `egress` 가 `assumed` note 를 내고 그것이 `degraded` 에 실린다 → 정본이 그 라운드를 "교차검증 불성립" 으로 규정하므로(`external-review-loop.md:182`) **`no-high 2연속` 같은 수렴 판정이 성립하지 않는다** | 일상 실행에는 무마찰(R11-A)이지만 **중대 등급 게이트를 쓰는 하네스에서는 ⑥ 답하기가 사실상 필수**다. §7-6 `harness-update.md` 안내와 릴리스 노트를 그 톤으로 적는다(단순 "권장" 이 아니라 "**중대 게이트를 쓰면 필수**") |
+| **팩토리 자신의 리뷰 스킬이 구버전** | `.claude/skills/external-review-loop/SKILL.md` 101줄 · `scripts/` 없음 · 인라인 `codex exec`(2026-09-18 실측) → **이 설계서의 필터·등급·라벨 가드가 하나도 적용되지 않은 채 게이트가 "성공" 한다** | **S0 ⓪ 에서 재생성**(§11-0). 재생성 전까지 이 레포의 외부리뷰 결과에 이 설계의 보장을 인용하지 않는다 |
+| **정기 단종 감지가 없다** | alias 가 죽어도 정기적으로 알아채는 수단이 없다(감사 #13 은 날짜만 · probe 는 옵트인 · `place --verify` 는 둘 다 낡으면 `ok`) | **정직 기록**(§8-2). 감지는 ① 확인일 WARN ② 실행 중 실패(`degraded`) ③ 옵트인 probe(P1·P2b·P2c) 셋뿐. 정기 자동 감지는 **이 릴리스에 없다** |
+| **권한 거부(403) 경로 미실측·미안내** | 권한 없는 계정에서 무엇을 보고 무엇을 고치는지 문서가 없었다 | P2b 는 **대리 관측**(없는 모델 ID)이라 403 자체는 미실측. 사용자 행동: **`degraded`·리뷰어 rc 에 거부가 드러나면 프로파일 `family_alias` 를 접근 가능한 제품군으로 바꾸고 `confirmed_at` 을 갱신한다**(§2-2) |
+| **생성 하네스의 데이터 부패 미감지** | 감사 #13 은 팩토리 전용(C-10) | 실행 시 `assemble`·`egress` rc=2 로 드러난다(정기 감지 아님) |
+| **`runtime-only` 를 *선택한* 하네스의 중대 게이트**(시나리오 C-14/D-14) | ⑥ 을 **의도적으로** `runtime-only` 로 답하면 `REVIEWERS_ALLOWED: none` → 매 중대 단계가 `no-reviewers` + `degraded` → **수렴 판정이 성립하지 않는다** | 설계가 다룬 교착은 ⑥ **미답**이었다. 이 경우는 **설계된 선택의 대가**다 — 중대 단계마다 **사용자 명시 승인(override)** 이 필요하다는 것을 `harness-update.md`·릴리스 노트에 적는다(시나리오 D-14) |
+| **듀얼 `.agents` 본문이 `verify` 밖** | `cmdVerify` 가 `.claude` 본문만 읽는다(`:1410-1412`) | 7-5 에 `diff` 1줄(§7-5). **스크립트 확장은 범위 밖 — 미결** |
 | **`.agents` 단독 레이아웃(Codex 전용 · `.claude` 없음)** | 해석기·프로파일을 찾지 못해 리뷰 게이트가 멈춘다 | **v1.7.6 인터뷰 자체가 비지원**이다 — 프로파일 경로가 `.claude` 고정이고(`harness-interview.md:220`·`profilePaths:864-867`) 스킬은 양쪽 출력이 전제다(`runtime-adapters.md:39`). 이 릴리스도 그대로 두고 **fail-closed**(`status: failed` + 사유에 `harness-interview.md:220`)로 드러낸다 · 해소는 그 계약을 바꾸는 **후속**(이 릴리스 범위 밖 — PRD 비목표) |
 | **`settings` 가 사용자 설정을 쓴다** | 대상 프로젝트의 `settings.json` 을 스크립트가 고친다(새 blast-radius) | 봉쇄 넷(§7-4): `--approve` 없이는 덮어쓰지 않음 · 파싱 실패·심링크 무손대 rc=2 · 백업 · 건드리는 키 1개. T-S1~T-S3 로 고정 |
 | **`SKILL.md` 줄 예산** | 494/500 · 추가 **+12** / 축소 **−7** → **499/500**(여유 1줄) | **S0 축소 선행 필수**(§7-6 표 — 실측 재계산) |
