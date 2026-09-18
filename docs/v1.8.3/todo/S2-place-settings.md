@@ -33,6 +33,8 @@
 - [ ] **T-P5** — 티어 근거 `#` 주석이 든 정의 파일을 `scan` 이 `UNKNOWN_FIELDS:` 에 올리지 **않는다** — 2026-09-16 실측으로 현재 동작이 확인됐으므로 이 테스트는 **회귀 가드**다(§4-6)
 - [ ] **T-P6** — `FALLBACK:` 줄 = `session_fallback` 의 `,` 직렬화이고 `settings.json` 에 쓸 값과 같다
 - [ ] **T-P8** — `pinned_id` 를 **한 티어에만** 넣으면 그 티어 에이전트의 `model=` 만 전체 ID 로 바뀐다(나머지는 `family_alias` · R10)
+- [ ] **T-P11** — `tier_override` 계약(PRD MA7 ④) — `tier=<값>`·`via=override`·`trait=-` · `why=` 는 `tier_override_why` 그대로 · `UNMATCHED:` 제외 · **사유 없으면 rc=1** · `place --verify` 대조군(override 값 `ok` / 매칭값 `mismatch`)
+- [ ] **T-P10** — roster 행 계약(§11-3 C-2) — `run: orchestrator` 인데 `placed: true` 면 `place` 가 **rc=1** · `placed: false` 면 배치 대상·`PLACE:` 집계에서 빠진다
 - [ ] **T-P9** — `place --verify` **`--roster` 없이**(기본 경로를 쓴다 · §3-2): 배치대로 쓴 정의 → 전부 `ok` rc=0 · `effort:` 하나 변경 → 그 에이전트만 `mismatch` rc=1 · **근거 주석을 한 글자 바꿔도 `mismatch`**(`RATIONALE:` 줄과 바이트 비교) · 정의 삭제 → `missing` · frontmatter 없는 파일 → `malformed`
   - [ ] **Codex 대조군(R34):** 같은 트리를 `--runtime codex` 로 → **전원 `na` · rc=0** · 같은 트리를 `--runtime claude` 로 → 위 판정이 그대로. `na` 를 실패로 세는 구현을 FAIL 시킨다
 - [ ] **T-S1** — `settings --set-fallback` 병합: 기존 키 3개가 **값·순서 그대로** 보존 + `fallbackModel` 1개만 추가 · `BACKUP:` 경로의 백업 파일 실재 · `--now 2026-09-13T00:00:00Z` → 파일명이 정확히 `settings.json.bak-20260913T000000Z`(**`:` 없음** — windows 잡 생성 가능) · 두 번째 실행은 **아무것도 쓰지 않는다**(멱등 · `BACKUP: none`)

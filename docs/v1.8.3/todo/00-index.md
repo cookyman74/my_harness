@@ -1,6 +1,6 @@
 # 작업계획서 — v1.8.3 모델 인지 하네스 (model-aware harness) · 개요와 공통 규칙
 
-> **근거 문서:** [PRD](../prd/model-aware-harness-prd.md)(MA1~MA4·MA7·MA8·MA15 · 이월 MA5·MA6·MA9·MA10~13) · [설계서](../design/model-aware-harness-design.md)(§11 구현 순서 · §9-1 계약 테스트 56 · §11-0~§11-3) · [검토 결과서](../working_history/prd-review.md)(외부리뷰 R1~R34 · §7 내부 재검토 · §8 시나리오 재검토)
+> **근거 문서:** [PRD](../prd/model-aware-harness-prd.md)(MA1~MA4·MA7·MA8·MA15 · 이월 MA5·MA6·MA9·MA10~13) · [설계서](../design/model-aware-harness-design.md)(§11 구현 순서 · §9-1 계약 테스트 58 · §11-0~§11-3) · [검토 결과서](../working_history/prd-review.md)(외부리뷰 R1~R34 · §7 내부 재검토 · §8 시나리오 재검토)
 > **구성:** 이 문서(개요·공통 규칙) + 단계별 문서 7개. **단계마다 별도 문서**이고, 각 단계는 **체크리스트 완료 → 게이트 PASS → 외부리뷰 수렴 → 결과서 → 커밋**으로 닫는다.
 > **경로:** `skills/myharness/**` = 팩토리 정본(모든 생성 하네스로 전파 · **중대 blast-radius**). 명령은 전부 레포 루트 기준.
 
@@ -24,15 +24,15 @@
 |---|---|---|---|---|---|---|
 | S0 | [S0-preflight.md](S0-preflight.md) | 팩토리 리뷰 스킬 재생성 · `SKILL.md` 축소(단독 커밋) · 팩토리 번들 심링크·프로파일 · 데이터 파일 초안 | 중대 | 착수 전제 | 2 | ⬜ 미착수 |
 | S1 | [S1-assemble.md](S1-assemble.md) | `assemble` + MA2·MA3·MA4(프로바이더 어댑터·금지값·파라미터 제거) | 중대 | S0 | 6 | ⬜ 미착수 |
-| S2 | [S2-place-settings.md](S2-place-settings.md) | `place`·`place --verify` + MA7 매핑표 + roster + `settings --set-fallback` | 중대 | S1 | 12 | ⬜ 미착수 |
+| S2 | [S2-place-settings.md](S2-place-settings.md) | `place`·`place --verify` + MA7 매핑표 + roster + `settings --set-fallback` | 중대 | S1 | 14 | ⬜ 미착수 |
 | S3 | [S3-interview-egress.md](S3-interview-egress.md) | MA15 — 인터뷰 ⑥ `egress` · `catalog_version` 2 · `answer --only` · 연쇄 13곳 | 중대 | S2 | 17 | ⬜ 미착수 |
 | S4 | [S4-shell-wiring.md](S4-shell-wiring.md) | `run-review.sh` 배선(구간 A·B · 이름 가드 · 필터) · 런처 테스트 선행 수리 · CI | 중대 | S3 | 10 | ⬜ 미착수 |
-| S5 | [S5-canon-wiring.md](S5-canon-wiring.md) | 정본 치환표 17행/22지점 · `SKILL.md` 신설 절 7항목 · `MANAGED_RELS` 분리 · 감사 #13 | 중대 | S4 | 8 | ⬜ 미착수 |
+| S5 | [S5-canon-wiring.md](S5-canon-wiring.md) | 정본 치환표 17행/22지점 · `SKILL.md` 신설 절 8항목 · `MANAGED_RELS` 분리 · 감사 #13 | 중대 | S4 | 8 | ⬜ 미착수 |
 | S6 | [S6-probe.md](S6-probe.md) | probe 스크립트 + P1~P5 실행 — **비용 승인 후에만** | 표준 | S5 | 1 | ⬜ 조건부 |
 
-**합계 56** — 설계서 §9-1 전체와 같은 집합이다(미할당 0 · 중복 0). 단계 문서의 테스트 ID 를 늘리거나 줄이면 **설계서 분할표도 같이 고친다**.
+**합계 58** — 설계서 §9-1 전체와 같은 집합이다(미할당 0 · 중복 0). 단계 문서의 테스트 ID 를 늘리거나 줄이면 **설계서 분할표도 같이 고친다**.
 
-**순서를 바꾸지 않는다.** S5(정본 치환)를 먼저 하면 **아직 없는 스크립트를 가리키는 정본**이 된다. S4 는 S3 의 `egress` 가 있어야 배선할 것이 생긴다. S0 ①(줄 축소)은 S5 가 `SKILL.md` 에 7항목을 더할 자리를 미리 비우는 작업이다(예산 494 + 12 − 7 = **499/500** · 여유 1줄).
+**순서를 바꾸지 않는다.** S5(정본 치환)를 먼저 하면 **아직 없는 스크립트를 가리키는 정본**이 된다. S4 는 S3 의 `egress` 가 있어야 배선할 것이 생긴다. S0 ①(줄 축소)은 S5 가 `SKILL.md` 에 **8항목(+15줄)** 을 더할 자리를 미리 비우는 작업이다 — **R35·R36 재계수: 지금까지 찾은 축소는 −6 뿐이라 그대로 두면 `494+15−6=503/500` 으로 감사 #1 이 FAIL 한다.** S0 은 **축소 `≥11줄`**(→ `≤498` · 여유 2)을 확보해야 하고, 그 산술을 닫기 전에는 S5 를 시작하지 않는다.
 
 **릴리스**(버전 확정·CHANGELOG·태그)는 S5(열린 경우 S6) 뒤 별도 작업이다.
 
@@ -100,7 +100,7 @@
 | 3 | **모델 행동을 테스트로 고정하려 하기** — 스크립트 계약만 오프라인 단정 대상이다 | S2 T-S4 |
 | 4 | **배달 경로는 둘이다** — 생성(Phase 5 번들)과 갱신(`MANAGED_RELS`). 하나만 닫으면 갓 만든 하네스가 죽는다 | S5 |
 | 5 | **답을 조용히 덮기** — `--defaults` 는 선언 답을 기본값으로 되돌린다. `--only` 를 쓴다 | S3 |
-| 6 | **줄 예산 499/500** — 여유 1줄이다. `SKILL.md` 에 한 줄을 더하기 전에 축소분을 먼저 확보한다 | S0 · S5 |
+| 6 | **줄 예산은 지금 초과다** — 추가 +15 · 찾은 축소 −6 → `503/500`(감사 FAIL). S0 이 **≥11줄** 을 줄여야 S5 가 열린다 | S0 · S5 |
 
 ---
 

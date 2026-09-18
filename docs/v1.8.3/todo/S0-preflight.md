@@ -12,7 +12,7 @@
 - [ ] BASE 기록 — `git rev-parse HEAD`(R-4 SCOPE 패치 기준) · `git rev-parse --abbrev-ref HEAD` = `feat/model-aware-harness-v183` · 작업트리 추적 변경 목록
 - [ ] **⓪ 전제 확인(§11-0)** — `wc -l .claude/skills/external-review-loop/SKILL.md` = **101** · `grep -c 'run-review.sh' .claude/skills/external-review-loop/SKILL.md` = **0** · `ls .claude/skills/external-review-loop/` 에 `scripts/` **없음** · 정본 `wc -l skills/myharness/references/external-review-loop.md` = **257**. 값이 다르면 §11-0·§12 의 전제부터 갱신한다(그 전제 위에 이 단계 전체가 서 있다)
 - [ ] **① 줄 예산 실측(§7-6)** — `wc -l skills/myharness/SKILL.md` = **494** · 축소 후보 두 곳의 실제 줄 수: `sed -n '133,137p'`(Phase 3 QA 필수사항 — 헤딩 1 + 불릿 4 = **5줄**, 마지막 불릿이 이미 `references/qa-agent-guide.md` 포인터) · `sed -n '293,296p'`(5-5 — 헤딩 + 빈 줄 + 불릿 2 = **4줄**)
-- [ ] ✅ **표와 실측의 −1 차이는 정해졌다(2026-09-18 · 설계서 §7-6 정정 완료)** — 5-5 는 4줄이고 헤딩+포인터 1줄로 줄이면 **−2**(−3 은 산술 오류였다) → 합계 `494+12−6=**500/500**` 으로 **여유 0**. 감사 #1 은 `-le 500`(`run-policy-audit.sh:19`)이라 통과는 하지만 **이후 어떤 한 줄도 감사를 깨뜨린다.** 따라서 **S0 은 최소 2줄을 더 확보해 `≤498` 로 내린다** — 추가 후보 4-4(`:185-189`)·5-1 계열 포인터화(축소 전후 내용 대조 필수). 이 항목은 확인만 하고 넘어간다
+- [ ] ✅ **줄 예산은 다시 계산됐다(2026-09-18 · 설계서 §7-6 R35 정정)** — 추가가 **+12 가 아니라 +15** 다(7-5 감사가 2항이 아니라 **4항** · §11-3 **C-1** 의 Phase 3-0 `placed:false` 되돌리기 1줄). 지금까지 찾은 축소는 **−6** 뿐이라 그대로 두면 **`494+15−6=503/500` → 감사 #1 FAIL**. **이 단계의 목표는 축소 `≥11줄`**(→ `≤498` · 여유 2). 최소선 `≤500`(여유 0)조차 `≥9줄` 이 필요하다
 - [ ] **② 번들 전제 확인(§11-1)** — `git ls-files .claude | wc -l` = **15** · `ls .claude/skills/repo-maintainer/` = `SKILL.md` **하나뿐** · `ls .claude/skills/repo-maintainer/harness-profile.json` **없음**(프로파일 생성이 필요하다는 근거) · 심링크 선례 `grep -n 'ln -sfn' install.sh`(`:25` 상대 심링크)
 - [ ] **기준선 기록** — `bash skills/myharness/scripts/run-policy-audit.sh` = PASS(fail 0, warn 0) · `node --test tests/harness-intake/*.test.mjs`(비인용 글롭) 통과 수(설계서 §10 기준선 **518 pass / 0 fail**) · `node --version` ≥18
 - [ ] 이 레포는 **`.claude` 단독**이다 — `.agents/skills/` 에는 `myharness` 심링크 1개뿐(`ls -la .agents/skills/`) → ⓪·② 의 `.agents/` 쪽 사본은 만들지 않는다(듀얼이 아니다)
@@ -42,8 +42,8 @@
 - [ ] **5-5 `:293-296`**(4줄) 을 헤딩 + 포인터 1줄(2줄)로 축소 → **−2**(설계서 §7-6 정정판)
 - [ ] **이동 전후 동등성 표** — 삭제된 문장마다 이관처의 대응 문장을 표로 남긴다(결과서 첨부). 대응이 없는 문장이 하나라도 있으면 **축소 중단**(v1.7.6 S0 선례 · 다른 작성자가 교차 대조)
 - [ ] 포인터가 가리키는 절이 **실재**하는지 확인(`references/qa-agent-guide.md` 의 대상 절 · 감사 #3 링크 정합)
-- [ ] **추가 축소로 여유 확보** — 위 두 곳(−6)만으로는 S5 뒤 `500/500`(여유 0)이라 **최소 2줄을 더** 줄인다(후보: 4-4 `:185-189` · 5-1 계열 포인터화 · 각각 이관 전후 내용 대조)
-- [ ] `wc -l skills/myharness/SKILL.md` **≤ 486**(494 − 6 − 2 이하) — S5 가 +12 를 더해도 **≤498** 이라 여유 2줄 이상
+- [ ] **추가 축소 `≥5줄`** — 위 두 곳(−6)에 더해 **최소 5줄**을 더 줄여야 `≥11` 이 된다(후보: 4-4 `:185-189` · **5-1 데이터 전달 프로토콜** · **5-3 팀 크기 가이드라인** · **6-2·6-3 계열** → `references/` 포인터화). 후보마다 **이관 전후 내용 대조 표**를 남기고, 대응 없는 문장이 하나라도 있으면 그 후보는 **쓰지 않는다**
+- [ ] `wc -l skills/myharness/SKILL.md` **≤ 483**(494 − 11) — S5 가 **+15** 를 더해도 **≤498**(여유 2줄). `484~485`(≥9줄)면 S5 뒤 정확히 500 이라 **여유 0** 이니 결과서에 그 사실을 적고 다음 릴리스 경고로 남긴다
 - [ ] `bash skills/myharness/scripts/run-policy-audit.sh` PASS — #1(`≤500`) · #3(dead 0)
 - [ ] 축소분을 **단독 커밋**으로 준비한다(다른 변경 0줄). 커밋 시점은 **외부리뷰 수렴 후**(R-3 순서)
 
@@ -72,7 +72,7 @@
 
 ## 게이트
 
-- [ ] `bash skills/myharness/scripts/run-policy-audit.sh` **PASS(fail 0, warn 0)** · `SKILL.md` 축소 후 줄 수 ≤500(목표 487)
+- [ ] `bash skills/myharness/scripts/run-policy-audit.sh` **PASS(fail 0, warn 0)** · `SKILL.md` 축소 후 줄 수 **≤483**(목표 · 최소선 485)
 - [ ] `node --test tests/harness-intake/*.test.mjs` — 기준선(518 pass / 0 fail) **회귀 0** + T-D1·T-D2 추가분 green(통과 수 기록)
 - [ ] 기존 회귀 — `bash tests/test-harness-update.sh` · `bash tests/test-selftest-review-tools.sh` · `bash tests/test-run-review.sh` 전부 PASS(이 단계는 이 셋을 바꾸지 않는다)
 - [ ] **이관 전후 내용 대조**(§11 S0 완료 판정 열) — 동등성 표를 결과서에 첨부하고 대응 없는 문장 **0**
@@ -92,7 +92,7 @@
 
 ## 다음 단계 참조
 
-- **줄 예산 확정값**을 남긴다 — 축소 후 `SKILL.md` 실제 줄 수와 S5 추가분(+12) 뒤 예상값. 여유가 0~1줄뿐이므로 S5 는 이 수를 그대로 쓴다(§7-6·§12).
+- **줄 예산 확정값**을 남긴다 — 축소 후 `SKILL.md` 실제 줄 수와 S5 추가분(**+15**) 뒤 예상값. S5 는 이 수를 그대로 쓴다(§7-6·§12). 여유가 0 이면 **다음 릴리스는 축소 없이 한 줄도 못 넣는다**는 경고를 함께 적는다.
 - **데이터 파일의 최종 키 구조**가 S1 `assemble` 의 입력 계약이다 — `params`·`drop`·`effort_field`·`effort_forbidden` 의 실제 값과 경로(`SELF` 상대 `../references/model-profiles.json`)를 적는다.
 - 팩토리 프로파일은 **`catalog_version` 1** 로 만들어졌다 — ⑥ 은 **S3 뒤** `answer --mode extend --only egress` 로 답한다(§11-2). 그때까지 중대 게이트 라운드에 `assumed` note 가 실릴 수 있다는 것도 기록한다.
 - **C-18**(심링크가 아니면 WARN)은 감사 #13 = **S5** 소관이다. S0 은 심링크의 **상태와 판별 명령**(`[ -L … ]`)만 남긴다.
