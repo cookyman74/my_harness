@@ -178,11 +178,24 @@ export function expectRc2(r, what = '') {
   assert.equal(r.stdout, '', `${what} rc=2 인데 stdout 에 계약 줄이 있다 — ${show(r)}`);
 }
 
+/** 빈 gitconfig 파일 하나(프로세스 내 재사용) — 두 OS 에서 "설정 없음" 을 같은 방식으로 만든다. */
+let _emptyCfg;
+function emptyGitConfig() {
+  if (_emptyCfg === undefined) {
+    _emptyCfg = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hi-gitcfg-')), 'empty.gitconfig');
+    fs.writeFileSync(_emptyCfg, '');
+  }
+  return _emptyCfg;
+}
+
 /** 레포에서 `git diff --name-only -- '*.mjs' '*.sh'` (T-A1 MA2 증명용). */
 export function gitDiffNames() {
   // 전역·시스템 gitconfig 를 끊는다 — 샌드박스·CI 에서 ~/.gitconfig 접근이 막히면 git 이 rc=128 로 죽어
-  // **구현과 무관한 이유로** 이 단정이 깨진다(S1 R1 agy MED). os.devNull 이라 Windows 에서도 성립한다.
-  const env = { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_SYSTEM: os.devNull, GIT_TERMINAL_PROMPT: '0' };
+  // **구현과 무관한 이유로** 이 단정이 깨진다(S1 R1 agy MED).
+  // **os.devNull 을 쓰면 안 된다** — Windows 에서 `\\.\nul` 이 되고 git(MSYS)이 그것을 config 경로로 열지 못해
+  // `fatal: unable to access '//./nul': Invalid argument` (rc=128) 로 죽는다(실측: factory-ci windows 잡).
+  // 빈 임시 파일이 두 OS 에서 모두 "설정이 없는 것" 과 같다.
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: emptyGitConfig(), GIT_CONFIG_SYSTEM: emptyGitConfig(), GIT_TERMINAL_PROMPT: '0' };
   const r = spawnSync('git', ['diff', '--name-only', '--', '*.mjs', '*.sh'], { cwd: REPO, encoding: 'utf8', env });
   assert.equal(r.status, 0, `git diff 실패: ${r.stderr || r.error}`);
   return r.stdout.split('\n').filter((x) => x !== '');

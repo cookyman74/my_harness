@@ -355,6 +355,10 @@ test('결정성: 같은 입력 두 번 → stdout 바이트 동일', () => {
 // 픽스처 생성 방식 자체의 회귀 가드 — 정본을 읽어 변형한다는 규약(§1·§4)이 깨지면 여기서 먼저 드러난다.
 test('픽스처 규약: 변형 없는 픽스처 = 정본을 정렬 직렬화한 것과 바이트 동일(정본이 이미 정렬 규약을 지킨다)', () => {
   const tmpFile = path.join(makeTree().tmp, REL_DATA);
-  assert.equal(fs.readFileSync(tmpFile, 'utf8'), fs.readFileSync(CANON_PROFILES, 'utf8'),
+  // 개행은 정규화해 비교한다 — 정본은 체크아웃 설정에 따라 CRLF 가 될 수 있고(windows · core.autocrlf),
+  // 픽스처는 node 가 LF 로 쓴다. 이 테스트가 묻는 것은 **내용이 같은가**이지 개행이 같은가가 아니다.
+  // (.gitattributes 에 `*.json text eol=lf` 를 더해 체크아웃도 고정했다 — 여기는 그것과 무관하게 성립한다.)
+  const lf = (x) => x.replace(/\r\n/g, '\n');
+  assert.equal(lf(fs.readFileSync(tmpFile, 'utf8')), lf(fs.readFileSync(CANON_PROFILES, 'utf8')),
     '픽스처 기준선이 정본과 달라졌다 — 정본이 코드포인트 정렬 규약(T-D2)을 어겼거나 writeProfiles 가 드리프트한다');
 });
