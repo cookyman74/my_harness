@@ -14,6 +14,7 @@ import {
   CANON_PROFILES, OUT_KEYS, TIERS, REL_SCRIPT, REL_DATA,
   canon, deepStrings, readCanonProfiles, withAcme,
   makeTree, setData, assemble, parse4, params, expectRc2, gitDiffNames, show,
+  place, parsePlace, writeRoster, rosterDoc, ra,   // S2 에서 추가(T-D3 ③)
 } from './s4-helpers.mjs';
 
 after(cleanup);
@@ -208,8 +209,25 @@ test('T-D3 ①②: soft_switch 를 null → {off,on} 으로 바꿔도 stdout 이
     assert.ok(!r.stdout.includes('SOFT_SWITCH'), `stdout 에 SOFT_SWITCH — ${show(r)}`);
     assert.ok(!r.stdout.includes('/think'), `stdout 에 소프트 스위치 값이 샜다 — ${show(r)}`);
   }
-  // ③ `place` 출력도 바이트 동일 — **S2 에서 이 테스트에 추가한다**(place 가 없으면 판정 불가 · 계획서 A절 ⚠).
-  //    빠뜨린 것이 아니라 단계 경계라는 사실을 코드에 남긴다.
+});
+
+// ③ `place` 출력도 바이트 동일 — **S2 에서 추가**(S1 이 `// S2 에서 추가` 로 남긴 자리 · 계획서 A절 ⚠).
+test('T-D3 ③: soft_switch 를 채워도 place 출력이 바이트 동일하다 · SOFT_SWITCH 문자열이 없다', () => {
+  assert.equal(CANON.providers.anthropic.soft_switch, null, '전제: 정본 anthropic 의 soft_switch 는 null');
+  const tree = makeTree();
+  writeRoster(tree, rosterDoc([ra('v2-judge', '산출물 검증'), ra('v6-collect', '변경 파일 수집', { run: 'sub-oneshot' })]));
+  const before = place(tree, {});
+  parsePlace(before, 'T-D3 ③ before');
+  const raw0 = fs.readFileSync(tree.data, 'utf8');
+  setData(tree, (prof) => { prof.providers.anthropic.soft_switch = { off: '/no_think', on: '/think' }; });
+  assert.notEqual(fs.readFileSync(tree.data, 'utf8'), raw0, '데이터 파일이 실제로 바뀌지 않았다면 이 테스트는 공허하다');
+  const afterRun = place(tree, {});
+  parsePlace(afterRun, 'T-D3 ③ after');
+  assert.equal(afterRun.stdout, before.stdout, 'soft_switch 변경이 place stdout 을 바꿨다(비목표가 새어 들어왔다)');
+  for (const r of [before, afterRun]) {
+    assert.ok(!r.stdout.includes('SOFT_SWITCH'), `stdout 에 SOFT_SWITCH — ${show(r)}`);
+    assert.ok(!r.stdout.includes('/think'), `stdout 에 소프트 스위치 값이 샜다 — ${show(r)}`);
+  }
 });
 
 // ══════════════════════════ T-P7 — 오프라인 조립은 문자열 유효성을 검증하지 않는다 ══════════════════════════

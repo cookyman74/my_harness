@@ -25,7 +25,7 @@
 |---|---|---|---|---|---|---|
 | S0 | [S0-preflight.md](S0-preflight.md) | 팩토리 리뷰 스킬 재생성 · `SKILL.md` 축소(단독 커밋) · 팩토리 번들 심링크·프로파일 · 데이터 파일 초안 | 중대 | 착수 전제 | 2 | ✅ 완료 |
 | S1 | [S1-assemble.md](S1-assemble.md) | `assemble` + MA2·MA3·MA4(프로바이더 어댑터·금지값·파라미터 제거) | 중대 | S0 | 6 | ✅ 완료 |
-| S2 | [S2-place-settings.md](S2-place-settings.md) | `place`·`place --verify` + MA7 매핑표 + roster + `settings --set-fallback` | 중대 | S1 | 14 | ⬜ 미착수 |
+| S2 | [S2-place-settings.md](S2-place-settings.md) | `place`·`place --verify` + MA7 매핑표 + roster + `settings --set-fallback` | 중대 | S1 | 14 | ✅ 완료 |
 | S3 | [S3-interview-egress.md](S3-interview-egress.md) | MA15 — 인터뷰 ⑥ `egress` · `catalog_version` 2 · `answer --only` · 연쇄 13곳 | 중대 | S2 | 17 | ⬜ 미착수 |
 | S4 | [S4-shell-wiring.md](S4-shell-wiring.md) | `run-review.sh` 배선(구간 A·B · 이름 가드 · 필터) · 런처 테스트 선행 수리 · CI | 중대 | S3 | 10 | ⬜ 미착수 |
 | S5 | [S5-canon-wiring.md](S5-canon-wiring.md) | 정본 치환표 17행/22지점 · `SKILL.md` 신설 절 8항목 · `MANAGED_RELS` 분리 · 감사 #13 | 중대 | S4 | 8 | ⬜ 미착수 |

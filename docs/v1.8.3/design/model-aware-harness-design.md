@@ -358,10 +358,10 @@ PRD §6-1 의 3층을 이 릴리스의 구현 경계로 내린다.
 ```
 PLACE: repo-maintainer roster=.claude/skills/repo-maintainer/team-roster.json profile=.claude/skills/repo-maintainer/harness-profile.json cost=error-worse runtime=claude provider=anthropic
 AGENT: qa-verifier tier=deep model=opus effort=high trait=judge via=matched why=역할 어휘 "검증"→judge(비경계) · deep
-AGENT: scope-collector tier=light model=haiku effort=low trait=collect via=matched why=역할 어휘 "수집","grep"→collect(비경계) · light
+AGENT: scope-collector tier=light model=haiku effort=low trait=collect via=matched why=역할 어휘 "수집","grep","목록"→collect(비경계) · light
 AGENT: spec-planner tier=deep model=opus effort=high trait=design via=matched why=역할 어휘 "설계"→design(비경계) · deep
 RATIONALE: qa-verifier # tier=deep trait=judge via=matched cost=error-worse why=역할 어휘 "검증"→judge(비경계)
-RATIONALE: scope-collector # tier=light trait=collect via=matched cost=error-worse why=역할 어휘 "수집","grep"→collect(비경계)
+RATIONALE: scope-collector # tier=light trait=collect via=matched cost=error-worse why=역할 어휘 "수집","grep","목록"→collect(비경계)
 RATIONALE: spec-planner # tier=deep trait=design via=matched cost=error-worse why=역할 어휘 "설계"→design(비경계)
 UNMATCHED: none
 FALLBACK: opus,sonnet,haiku
@@ -372,7 +372,7 @@ FALLBACK: opus,sonnet,haiku
 | `PLACE:` | `<orchestrator> roster=<--root 상대 경로> profile=<상대 경로> cost=<③ 답 키> runtime=<claude\|codex> provider=<id>` |
 | `AGENT:` | `<name> tier=<..> model=<alias\|ID\|runtime-default> effort=<값> trait=<성격 키\|-> via=<matched\|boundary\|ambiguous\|**override**> why=<한 줄>`. `--runtime codex` 면 `model=runtime-default effort=-`(`SKILL.md:125` 정책 · `.codex/agents/*.toml` 의 model 은 S4 이월 ④ 뒤) |
 | `RATIONALE:` | **에이전트마다 1줄**(`AGENT:` 와 같은 정렬·같은 개수) — `<name> <정의 파일에 들어갈 주석 한 줄 그대로>`. 주석 본문은 **`AGENT:` 필드의 결정적 함수**다: `# tier=<tier> trait=<trait> via=<via> cost=<cost> why=<why>` — 필드 순서 고정 · 구분자 **공백 1개** · 값은 인용하지 않는다 · 줄바꿈 없음. `place --verify` 는 정의 파일의 그 줄과 **이 줄을 바이트 비교**한다(§3-3-1) |
-| `UNMATCHED:` | `<name>=<매칭 실패 어휘 공백구분>` 를 이름 정렬로 · 없으면 `none`. **`via=ambiguous` 인 에이전트가 여기 나온다**(MA7 수용 기준 ③) |
+| `UNMATCHED:` | `<name>=<토큰1>,<토큰2>,…` 를 이름 정렬로 · 없으면 `none`. **항목은 공백, 항목 안의 토큰은 쉼표다(S2 확정)** — 앞선 판은 둘 다 공백("공백구분")이라 **줄을 파싱할 수 없었다**. 토큰은 §4-2 규칙 1 로 **정규화한 뒤**(소문자화·연속 공백 1칸) 공백으로 나눈 것이다(매칭이 보는 문자열과 같아야 왜 안 걸렸는지 읽힌다). **`via=ambiguous` 인 에이전트가 여기 나온다**(MA7 수용 기준 ③) |
 | `FALLBACK:` | `session_fallback` 을 `,` 로 이은 문자열 = Phase 5 가 `settings.json` `fallbackModel` 에 그대로 쓰는 값(§7-4 · 계약 테스트 T-P6) |
 
 **rc:** `1` = roster 스키마·값 위반(모르는 `run`, 이름 중복, 빈 `role`) · 프로파일 ③ 답이 카탈로그 밖. `2` = roster·프로파일 파일 없음(기본 경로에도 없음)·JSON 파싱 실패·모르는 스키마·**egress 위반**(§6-3)·**데이터 파일 결함**(`tiers.*.effort` 가 `effort_forbidden` 에 있음 · `behavior` 가 비어 있지 않음 · `local` 슬롯이 채워져 있음). **데이터 파일 결함을 rc=2 로 두는 근거:** 프로파일 손상을 전부 `fail2`(rc=2)로 다루는 기존 규약(`checkedAnswers:1223-1250`)과 같다 — "내용 판정 실패(1)" 가 아니라 "입력이 못 쓸 상태(2)" 다.
@@ -393,10 +393,11 @@ PLACED: qa-verifier=ok scope-collector=mismatch spec-planner=missing
 | `missing` | 정의 파일이 없다 |
 | `unreadable` | UTF-8 이 아니다(`readTarget:1331` 의 어휘를 그대로 쓴다) |
 | `malformed` | frontmatter `---` 블록이 없다 |
-| `mismatch` | 파일은 읽히는데 `model:`·`effort:`·근거 주석 중 하나라도 다르다 |
+| `mismatch` | 파일은 읽히는데 `model:`·`effort:`·근거 주석 중 하나라도 다르다 · **첫 frontmatter 뒤에 `model:`·`effort:`·`# tier=` 를 담은 줄이 또 있다**(S2 R1·R2 codex → 부분 수용) |
 
 - **rc:** 전부 `ok` **또는 `na`** → `0` · 하나라도 그 밖이면 `1`(내용 판정 실패) · 사용·환경 오류는 `2`. `verify` 의 rc 규약(`cmdVerify:1426` — `ok`/`na` 를 함께 통과로 본다)과 같다. **`--runtime codex` 는 전원 `na` 라 rc=0 이어야 한다**(R34 — `na` 를 실패로 세면 듀얼 감사가 상시 FAIL).
 - 판정 순서는 `missing → unreadable → malformed → mismatch → ok`(`verify` 우선순위 규약과 같은 모양 — 참조 문서 10-4).
+- **뒤따르는 `---` 블록의 흉내도 잡는다(S2 R1).** 파서는 **첫 frontmatter 만** 읽는다(실측: `scan` 이 첫 블록의 `model` 을 내고 두 번째 블록은 `UNKNOWN_FIELDS:` 에도 없다) — 그래서 뒤에 `model: forged` 를 붙여도 **실행에는 영향이 없다**. 그러나 파일을 읽는 사람은 아래쪽 값을 진짜로 본다. MA7 ① 이 지키려는 것이 "적힌 근거를 믿을 수 있다" 이므로 **`mismatch`** 로 잡는다. **단 "두 번째 `---` 블록이 있으면 malformed" 로 넓히지 않는다** — 본문의 수평선(`---`)은 합법 마크다운이고 그것까지 거부하면 정상 정의가 깨진다. **`model:`·`effort:`·`# tier=` 를 담은 경우만** 잡는다(R2 에서 본문의 중복 근거 주석을 더했다).
 - **근거 주석도 대조 대상이다.** `place` 가 **`RATIONALE:` 줄로 직접 내는** 그 문자열과 정의 파일의 주석 줄을 바이트 단위로 비교하므로(형식은 §3-3 `RATIONALE:` 행이 고정 — 재검토 D-H1) "티어는 맞는데 근거는 안 적었다"가 통과하지 못한다 — 그것이 MA7 ① 이 요구한 것이다.
 - **`tier_override` 가 있으면** 기대값이 그 값이다(`via=override`) — 사용자가 고른 티어가 **데이터로 표현**되므로 `mismatch` 가 나지 않는다(시나리오 A-4).
 - **`placed: false` 행은 판정에서 제외**한다(`PLACED:` 에 나오지 않는다) — 재사용 정의·오케스트레이터 행이 전원 `mismatch` 로 Phase 6 을 막는 것을 방지한다(시나리오 C-1·C-2).
@@ -509,7 +510,7 @@ REVIEW_MODEL_AGY: none
 ```
 SETTINGS: .claude/settings.json
 FALLBACK: opus,sonnet,haiku
-BACKUP:   .claude/settings.json.bak-20260913T000000Z   ← 쓰지 않았으면 none
+BACKUP: .claude/settings.json.bak-20260913T000000Z   ← 쓰지 않았으면 none(계약 줄은 `KEY: value` — 공백 1개다)
 ```
 값이 이미 있고 **다르면** 쓰지 않고 한 줄을 더 낸다(rc 는 **0**):
 ```
@@ -529,7 +530,7 @@ NEEDS_APPROVAL: fallbackModel before="sonnet" after="opus,sonnet,haiku" — --ap
 | 최상위가 객체가 아님 | rc=2(배열·스칼라 settings 는 병합 대상이 아니다) |
 | 심링크 | `settings.json` 또는 `.claude` 가 심링크면 **rc=2**(프로파일 쓰기 규칙과 같다 — 참조 문서 7절 「쓰기」) |
 | 쓰기 방식 | 같은 디렉토리 임시 파일 → `rename`(원자적) · 들여쓰기 2칸 + 끝 개행(사람이 읽는 사용자 파일) |
-| 백업 | 쓰기 전 `settings.json.bak-<압축시각>`. **`--now` 는 ISO `YYYY-MM-DDTHH:MM:SSZ` 로 받고**(기존 `AT_RE:1180` 규약 — 참조 문서 7절) 파일명에는 **`-` 와 `:` 를 제거한** `YYYYMMDDTHHMMSSZ` 를 쓴다(예 `bak-20260913T000000Z`). **근거: Windows 는 파일명에 `:` 를 쓸 수 없다** — 이 레포는 2-OS CI 계약이고(`factory-ci.yml` linux·windows) 백업 생성이 windows 에서만 실패하면 `--approve` 경로가 그 OS 에서 통째로 죽는다. 변환은 정규식 치환 한 줄이고 시각 정보는 보존된다 |
+| 백업 | 쓰기 전 `settings.json.bak-<압축시각>`. **이름이 겹치면 `-2`·`-3` … 으로 비켜 간다(S2 드라이런 실측)** — 비켜 가는 방식은 **`wx` 로 만들어 보고 `EEXIST` 면 다음 이름으로 전진**이다. `existsSync` 로 먼저 보고 쓰면 두 프로세스가 같은 경로를 고른다(TOCTOU · S2 R2) — 같은 초에 두 번 쓰거나 `--now` 를 고정해 돌리면 이름이 겹치는데, 덮으면 **먼저 만든 백업을 잃고** 그대로 실패시키면 **사용자가 승인한 쓰기가 rc=2 로 거부된다**(실제로 그랬다). **`--now` 는 ISO `YYYY-MM-DDTHH:MM:SSZ` 로 받고**(기존 `AT_RE:1180` 규약 — 참조 문서 7절) 파일명에는 **`-` 와 `:` 를 제거한** `YYYYMMDDTHHMMSSZ` 를 쓴다(예 `bak-20260913T000000Z`). **근거: Windows 는 파일명에 `:` 를 쓸 수 없다** — 이 레포는 2-OS CI 계약이고(`factory-ci.yml` linux·windows) 백업 생성이 windows 에서만 실패하면 `--approve` 경로가 그 OS 에서 통째로 죽는다. 변환은 정규식 치환 한 줄이고 시각 정보는 보존된다 |
 | 소유 | **사용자 파일** — `MANAGED_RELS` 밖이라 `harness-update.sh` 가 건드리지 않고 `verify` 대상도 아니다. 부재 점검은 7-5 감사 항목(§7-5) |
 
 **rc 는 `0` / `2` 뿐이다.** "승인 대기" 를 rc 로 표현하지 않는 이유: 인테이크 rc 규약은 `0/1/2` 3분할이고(§0-3) 새 코드를 더하면 **여섯 서브커맨드의 기존 규약이 흔들린다**. 승인 대기는 **실패가 아니라 결과**이므로 `NEEDS_APPROVAL:` **계약 줄**로 낸다 — 호출자가 그 줄의 유무로 분기한다(§6-3 이 "종료코드 숫자가 아니라 계약이 판정한다" 로 정리한 것과 같은 논리). 조용한 덮어쓰기는 **`--approve` 없이는 일어나지 않는다.**
@@ -567,6 +568,8 @@ PRD MA7 이 기구(입력 2종 · 키워드 표 매칭 · 멀티턴/단발 = 실
 1. `role` 을 소문자화하고 연속 공백을 1칸으로 줄인다(유니코드 정규화는 하지 않는다 — NFC/NFD 차이는 §12 미결).
 2. 6종 **전부**에 대해 부분 문자열 포함을 검사한다(정규식 아님 — 사용자 어휘에 정규식 메타문자가 들어와도 안전).
 3. 둘 이상 걸리면 `placement.priority` 순서로 이긴다: **`judge` > `design` > `build` > `orchestrate` > `docs` > `collect`**. 근거: 안전한 쪽 = 티어를 낮추지 않는 쪽. "설계서 검증" 같은 겹침에서 `judge`(deep)가 이기고, "문서 수집"에서 `docs`(standard)가 `collect`(light)를 이긴다.
+
+> **가림(도달 불가) 1건 — S2 실측.** 더 높은 성격의 키워드가 어떤 키워드의 **부분 문자열**이면 그 키워드는 절대 이기지 못한다. 현재 정본에서 그런 것은 **정확히 하나**다: `collect` 의 **`구조 검증`** 은 `judge` 의 `검증` 에 항상 가려진다. **이것은 의도된 안전 동작이다**(규칙 3 의 근거 = 티어를 낮추지 않는 쪽이 이긴다) — 구조 검증을 `light` 로 떨어뜨리지 않는다. 표에서 빼지 않고 남겨 두되, **새 키워드가 조용히 죽는 것**은 막는다: 계약 테스트 「매핑(가림 감사)」가 가려진 목록이 정확히 이 한 건임을 고정하므로, 어휘를 늘리다 죽은 말이 생기면 테스트가 먼저 깨진다.
 4. 하나도 안 걸리면 `via=ambiguous`, `trait=-`, 티어는 경계 규칙(§4-3)을 따르고, `role` 의 **공백 분할 토큰 전부**를 `UNMATCHED:` 에 적는다.
 
 **`via` 세 값의 산출 규칙(결정적).**

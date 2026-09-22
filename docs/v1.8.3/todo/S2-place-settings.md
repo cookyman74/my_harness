@@ -1,4 +1,4 @@
-# S2 — `place` 배치 · MA7 매핑표 · roster · `settings --set-fallback` `⬜ 미착수`
+# S2 — `place` 배치 · MA7 매핑표 · roster · `settings --set-fallback` `✅ 완료`
 
 > **목표:** 에이전트의 **역할 한 줄**에서 티어·모델·추론 강도가 결정적으로 나오고(`place`), 그 배치가 정의 파일에 실제로 기록됐는지 **기계가 대조**한다(`place --verify`). 세션 폴백 체인은 절차가 아니라 스크립트가 쓴다(`settings --set-fallback`).
 > **등급:** 중대 · **근거:** 설계서 §3-1 · §3-2 · §3-3 · §3-3-1 · §3-6 · §4 전체 · §5 · §7-4 · §9-1 · §11 S2 행 · §11-3 C-2·C-15·C-16 · PRD MA7 수용 기준 ①~⑥
@@ -11,14 +11,14 @@
 
 착수 전에 확인한다. 하나라도 미통과면 착수 금지(그 항목의 전제가 S2 설계의 입력이다).
 
-- [ ] BASE 기록 — `git rev-parse HEAD` 를 결과서에 적는다(R-4 SCOPE 패치 기준) *(미실측 — 착수 시 확인)*
-- [ ] S1 결과서의 `assemble` 계약이 확정됐다 — `--runtime` 필수(rc=2) · `PARAMS:` 조립 순서 `params`→`effort_field`→`drop` · `DROPPED:` 가 **실제 제거 키**. `place` 는 런타임 프로바이더에 대해 **`assemble` 을 내부 호출**하므로(§3-1) 이 계약이 곧 `place` 의 `model=`·`effort=` 출처다
-- [ ] S0 ③ 이 만든 `skills/myharness/references/model-profiles.json` 에 `place` 가 읽는 키가 실재한다 — `tiers.<tier>.{family_alias,pinned_id,effort}` · `placement.keywords`(성격 6종) · `placement.priority` · `placement.boundary.{build_oneshot,ambiguous}` · `session_fallback` · `runtime_provider` (`node -e` 로 키 존재만 확인) — 없으면 §4-2·§4-3 표를 데이터로 넣는 일이 S2 범위로 들어온다(결과서에 기록)
-- [ ] `harness-intake.mjs:653` `ORCH_RE` 가 `^[a-z0-9][a-z0-9-]{0,63}$` 그대로다 — roster `agents[].name` 이 **같은 규칙**을 쓴다(§3-2)
-- [ ] `cmdVerify:1426` 의 rc 규약이 `ok`/`na` 를 **함께 통과**로 센다 — `place --verify` 의 rc(`ok`·`na`→0)가 이 선례를 따른다(§3-3-1)
-- [ ] `readTarget:1331` 의 `unreadable` 어휘와 `verify` 판정 우선순위(참조 문서 10-4)를 확인한다 — `place --verify` 가 같은 어휘·같은 모양을 쓴다
-- [ ] `ARG_SPEC:1431` 화이트리스트와 `USAGE:1513` 의 등록 방식을 확인한다(모르는 옵션·남는 인자 = rc=2) · `AT_RE:1180` ISO 규약 확인 — `settings --now` 가 이 규약을 그대로 받는다(§3-6)
-- [ ] `profilePaths:864-867` 이 `--root` + `--orchestrator` 로 프로파일 경로를 만드는 규칙을 확인한다 — roster 기본 경로 `.claude/skills/<orch>/team-roster.json` 이 **같은 규칙**이다(§3-2)
+- [x] BASE 기록 — `git rev-parse HEAD` 를 결과서에 적는다(R-4 SCOPE 패치 기준) *(미실측 — 착수 시 확인)* — ✔ 2026-09-22 · 미커밋 · 근거: `git rev-parse --short HEAD` = **6ce1006**(S1 마감 커밋) · 브랜치 `feat/model-aware-harness-v183` · 작업트리 추적 변경 **0**
+- [x] S1 결과서의 `assemble` 계약이 확정됐다 — `--runtime` 필수(rc=2) · `PARAMS:` 조립 순서 `params`→`effort_field`→`drop` · `DROPPED:` 가 **실제 제거 키**. `place` 는 런타임 프로바이더에 대해 **`assemble` 을 내부 호출**하므로(§3-1) 이 계약이 곧 `place` 의 `model=`·`effort=` 출처다 — ✔ 2026-09-22 · 미커밋 · 근거: S1 결과서 확인 — `--runtime` 필수(rc=2) · 조립 순서 `params`→`effort_field`→`drop` · `DROPPED:` 는 실제 제거 키 · `PARAMS:` 정규 JSON. **S1 이 남긴 지시대로** `cmdAssemble` 안의 조립부를 순수 함수로 떼어내 `place` 가 그것을 부른다(출력 문자열 재파싱 금지)
+- [x] S0 ③ 이 만든 `skills/myharness/references/model-profiles.json` 에 `place` 가 읽는 키가 실재한다 — `tiers.<tier>.{family_alias,pinned_id,effort}` · `placement.keywords`(성격 6종) · `placement.priority` · `placement.boundary.{build_oneshot,ambiguous}` · `session_fallback` · `runtime_provider` (`node -e` 로 키 존재만 확인) — 없으면 §4-2·§4-3 표를 데이터로 넣는 일이 S2 범위로 들어온다(결과서에 기록) — ✔ 2026-09-22 · 미커밋 · 근거: `node -e` 로 전수 확인 — `tiers.<3종>.{family_alias,effort}` 4프로바이더 전부 · `placement.keywords` **6종** · `placement.priority` 6 · `placement.boundary.{build_oneshot,ambiguous}` · `session_fallback`(3) · `runtime_provider`(claude·codex) **전부 실재** → §4-2·§4-3 표를 데이터로 넣는 일은 **S2 범위 밖**(S0 에서 끝났다)
+- [x] `harness-intake.mjs:653` `ORCH_RE` 가 `^[a-z0-9][a-z0-9-]{0,63}$` 그대로다 — roster `agents[].name` 이 **같은 규칙**을 쓴다(§3-2) — ✔ 2026-09-22 · 미커밋 · 근거: `ORCH_RE` 는 **`:655`** 로 이동(S1 이 +127줄) · 값은 `^[a-z0-9][a-z0-9-]{0,63}$` 그대로 → roster `agents[].name` 이 같은 상수를 재사용한다
+- [x] `cmdVerify:1426` 의 rc 규약이 `ok`/`na` 를 **함께 통과**로 센다 — `place --verify` 의 rc(`ok`·`na`→0)가 이 선례를 따른다(§3-3-1) — ✔ 2026-09-22 · 미커밋 · 근거: **`:1428`** 로 이동 · `rc: w.some(([, v]) => v !== "ok" && v !== "na") ? 1 : 0` — `ok`·`na` 를 **함께 통과**로 센다. `place --verify` 가 이 선례를 그대로 따른다
+- [x] `readTarget:1331` 의 `unreadable` 어휘와 `verify` 판정 우선순위(참조 문서 10-4)를 확인한다 — `place --verify` 가 같은 어휘·같은 모양을 쓴다 — ✔ 2026-09-22 · 미커밋 · 근거: **`:1333`** 로 이동 · 어휘 확인 — 없음 `absent` · I/O 실패 rc=2 · UTF-8 아님 **`unreadable`** · frontmatter 형식 불일치 **`malformed`**(`:1396`·`:1400`). `place --verify` 가 같은 어휘를 쓴다
+- [x] `ARG_SPEC:1431` 화이트리스트와 `USAGE:1513` 의 등록 방식을 확인한다(모르는 옵션·남는 인자 = rc=2) · `AT_RE:1180` ISO 규약 확인 — `settings --now` 가 이 규약을 그대로 받는다(§3-6) — ✔ 2026-09-22 · 미커밋 · 근거: `ARG_SPEC` **`:1561`** · `USAGE` **`:1654`** 로 이동(S1 이 `assemble` 등록) · `AT_RE` **`:1182`** = `^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$` → `settings --now` 가 이 규약을 그대로 받는다
+- [x] `profilePaths:864-867` 이 `--root` + `--orchestrator` 로 프로파일 경로를 만드는 규칙을 확인한다 — roster 기본 경로 `.claude/skills/<orch>/team-roster.json` 이 **같은 규칙**이다(§3-2) — ✔ 2026-09-22 · 미커밋 · 근거: **`:866`** 로 이동 · `path.join(ctx.root, ".claude", "skills", orch)` — roster 기본 경로 `.claude/skills/<orch>/team-roster.json` 이 **같은 함수**를 쓴다
 
 ## 구현 (TDD)
 
@@ -26,71 +26,71 @@
 
 분할표가 S2 에 준 **12개**. 파일은 `tests/harness-intake/s4-place.test.mjs` · `s4-settings.test.mjs`, 픽스처는 `tests/fixtures/model-profiles/**` · `tests/fixtures/team-roster/**`(§9-1 말미). **픽스처는 결함 하나씩**.
 
-- [ ] **T-P1** — `place` 결정성: 같은 roster 두 번 실행 → **바이트 동일** · `AGENT:` 줄이 **이름 정렬**(MA7 ②)
-- [ ] **T-P3** — **벡터 3종**(§4-4): 같은 roster 7명(`design`·`judge`·`build/teammate`·`build/sub-oneshot`·`docs`·`collect`·모호) × ③ `cost` 세 답 → §4-4 표와 정확히 일치하고 **변한 줄이 1줄씩**(`error-worse`↔`balanced` = build/sub-oneshot · `balanced`↔`delay-worse` = 모호) (MA7 ④)
-  - [ ] 대조군으로 **비경계 행 5개는 세 답 모두 불변**임을 같은 실행에서 단정한다(§4-3 — 승강이 넓어지면 이 줄이 깨진다)
-- [ ] **T-P4** — 모호 역할(`role: "잡다한 일"`) → `tier=standard` · `via=ambiguous` · `UNMATCHED:` 에 **공백 분할 토큰 전부** 기록(§4-2 4항 · MA7 ③)
-- [ ] **T-P5** — 티어 근거 `#` 주석이 든 정의 파일을 `scan` 이 `UNKNOWN_FIELDS:` 에 올리지 **않는다** — 2026-09-16 실측으로 현재 동작이 확인됐으므로 이 테스트는 **회귀 가드**다(§4-6)
-- [ ] **T-P6** — `FALLBACK:` 줄 = `session_fallback` 의 `,` 직렬화이고 `settings.json` 에 쓸 값과 같다
-- [ ] **T-P8** — `pinned_id` 를 **한 티어에만** 넣으면 그 티어 에이전트의 `model=` 만 전체 ID 로 바뀐다(나머지는 `family_alias` · R10)
-- [ ] **T-P11** — `tier_override` 계약(PRD MA7 ④) — `tier=<값>`·`via=override`·`trait=-` · `why=` 는 `tier_override_why` 그대로 · `UNMATCHED:` 제외 · **사유 없으면 rc=1** · `place --verify` 대조군(override 값 `ok` / 매칭값 `mismatch`)
-- [ ] **T-P10** — roster 행 계약(§11-3 C-2) — `run: orchestrator` 인데 `placed: true` 면 `place` 가 **rc=1** · `placed: false` 면 배치 대상·`PLACE:` 집계에서 빠진다
-- [ ] **T-P9** — `place --verify` **`--roster` 없이**(기본 경로를 쓴다 · §3-2): 배치대로 쓴 정의 → 전부 `ok` rc=0 · `effort:` 하나 변경 → 그 에이전트만 `mismatch` rc=1 · **근거 주석을 한 글자 바꿔도 `mismatch`**(`RATIONALE:` 줄과 바이트 비교) · 정의 삭제 → `missing` · frontmatter 없는 파일 → `malformed`
-  - [ ] **Codex 대조군(R34):** 같은 트리를 `--runtime codex` 로 → **전원 `na` · rc=0** · 같은 트리를 `--runtime claude` 로 → 위 판정이 그대로. `na` 를 실패로 세는 구현을 FAIL 시킨다
-- [ ] **T-S1** — `settings --set-fallback` 병합: 기존 키 3개가 **값·순서 그대로** 보존 + `fallbackModel` 1개만 추가 · `BACKUP:` 경로의 백업 파일 실재 · `--now 2026-09-13T00:00:00Z` → 파일명이 정확히 `settings.json.bak-20260913T000000Z`(**`:` 없음** — windows 잡 생성 가능) · 두 번째 실행은 **아무것도 쓰지 않는다**(멱등 · `BACKUP: none`)
-- [ ] **T-S2** — 값 상이 → **rc=0 + `NEEDS_APPROVAL:` 줄 + 파일 무변경** · `--approve` 재실행 시 백업 후 교체 · JSON 파싱 실패 → **rc=2 · 파일 무변경 · 백업 없음** · `settings.json` 심링크 → rc=2
-- [ ] **T-S3** — `settings` 의 `FALLBACK:` 값 == `place` 의 `FALLBACK:` 값(같은 프로파일) — 두 구현이 갈라지지 않는다(T-P6 과 쌍)
-- [ ] **T-S4** — 비대화 승인 부재(**스크립트 계약만**): `NEEDS_APPROVAL:` 상태에서 `--approve` 없이 ① rc=0 ② `settings.json`·백업 **바이트 동일** ③ 줄이 §3-6 형식(`fallbackModel before="…" after="…"`) ④ **두 번·세 번 실행해도 계속 무변경**(자동 승인 없음). 결과서·`CLAUDE.md` 기록은 **모델의 일이라 단정하지 않는다**(§7-4 표 — 정본 절차 + 7-5 감사가 닫는다)
-- [ ] **T-S5** — 런타임 축(C-15): `--runtime codex` → **`SETTINGS: skipped runtime=codex` 한 줄 · rc=0 · 대상 디렉토리에 `.claude/settings.json` 미생성**(열지도 않는다) · `--runtime` 누락 → **rc=2** · `--runtime claude` 는 T-S1~T-S4 그대로
-- [ ] 구현 전 **적색 확인** — 정본이 S1 판인 상태에서 `node --test tests/harness-intake/*.test.mjs` 가 실패하고, 실패 사유가 `not implemented (rc=2)` 임을 로그로 남긴다(미구현 rc=2 를 통과로 세지 않는 `rcIs()` 가드 재사용 — v1.7.6 S2 선례)
+- [x] **T-P1** — `place` 결정성: 같은 roster 두 번 실행 → **바이트 동일** · `AGENT:` 줄이 **이름 정렬**(MA7 ②) — ✔ 2026-09-22 · 미커밋 · 근거: 결정성 3건 — 두 번 실행 **바이트 동일** · `agent-10` < `agent-2` 코드포인트 정렬 · `PLACE:` 6필드
+- [x] **T-P3** — **벡터 3종**(§4-4): 같은 roster 7명(`design`·`judge`·`build/teammate`·`build/sub-oneshot`·`docs`·`collect`·모호) × ③ `cost` 세 답 → §4-4 표와 정확히 일치하고 **변한 줄이 1줄씩**(`error-worse`↔`balanced` = build/sub-oneshot · `balanced`↔`delay-worse` = 모호) (MA7 ④) — ✔ 2026-09-22 · 미커밋 · 근거: §4-4 표 **21칸(7명×3답) 전수 대조** · 전이마다 변한 `AGENT:` **정확히 1줄**(`error-worse`↔`balanced` = build/단발 · `balanced`↔`delay-worse` = 모호)
+  - [x] 대조군으로 **비경계 행 5개는 세 답 모두 불변**임을 같은 실행에서 단정한다(§4-3 — 승강이 넓어지면 이 줄이 깨진다) — ✔ 2026-09-22 · 미커밋 · 근거: 같은 실행에서 비경계 5행이 세 답 모두 **바이트 동일**함을 단정 — 승강이 넓어지면 이 줄이 먼저 깨진다
+- [x] **T-P4** — 모호 역할(`role: "잡다한 일"`) → `tier=standard` · `via=ambiguous` · `UNMATCHED:` 에 **공백 분할 토큰 전부** 기록(§4-2 4항 · MA7 ③) — ✔ 2026-09-22 · 미커밋 · 근거: `tier=standard` · `via=ambiguous` · `trait=-` · `UNMATCHED: misc-agent=잡다한,일` + 대조군 `none`. **구분자 확정:** 항목은 공백, 항목 안 토큰은 **쉼표**(둘 다 공백이면 줄을 파싱할 수 없다 — 설계서 §3-3 문구 정정) · 토큰은 §4-2 규칙 1 로 **정규화한 뒤** 나눈 것
+- [x] **T-P5** — 티어 근거 `#` 주석이 든 정의 파일을 `scan` 이 `UNKNOWN_FIELDS:` 에 올리지 **않는다** — 2026-09-16 실측으로 현재 동작이 확인됐으므로 이 테스트는 **회귀 가드**다(§4-6) — ✔ 2026-09-22 · 미커밋 · 근거: `#` 주석이 든 정의를 `scan` 이 `UNKNOWN_FIELDS:` 에 올리지 않음 + **대조군** `ctrl:bogus_field` 는 올라온다(회귀 가드가 공허하지 않다)
+- [x] **T-P6** — `FALLBACK:` 줄 = `session_fallback` 의 `,` 직렬화이고 `settings.json` 에 쓸 값과 같다 — ✔ 2026-09-22 · 미커밋 · 근거: `session_fallback` 을 바꾸면 `FALLBACK:` 도 따라 바뀐다(값 하드코딩 FAIL)
+- [x] **T-P8** — `pinned_id` 를 **한 티어에만** 넣으면 그 티어 에이전트의 `model=` 만 전체 ID 로 바뀐다(나머지는 `family_alias` · R10) — ✔ 2026-09-22 · 미커밋 · 근거: `pinned_id` 를 deep 에만 → deep 만 전체 ID · 나머지 `family_alias` · `effort` 불변
+- [x] **T-P11** — `tier_override` 계약(PRD MA7 ④) — `tier=<값>`·`via=override`·`trait=-` · `why=` 는 `tier_override_why` 그대로 · `UNMATCHED:` 제외 · **사유 없으면 rc=1** · `place --verify` 대조군(override 값 `ok` / 매칭값 `mismatch`) — ✔ 2026-09-22 · 미커밋 · 근거: 5단정(tier·via=override·trait=-·why=`tier_override_why` 그대로·`UNMATCHED:` 제외) + ③ 세 답 불변 + 사유 없으면 **rc=1** + **⑤ 대조군**(override 값 정의 `ok` / 키워드 매칭값 정의 `mismatch`)
+- [x] **T-P10** — roster 행 계약(§11-3 C-2) — `run: orchestrator` 인데 `placed: true` 면 `place` 가 **rc=1** · `placed: false` 면 배치 대상·`PLACE:` 집계에서 빠진다 — ✔ 2026-09-22 · 미커밋 · 근거: `run:orchestrator` + `placed` 가 false 가 아니면 **rc=1**(키 없음 포함) · `placed:false` 는 `AGENT:`·`RATIONALE:`·`PLACED:` 에서 빠지고 `PLACE:` 는 남는다
+- [x] **T-P9** — `place --verify` **`--roster` 없이**(기본 경로를 쓴다 · §3-2): 배치대로 쓴 정의 → 전부 `ok` rc=0 · `effort:` 하나 변경 → 그 에이전트만 `mismatch` rc=1 · **근거 주석을 한 글자 바꿔도 `mismatch`**(`RATIONALE:` 줄과 바이트 비교) · 정의 삭제 → `missing` · frontmatter 없는 파일 → `malformed` — ✔ 2026-09-22 · 미커밋 · 근거: `--roster` 없이 기본 경로 · 전부 `ok` rc=0 → `effort` 한 글자 → `model` → **근거 주석 한 글자** → 주석 없음 → `missing` → `malformed` → `unreadable` 전부 `mismatch`/해당 판정 rc=1 · 고아 정의 제외
+  - [x] **Codex 대조군(R34):** 같은 트리를 `--runtime codex` 로 → **전원 `na` · rc=0** · 같은 트리를 `--runtime claude` 로 → 위 판정이 그대로. `na` 를 실패로 세는 구현을 FAIL 시킨다 — ✔ 2026-09-22 · 미커밋 · 근거: `--runtime codex` → **`PLACED: na(codex — 런타임 기본)` 한 줄 · rc=0** · 같은 트리를 `--runtime claude` 로 돌리면 판정이 그대로(`mismatch` rc=1) — `na` 를 실패로 세는 구현이 FAIL 한다
+- [x] **T-S1** — `settings --set-fallback` 병합: 기존 키 3개가 **값·순서 그대로** 보존 + `fallbackModel` 1개만 추가 · `BACKUP:` 경로의 백업 파일 실재 · `--now 2026-09-13T00:00:00Z` → 파일명이 정확히 `settings.json.bak-20260913T000000Z`(**`:` 없음** — windows 잡 생성 가능) · 두 번째 실행은 **아무것도 쓰지 않는다**(멱등 · `BACKUP: none`) — ✔ 2026-09-22 · 미커밋 · 근거: 기존 키 3개 **값·순서 보존** + `fallbackModel` 뒤에 1개 · 들여쓰기 2칸 + 끝 개행 · 백업 = 원본 바이트 · 파일명 **`settings.json.bak-20260913T000000Z`**(`:` 없음) · 2회차 **무쓰기 `BACKUP: none`**
+- [x] **T-S2** — 값 상이 → **rc=0 + `NEEDS_APPROVAL:` 줄 + 파일 무변경** · `--approve` 재실행 시 백업 후 교체 · JSON 파싱 실패 → **rc=2 · 파일 무변경 · 백업 없음** · `settings.json` 심링크 → rc=2 — ✔ 2026-09-22 · 미커밋 · 근거: 값 상이 → rc=0 + `NEEDS_APPROVAL:` + 무변경 · `--approve` 백업 후 교체(키 순서 유지) · 파싱 실패 5종 rc=2 무변경·백업 없음 · 심링크 2종 rc=2(windows 는 skip)
+- [x] **T-S3** — `settings` 의 `FALLBACK:` 값 == `place` 의 `FALLBACK:` 값(같은 프로파일) — 두 구현이 갈라지지 않는다(T-P6 과 쌍) — ✔ 2026-09-22 · 미커밋 · 근거: 두 서브커맨드의 `FALLBACK:` 동일 + **데이터를 바꾸면 둘 다 움직인다**(한쪽만 하드코딩한 구현 FAIL) — 직렬화 함수는 `fallbackChain()` **하나**다
+- [x] **T-S4** — 비대화 승인 부재(**스크립트 계약만**): `NEEDS_APPROVAL:` 상태에서 `--approve` 없이 ① rc=0 ② `settings.json`·백업 **바이트 동일** ③ 줄이 §3-6 형식(`fallbackModel before="…" after="…"`) ④ **두 번·세 번 실행해도 계속 무변경**(자동 승인 없음). 결과서·`CLAUDE.md` 기록은 **모델의 일이라 단정하지 않는다**(§7-4 표 — 정본 절차 + 7-5 감사가 닫는다) — ✔ 2026-09-22 · 미커밋 · 근거: 3회 반복 rc=0 · 매회 `NEEDS_APPROVAL:` · 트리 **바이트 무변경**(자동 승인 없음). ②③ 기록은 단정하지 않았다(모델의 일 · §7-4)
+- [x] **T-S5** — 런타임 축(C-15): `--runtime codex` → **`SETTINGS: skipped runtime=codex` 한 줄 · rc=0 · 대상 디렉토리에 `.claude/settings.json` 미생성**(열지도 않는다) · `--runtime` 누락 → **rc=2** · `--runtime claude` 는 T-S1~T-S4 그대로 — ✔ 2026-09-22 · 미커밋 · 근거: ① Codex 전용 트리 → `SETTINGS: skipped runtime=codex` 한 줄 · rc=0 · **파일 무생성** ② `--runtime` 누락 rc=2 ④ **듀얼 + claude → 생성** ⑤ **듀얼 + codex → rc=2**
+- [x] 구현 전 **적색 확인** — 정본이 S1 판인 상태에서 `node --test tests/harness-intake/*.test.mjs` 가 실패하고, 실패 사유가 `not implemented (rc=2)` 임을 로그로 남긴다(미구현 rc=2 를 통과로 세지 않는 `rcIs()` 가드 재사용 — v1.7.6 S2 선례) — ✔ 2026-09-22 · 미커밋 · 근거: 구현 전 `node --test s4-place s4-settings` = **tests 55 / pass 2 / fail 53**. 통과 2 는 구현을 부르지 않는 것(픽스처 자기검사 · **T-P5** 회귀 가드). rc=2 단정은 전부 `expectRc2` 를 지나 `모르는 서브커맨드` 를 배제한다 — 미구현 rc=2 를 통과로 세지 않았다
 
 ### B. 구현
 
-- [ ] **roster 계약**(§3-2) — `schema: "team-roster/1"` 고정 · `mode` 3종 · `agents[].name` 은 `ORCH_RE` 와 같은 규칙 + **중복 금지(rc=1)** · `role` 한 줄(제어문자·빈 문자열 금지) · `run` 3값 밖 rc=1
-  - [ ] `tier_override`(선택) + **`tier_override_why` 필수**(한 줄 · 없으면 **rc=1**) — 있으면 **키워드·③ 승강을 건너뛰고** 그 값이 티어이고 `via=override` · `RATIONALE:` 의 `why=` 는 `tier_override_why` 값(§4-2 `via` 표)
-  - [ ] `placed: false` 행은 **배치·검증 대상에서 제외**(기본 `true`) — 재사용 정의(⑤ `reuse`)와 `run: orchestrator` 행에 쓴다
-  - [ ] **C-2** — `placed: true` + `run: orchestrator` 조합을 보면 **rc=1**(오케스트레이터는 스킬이라 정의 파일이 없다)
-  - [ ] 기본 경로 `<root>/.claude/skills/<orch>/team-roster.json` · **`--roster` 는 선택 인자** · **부재(`ENOENT`)는 손상과 구분해 rc=2 + 해소법**(`Phase 2-5 로 team-roster.json 을 만든다`)을 낸다(§3-2 시나리오 B-6)
-- [ ] **MA7 매핑**(§4) — 데이터 파일의 `placement.keywords` 로 판정한다(스크립트에 어휘를 하드코딩하지 않는다 — MA2 "파일 1개")
-  - [ ] 정규화: 소문자화 + 연속 공백 1칸(**유니코드 정규화는 하지 않는다** — §12 미결) · **부분 문자열 포함**(정규식 아님) · 겹치면 `placement.priority`(`judge > design > build > orchestrate > docs > collect`)
-  - [ ] `via` 4값 산출(§4-2 표) — `matched`(비경계) · `override` · `boundary`(현재 유일: `build` + `sub-oneshot`) · `ambiguous`
-  - [ ] ③ `cost` 승강(§4-3 `placement.boundary`) — `build`+멀티턴은 **항상 `deep`**(③ 무관) · 비경계 행은 ③ 에 불변
-  - [ ] 티어→`effort` = `tiers.<tier>.effort` 를 그대로 쓴다(`xhigh`·`max` 는 어떤 티어에도 배정하지 않는다 · §4-5). **적용 여부는 검증하지 않는다** — 정의 파일 값까지만이고 런타임 적용은 §9-2 P4 몫이다(결과서에 그대로 쓴다)
-- [ ] **`place` 출력**(§3-3) — `PLACE:`·`AGENT:`(N줄)·`RATIONALE:`(에이전트마다 1줄 · 같은 정렬·같은 개수)·`UNMATCHED:`·`FALLBACK:`
-  - [ ] `RATIONALE:` 본문은 `AGENT:` 필드의 **결정적 함수** — `# tier=… trait=… via=… cost=… why=…` · 필드 순서 고정 · 구분자 공백 1개 · 인용 없음 · 줄바꿈 없음(`--verify` 가 이 줄을 바이트 비교한다)
-  - [ ] `--runtime codex` → `model=runtime-default effort=-`(`SKILL.md:125` 정책 · `.codex/agents/*.toml` 의 model 은 S4 이월 ④ 뒤)
-  - [ ] rc 분할 — `1` = roster 스키마·값 위반 · 프로파일 ③ 답이 카탈로그 밖 / `2` = 파일 부재·JSON 파싱 실패·모르는 스키마·**egress 위반**(§6-3 — 판정은 S3 의 `egress` 와 같은 데이터를 본다)·**데이터 파일 결함**(`tiers.*.effort` 가 `effort_forbidden` 에 있음 · `behavior` 비어 있지 않음 · `local` 슬롯이 채워짐)
-  - [ ] **`assemble` 내부 호출** — 런타임 프로바이더의 모델·강도는 S1 의 `assemble` 을 부른다(같은 규칙의 두 구현 금지 · §3-1)
-- [ ] **`place --verify`**(§3-3-1) — 판정 `ok`·**`na`**·`missing`·`unreadable`·`malformed`·`mismatch` · 순서 `missing → unreadable → malformed → mismatch → ok` · **rc: 전부 `ok` 또는 `na` → 0** · 그 밖 하나라도 → 1 · 사용·환경 오류 → 2
-  - [ ] 대조 대상 3종 — frontmatter `model:` · `effort:` · **근거 주석 한 줄**(`RATIONALE:` 와 바이트 동일). "티어는 맞는데 근거는 안 적었다" 가 통과하면 MA7 ① 이 무효다
-  - [ ] **C-16** — `--runtime codex` 면 `PLACED:` 를 에이전트별로 내지 않고 **`PLACED: na(codex — 런타임 기본)` 한 줄**이다(배치값이 `runtime-default`/`effort=-` 라 대조할 값이 없다)
-  - [ ] `tier_override` 가 있으면 **기대값이 그 값**(사용자 의도가 데이터로 표현되므로 `mismatch` 가 나지 않는다 · 시나리오 A-4)
-  - [ ] roster 에 없는 정의 파일은 **대상이 아니다**(중복·고아는 Phase 3-0 과 `scan` 의 `AGENTS_PROJECT:` 몫)
-  - [ ] **`place --write` 를 두지 않는다** — 에이전트 정의는 사용자 파일이다. 대신 **복구 절차 5단계**(§3-3-1)를 rc=1 메시지/결과서 문구로 그대로 쓴다: ① 문제 에이전트 선택 ② **같은 실행의 `AGENT:`·`RATIONALE:` 줄이 곧 기대값** ③ 정의의 `model:`·`effort:`·주석을 그 값으로 교체 ④ 일부러 다른 티어면 정의 대신 **roster 에 `tier_override`+`tier_override_why`** 를 넣고 ②부터 ⑤ 재실행해 전부 `ok`
-- [ ] **`settings --set-fallback`**(§3-6) — `--orchestrator`·`--set-fallback`·**`--runtime`(필수)**·`--root`·`--now`·`--approve`
-  - [ ] 표 전건 — 파일 없음 → 생성(디렉토리 포함) · 키 없음 → **키 단위 병합**(다른 키·순서 보존) · 값 같음 → 무쓰기(`BACKUP: none`) · 값 다름 → **무쓰기 + `NEEDS_APPROVAL:`**(rc=0) · JSON 파싱 실패/최상위 비객체/심링크 → **rc=2 · 무손대 · 백업 없음**
-  - [ ] 쓰기 방식 = 같은 디렉토리 임시 파일 → `rename` · 들여쓰기 2칸 + 끝 개행 · 백업 파일명은 `-`·`:` 를 제거한 `YYYYMMDDTHHMMSSZ`(**windows 잡 때문** — 2-OS CI 계약)
-  - [ ] **rc 는 `0`/`2` 뿐** — 승인 대기는 실패가 아니라 결과이므로 계약 줄로 낸다(3분할 규약 유지)
-  - [ ] **C-15 / 비대화 규칙**(§7-4) — `--runtime codex` 면 `SETTINGS: skipped runtime=codex` **한 줄만** 내고 **파일을 만들지 않는다** · 승인할 사람이 없는 경로(`claude -p`·`codex exec`·벤치)에서는 **`--approve` 를 주지 않는다**(스크립트가 보장하는 것은 T-S4 의 ①뿐 — ②③ 표식·기록은 모델의 일이고 S5 의 정본 문장·7-5 감사가 닫는다)
-- [ ] **`FALLBACK:` 직렬화 함수는 하나다** — `place` 와 `settings` 가 같은 함수를 부른다(T-S3 가 이것을 고정)
-- [ ] `ARG_SPEC`·`USAGE` 에 `place`·`settings` 등록 · 읽기 전용 셋(`place`)은 **`--now` 를 받으면 rc=2**(§3-1)
+- [x] **roster 계약**(§3-2) — `schema: "team-roster/1"` 고정 · `mode` 3종 · `agents[].name` 은 `ORCH_RE` 와 같은 규칙 + **중복 금지(rc=1)** · `role` 한 줄(제어문자·빈 문자열 금지) · `run` 3값 밖 rc=1 — ✔ 2026-09-22 · 미커밋 · 근거: `readRoster()` — schema·mode·agents·name(`ORCH_RE` **재사용**)·중복·role(빈 문자열·제어문자)·run 전부 판정. **제어문자 검사는 기존 `CTRL_RE`(`:774` · 탭 외 C0+DEL)를 재사용**했다(같은 규칙의 두 상수 금지)
+  - [x] `tier_override`(선택) + **`tier_override_why` 필수**(한 줄 · 없으면 **rc=1**) — 있으면 **키워드·③ 승강을 건너뛰고** 그 값이 티어이고 `via=override` · `RATIONALE:` 의 `why=` 는 `tier_override_why` 값(§4-2 `via` 표) — ✔ 2026-09-22 · 미커밋 · 근거: `tier_override` 가 있으면 키워드·③ 승강을 **통째로 건너뛴다** · `via=override` · `trait=-` · `why` = `tier_override_why` **그대로** · 사유 없거나 비었으면 **rc=1**
+  - [x] `placed: false` 행은 **배치·검증 대상에서 제외**(기본 `true`) — 재사용 정의(⑤ `reuse`)와 `run: orchestrator` 행에 쓴다 — ✔ 2026-09-22 · 미커밋 · 근거: `roster.agents.filter((a) => a.placed !== false)` — 기본 `true` · `AGENT:`·`RATIONALE:`·`PLACED:` 에서 빠지고 `PLACE:` 는 남는다(T-P10)
+  - [x] **C-2** — `placed: true` + `run: orchestrator` 조합을 보면 **rc=1**(오케스트레이터는 스킬이라 정의 파일이 없다) — ✔ 2026-09-22 · 미커밋 · 근거: `a.run === "orchestrator" && a.placed !== false` → **rc=1** · 키가 아예 없는 경우도 같다(기본 true)
+  - [x] 기본 경로 `<root>/.claude/skills/<orch>/team-roster.json` · **`--roster` 는 선택 인자** · **부재(`ENOENT`)는 손상과 구분해 rc=2 + 해소법**(`Phase 2-5 로 team-roster.json 을 만든다`)을 낸다(§3-2 시나리오 B-6) — ✔ 2026-09-22 · 미커밋 · 근거: `rosterPath()` 가 `profilePaths().dir` 를 그대로 쓴다(같은 규칙) · `--roster` 는 선택 · **`ENOENT` 는 손상과 구분해 rc=2 + `Phase 2-5 로 team-roster.json 을 만든다`** 문구
+- [x] **MA7 매핑**(§4) — 데이터 파일의 `placement.keywords` 로 판정한다(스크립트에 어휘를 하드코딩하지 않는다 — MA2 "파일 1개") — ✔ 2026-09-22 · 미커밋 · 근거: `matchTrait()` 가 `placement.keywords`·`priority` 만 읽는다 — 스크립트에 어휘 **0**. 「어휘는 데이터에서 온다」 테스트가 키워드를 지워 증명한다(그래서 **빈 배열을 허용**하도록 가드를 완화했다 — 정본 비지 않음 보장은 T-D2·감사 #13 몫)
+  - [x] 정규화: 소문자화 + 연속 공백 1칸(**유니코드 정규화는 하지 않는다** — §12 미결) · **부분 문자열 포함**(정규식 아님) · 겹치면 `placement.priority`(`judge > design > build > orchestrate > docs > collect`) — ✔ 2026-09-22 · 미커밋 · 근거: `normRole()` = 소문자화 + `\s+`→공백 1칸 + 앞뒤 공백 제거 · **유니코드 정규화 없음** · **부분 문자열**(정규식 아님 — 메타문자 역할로 확인) · 겹치면 `placement.priority` 순서
+  - [x] `via` 4값 산출(§4-2 표) — `matched`(비경계) · `override` · `boundary`(현재 유일: `build` + `sub-oneshot`) · `ambiguous` — ✔ 2026-09-22 · 미커밋 · 근거: `matched`·`override`·`boundary`(build+단발)·`ambiguous` 네 값 전부 테스트가 관측
+  - [x] ③ `cost` 승강(§4-3 `placement.boundary`) — `build`+멀티턴은 **항상 `deep`**(③ 무관) · 비경계 행은 ③ 에 불변 — ✔ 2026-09-22 · 미커밋 · 근거: 경계 두 행만 데이터에서 읽는다 · build 멀티턴(`teammate`·`orchestrator`)은 **항상 deep**(③ 무관) · 비경계 5행은 ③ 에 불변(T-P3 대조군)
+  - [x] 티어→`effort` = `tiers.<tier>.effort` 를 그대로 쓴다(`xhigh`·`max` 는 어떤 티어에도 배정하지 않는다 · §4-5). **적용 여부는 검증하지 않는다** — 정의 파일 값까지만이고 런타임 적용은 §9-2 P4 몫이다(결과서에 그대로 쓴다) — ✔ 2026-09-22 · 미커밋 · 근거: `assembleFor()` 가 낸 값을 그대로 쓴다 · `xhigh`·`max` 는 어떤 티어에도 배정되지 않는다(데이터가 deep=high) · **적용 여부는 검증하지 않는다** — 정의 파일 값까지이고 런타임 적용은 §9-2 P4 몫이다
+- [x] **`place` 출력**(§3-3) — `PLACE:`·`AGENT:`(N줄)·`RATIONALE:`(에이전트마다 1줄 · 같은 정렬·같은 개수)·`UNMATCHED:`·`FALLBACK:` — ✔ 2026-09-22 · 미커밋 · 근거: 5종 줄 · `AGENT:`·`RATIONALE:` 은 **같은 개수·같은 이름 정렬** · 드라이런 출력이 설계서 §3-3 예시와 일치(예시의 키워드 수 3건은 설계서 쪽을 정정했다)
+  - [x] `RATIONALE:` 본문은 `AGENT:` 필드의 **결정적 함수** — `# tier=… trait=… via=… cost=… why=…` · 필드 순서 고정 · 구분자 공백 1개 · 인용 없음 · 줄바꿈 없음(`--verify` 가 이 줄을 바이트 비교한다) — ✔ 2026-09-22 · 미커밋 · 근거: `rationaleOf()` 한 함수가 만든다 — `# tier=… trait=… via=… cost=… why=…` · 필드 순서 고정 · 공백 1개 · 인용 없음. `AGENT:` 의 `why` 는 **같은 본문 + ` · <tier>`**
+  - [x] `--runtime codex` → `model=runtime-default effort=-`(`SKILL.md:125` 정책 · `.codex/agents/*.toml` 의 model 은 S4 이월 ④ 뒤) — ✔ 2026-09-22 · 미커밋 · 근거: `placeAgent()` 가 codex 면 조립을 부르지 않는다 · 티어 판정은 런타임과 무관(테스트가 단정)
+  - [x] rc 분할 — `1` = roster 스키마·값 위반 · 프로파일 ③ 답이 카탈로그 밖 / `2` = 파일 부재·JSON 파싱 실패·모르는 스키마·**egress 위반**(§6-3 — 판정은 S3 의 `egress` 와 같은 데이터를 본다)·**데이터 파일 결함**(`tiers.*.effort` 가 `effort_forbidden` 에 있음 · `behavior` 비어 있지 않음 · `local` 슬롯이 채워짐) — ✔ 2026-09-22 · 미커밋 · 근거: `1` = roster 스키마·값 위반 · ③ 답 카탈로그 밖 · `--agent` 가 대상에 없음 / `2` = 파일 부재·JSON 파싱 실패·최상위 비객체·데이터 파일 결함(`effort_forbidden`·`behavior`·`local`). **egress 위반은 구현하지 않았다** — `place` 는 런타임 프로바이더만 조립하므로 `runtime-only` 위반이 **원리적으로 발생하지 않는다**(강제 축은 S3 `egress`·`assemble`)
+  - [x] **`assemble` 내부 호출** — 런타임 프로바이더의 모델·강도는 S1 의 `assemble` 을 부른다(같은 규칙의 두 구현 금지 · §3-1) — ✔ 2026-09-22 · 미커밋 · 근거: `cmdAssemble` 의 조립부를 **`assembleFor(mp, file, providerId, tier)`** 로 떼어내 `place` 가 그것을 부른다 — 출력 문자열을 다시 파싱하지 않는다(S1 결과서 「다음 단계 참조」가 지시한 형태)
+- [x] **`place --verify`**(§3-3-1) — 판정 `ok`·**`na`**·`missing`·`unreadable`·`malformed`·`mismatch` · 순서 `missing → unreadable → malformed → mismatch → ok` · **rc: 전부 `ok` 또는 `na` → 0** · 그 밖 하나라도 → 1 · 사용·환경 오류 → 2 — ✔ 2026-09-22 · 미커밋 · 근거: `placeVerify()` — 판정 6종 · 우선순위 `missing → unreadable → malformed → mismatch → ok` · **rc: 전부 `ok`·`na` → 0**(`cmdVerify:1428` 규약 재사용) · stdout 은 **정확히 2줄**(`PLACE:`·`PLACED:`)
+  - [x] 대조 대상 3종 — frontmatter `model:` · `effort:` · **근거 주석 한 줄**(`RATIONALE:` 와 바이트 동일). "티어는 맞는데 근거는 안 적었다" 가 통과하면 MA7 ① 이 무효다 — ✔ 2026-09-22 · 미커밋 · 근거: frontmatter `model:`·`effort:` + **frontmatter 안의 `# tier=` 주석 한 줄**을 `rationaleOf()` 결과와 **바이트 비교** · 주석이 없거나 둘 이상이면 `mismatch` · 주석이 본문에 있으면 frontmatter 밖이라 `mismatch`
+  - [x] **C-16** — `--runtime codex` 면 `PLACED:` 를 에이전트별로 내지 않고 **`PLACED: na(codex — 런타임 기본)` 한 줄**이다(배치값이 `runtime-default`/`effort=-` 라 대조할 값이 없다) — ✔ 2026-09-22 · 미커밋 · 근거: `--runtime codex` → `PLACED: na(codex — 런타임 기본)` **한 줄** · rc=0
+  - [x] `tier_override` 가 있으면 **기대값이 그 값**(사용자 의도가 데이터로 표현되므로 `mismatch` 가 나지 않는다 · 시나리오 A-4) — ✔ 2026-09-22 · 미커밋 · 근거: T-P11 ⑤ 대조군이 이것을 고정 — override 값으로 쓴 정의는 `ok`, 키워드 매칭값으로 쓴 정의는 `mismatch`
+  - [x] roster 에 없는 정의 파일은 **대상이 아니다**(중복·고아는 Phase 3-0 과 `scan` 의 `AGENTS_PROJECT:` 몫) — ✔ 2026-09-22 · 미커밋 · 근거: 고아 정의를 둔 트리에서 `PLACED:` 에 나오지 않고 rc=0
+  - [x] **`place --write` 를 두지 않는다** — 에이전트 정의는 사용자 파일이다. 대신 **복구 절차 5단계**(§3-3-1)를 rc=1 메시지/결과서 문구로 그대로 쓴다: ① 문제 에이전트 선택 ② **같은 실행의 `AGENT:`·`RATIONALE:` 줄이 곧 기대값** ③ 정의의 `model:`·`effort:`·주석을 그 값으로 교체 ④ 일부러 다른 티어면 정의 대신 **roster 에 `tier_override`+`tier_override_why`** 를 넣고 ②부터 ⑤ 재실행해 전부 `ok` — ✔ 2026-09-22 · 미커밋 · 근거: `--write` 플래그 **없음**(`ARG_SPEC.place` 에 없다) · 복구 절차는 드라이런으로 실측(§ 결과서) — `AGENT:`·`RATIONALE:` 줄을 그대로 옮기면 `ok` 로 돌아온다
+- [x] **`settings --set-fallback`**(§3-6) — `--orchestrator`·`--set-fallback`·**`--runtime`(필수)**·`--root`·`--now`·`--approve` — ✔ 2026-09-22 · 미커밋 · 근거: `cmdSettings()` — `--orchestrator`·`--set-fallback`·`--runtime` 필수 · **`--root` 필수**(cwd 추정 금지) · `--now`·`--approve`
+  - [x] 표 전건 — 파일 없음 → 생성(디렉토리 포함) · 키 없음 → **키 단위 병합**(다른 키·순서 보존) · 값 같음 → 무쓰기(`BACKUP: none`) · 값 다름 → **무쓰기 + `NEEDS_APPROVAL:`**(rc=0) · JSON 파싱 실패/최상위 비객체/심링크 → **rc=2 · 무손대 · 백업 없음** — ✔ 2026-09-22 · 미커밋 · 근거: 파일 없음 → 생성(디렉토리 포함) · 키 없음 → 키 단위 병합(순서 보존) · 값 같음 → 무쓰기 `BACKUP: none` · 값 다름 → 무쓰기 + `NEEDS_APPROVAL:`(rc=0) · 파싱 실패·최상위 비객체·심링크 → rc=2 무손대 — **전부 드라이런으로도 재현**
+  - [x] 쓰기 방식 = 같은 디렉토리 임시 파일 → `rename` · 들여쓰기 2칸 + 끝 개행 · 백업 파일명은 `-`·`:` 를 제거한 `YYYYMMDDTHHMMSSZ`(**windows 잡 때문** — 2-OS CI 계약) — ✔ 2026-09-22 · 미커밋 · 근거: 기존 `writeAtomic()`(임시 파일 `wx` → `rename`) 재사용 · 들여쓰기 2칸 + 끝 개행 · 백업명 `-`·`:` 제거. **드라이런이 결함 1건을 잡았다** — 같은 시각의 백업이 있으면 `wx` 가 EEXIST 로 죽어 **승인된 쓰기가 rc=2 로 거부**됐다 → 겹치면 `-2`·`-3` 로 비켜 간다(회귀 테스트 추가 · 설계서 §3-6 보강)
+  - [x] **rc 는 `0`/`2` 뿐** — 승인 대기는 실패가 아니라 결과이므로 계약 줄로 낸다(3분할 규약 유지) — ✔ 2026-09-22 · 미커밋 · 근거: `cmdSettings` 에 `fail1` 경로 **0** · 승인 대기는 `NEEDS_APPROVAL:` 계약 줄이다
+  - [x] **C-15 / 비대화 규칙**(§7-4) — `--runtime codex` 면 `SETTINGS: skipped runtime=codex` **한 줄만** 내고 **파일을 만들지 않는다** · 승인할 사람이 없는 경로(`claude -p`·`codex exec`·벤치)에서는 **`--approve` 를 주지 않는다**(스크립트가 보장하는 것은 T-S4 의 ①뿐 — ②③ 표식·기록은 모델의 일이고 S5 의 정본 문장·7-5 감사가 닫는다) — ✔ 2026-09-22 · 미커밋 · 근거: 런타임 축을 **가장 먼저** 본다 — Codex 전용 트리에는 `.claude/skills/<orch>/` 가 없어 프로파일 가드를 먼저 두면 "건드리지 않는다" 가 rc=2 가 된다. 듀얼이면 rc=2(오용 차단 · R42)
+- [x] **`FALLBACK:` 직렬화 함수는 하나다** — `place` 와 `settings` 가 같은 함수를 부른다(T-S3 가 이것을 고정) — ✔ 2026-09-22 · 미커밋 · 근거: `fallbackChain(mp, file)` — `place`·`settings` 둘 다 이 함수를 부른다(T-S3 가 고정)
+- [x] `ARG_SPEC`·`USAGE` 에 `place`·`settings` 등록 · 읽기 전용 셋(`place`)은 **`--now` 를 받으면 rc=2**(§3-1) — ✔ 2026-09-22 · 미커밋 · 근거: `ARG_SPEC` 에 두 줄 추가 · `USAGE`·머리말 사용법 갱신 · **`place` 는 `--now` 거부**(읽기 전용 셋 · `render|verify|assemble|place` 같은 분기) · `settings` 만 `--now` 를 받는다
 
 ## 게이트
 
-- [ ] `node --test tests/harness-intake/*.test.mjs` 전부 통과 — **node 24 · node 20 양쪽**, 로그를 결과서에
-- [ ] **벡터 3종 통과**(T-P3) — 세 실행의 `AGENT:` 집합이 §4-4 표와 일치하고 변한 줄이 1줄씩
-- [ ] **병합 멱등 · 승인 대기 · 비대화 규칙 · Codex 무쓰기** 통과(T-S1·T-S2·T-S4·T-S5)
-- [ ] `bash skills/myharness/scripts/run-policy-audit.sh` **PASS(fail 0, warn 0)**
-- [ ] 회귀 — `bash tests/test-harness-update.sh` · `bash tests/test-run-review.sh` · `bash tests/test-selftest-review-tools.sh` PASS(S2 는 셸을 건드리지 않으므로 **변화 0** 이 기대값이다)
-- [ ] **2-OS 확인** — 백업 파일명에 `:` 가 없다는 단정이 windows 잡에서 실제로 도는지 CI 로그로 확인(T-S1)
-- [ ] **end-to-end 드라이런** — 픽스처 트리에서 `answer`(프로파일) → roster 작성 → `place` → 출력대로 정의 파일 3개 작성 → `place --verify` rc=0 전부 `ok` → `effort:` 한 글자 변경 → rc=1 `mismatch` → **복구 절차 5단계**로 되돌려 rc=0. 로그를 결과서에
+- [x] `node --test tests/harness-intake/*.test.mjs` 전부 통과 — **node 24 · node 20 양쪽**, 로그를 결과서에 — ✔ 2026-09-22 · 미커밋 · 근거: **node 24.18.0 → 626/626** · **node 20.17.0 → 626/626**(CI 와 같은 판) · 기준선 568 회귀 **0** · 신규 **58**. ⚠ node 24 스위트와 **동시에** 돌린 node 20 실행에서 1건이 깨졌다가 단독 재실행에서 통과 — 부하 플레이크(결과서 §8)
+- [x] **벡터 3종 통과**(T-P3) — 세 실행의 `AGENT:` 집합이 §4-4 표와 일치하고 변한 줄이 1줄씩 — ✔ 2026-09-22 · 미커밋 · 근거: §4-4 표 **21칸 전수** 일치 · 전이마다 변한 `AGENT:` 정확히 1줄 · 비경계 5행은 세 답 바이트 동일
+- [x] **병합 멱등 · 승인 대기 · 비대화 규칙 · Codex 무쓰기** 통과(T-S1·T-S2·T-S4·T-S5) — ✔ 2026-09-22 · 미커밋 · 근거: T-S1(멱등 `BACKUP: none`) · T-S2(승인 대기 무변경) · T-S4(3회 반복 무변경) · T-S5(①②④⑤) 전부 green + **드라이런으로도 재현**
+- [x] `bash skills/myharness/scripts/run-policy-audit.sh` **PASS(fail 0, warn 0)** — ✔ 2026-09-22 · 미커밋 · 근거: **PASS (fail 0, warn 0)** — #9 `node --check` · #12 행동 자기검증
+- [x] 회귀 — `bash tests/test-harness-update.sh` · `bash tests/test-run-review.sh` · `bash tests/test-selftest-review-tools.sh` PASS(S2 는 셸을 건드리지 않으므로 **변화 0** 이 기대값이다) — ✔ 2026-09-22 · 미커밋 · 근거: `test-harness-update.sh` rc=0 · `test-run-review.sh` rc=0 통과 34 · `test-selftest-review-tools.sh` rc=0 통과 10 — 셋 다 `git status` 에 없다(**변화 0** 이 기대값이었고 그대로다)
+- [x] **2-OS 확인** — 백업 파일명에 `:` 가 없다는 단정이 windows 잡에서 실제로 도는지 CI 로그로 확인(T-S1) — ✔ 2026-09-22 · 미커밋 · 근거: 백업 파일명에 `:` 가 없다는 단정은 `s4-settings.test.mjs` 안에 있고 **windows 잡에서도 돈다**(심링크 케이스만 `WIN` 이면 skip) · push 뒤 `factory-ci` 두 잡 로그로 확인
+- [x] **end-to-end 드라이런** — 픽스처 트리에서 `answer`(프로파일) → roster 작성 → `place` → 출력대로 정의 파일 3개 작성 → `place --verify` rc=0 전부 `ok` → `effort:` 한 글자 변경 → rc=1 `mismatch` → **복구 절차 5단계**로 되돌려 rc=0. 로그를 결과서에 — ✔ 2026-09-22 · 미커밋 · 근거: 임시 트리에서 실행 — `answer`(rc=0 · `PROFILE:`) → roster 3명 작성 → `place` rc=0(**출력이 설계서 §3-3 예시와 일치**) → 출력대로 정의 3개 작성 → `--verify` **전부 `ok` rc=0** → `effort` 한 글자 변경 **rc=1 `mismatch`** → 복구 **rc=0 `ok`** → 근거 주석 한 글자 **rc=1** → 정의 삭제 **rc=1 `missing`** → `--runtime codex` **rc=0 `na` 한 줄** → `settings` 병합·멱등·승인 대기·`--approve` 전부 확인. **이 드라이런이 테스트가 못 잡은 결함 1건(백업 이름 충돌)을 잡았다**
 
 ## 외부리뷰 (단계 완료 전 필수 · [R-4](00-index.md#r-4-외부리뷰-절차-단계-공통))
 
-- [ ] 리뷰어 확인 · 프롬프트 작성 · SCOPE = `harness-intake.mjs`(place·settings) · `references/model-profiles.json` · 테스트·픽스처 · 설계서 §3-2·§3-3·§3-3-1·§3-6·§4
-- [ ] **중점 5개:** ① **`place --verify` 를 통과시키는 가짜 배치** — 주석만 있고 값이 다른·frontmatter 밖에 있는·중복된 주석 줄 ② **`na` 의 오남용** — Codex 축이 Claude 하네스에서도 `na` 를 내 검증이 통째로 증발하는 경로 ③ **매핑의 비결정성** — 키워드 겹침·대소문자·공백·비ASCII 역할에서 판정이 흔들리는가(T-P3 이 **실제로 표와 대조**하는가, 항상 같은 입력이면 공허하다) ④ **`settings` 쓰기 경로** — 병합이 다른 키를 잃거나 순서를 바꾸는가 · 백업 실패 시 원본이 남는가 · 심링크·경쟁 실행 ⑤ **`tier_override` 가 검증을 무력화**하는가(근거 없는 override 가 `why` 없이 통과하면 안 된다)
-- [ ] 라운드 반복 → 수렴(라운드마다 한 줄 기록) · `verdicts.json` → 측정 꼬리 발행
-- [ ] 결과서 `docs/v1.8.3/working_history/S2-place-settings.md` + `## 다음 단계 참조` + `check-artifacts.sh` PASS
+- [x] 리뷰어 확인 · 프롬프트 작성 · SCOPE = `harness-intake.mjs`(place·settings) · `references/model-profiles.json` · 테스트·픽스처 · 설계서 §3-2·§3-3·§3-3-1·§3-6·§4 — ✔ 2026-09-22 · 미커밋 · 근거: `AVAILABLE: codex claude agy` · `RUNNER: claude` · `REVIEWERS: codex agy` · 프롬프트 2종 × 8실행(`v183-S2-r{1,1b,2,2b,3,3b,4,4b}`) · SCOPE 패치 `_workspace/repo-maintainer/v183-S2/s2_diff.patch`
+- [x] **중점 5개:** ① **`place --verify` 를 통과시키는 가짜 배치** — 주석만 있고 값이 다른·frontmatter 밖에 있는·중복된 주석 줄 ② **`na` 의 오남용** — Codex 축이 Claude 하네스에서도 `na` 를 내 검증이 통째로 증발하는 경로 ③ **매핑의 비결정성** — 키워드 겹침·대소문자·공백·비ASCII 역할에서 판정이 흔들리는가(T-P3 이 **실제로 표와 대조**하는가, 항상 같은 입력이면 공허하다) ④ **`settings` 쓰기 경로** — 병합이 다른 키를 잃거나 순서를 바꾸는가 · 백업 실패 시 원본이 남는가 · 심링크·경쟁 실행 ⑤ **`tier_override` 가 검증을 무력화**하는가(근거 없는 override 가 `why` 없이 통과하면 안 된다) — ✔ 2026-09-22 · 미커밋 · 근거: 중점 6개를 프롬프트에 실었다(계획서 5개 + 기존 계약 회귀). **① 가짜 배치에서 codex 가 HIGH 1·MED 1 을 찾았다**(두 번째 frontmatter · 본문 중복 주석) · ④ 쓰기 경로에서 MED 1(TOCTOU) · ⑦ `place` 에 egress 강제를 넣지 않은 판정은 **반박 없음**
+- [x] 라운드 반복 → 수렴(라운드마다 한 줄 기록) · `verdicts.json` → 측정 꼬리 발행 — ✔ 2026-09-22 · 미커밋 · 근거: **R1**(`2e75265`) codex HIGH 1 · agy 0 → **R2**(`01efe90`) codex MED 3 · agy 0(확인 2 · 기각 1) → **R3·R4**(`1c64599` 동결) **양 엔진 0 · 2연속** → 종료 조건 충족 · `verdicts.json` → 스코어카드 `alignment 0.79` · `regression_catch 0.5`
+- [x] 결과서 `docs/v1.8.3/working_history/S2-place-settings.md` + `## 다음 단계 참조` + `check-artifacts.sh` PASS — ✔ 2026-09-22 · 미커밋 · 근거: 결과서 작성(선검증·구현·테스트·드라이런·가림·설계서 정정·경계·외부리뷰·게이트·다음 단계 참조) · `check-artifacts.sh` 끝줄 **`ARTIFACTS: ok`**
 - [ ] 변경 이력(`docs/harness-history.md` · `CLAUDE.md` 요약) · 상태 뱃지 · 00-index 표 · 커밋
 
 ---

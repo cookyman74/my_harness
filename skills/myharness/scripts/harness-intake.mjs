@@ -4,7 +4,7 @@
 //   questions·answer·프로파일·render·verify = skills/myharness/references/harness-interview.md(카탈로그·기본값·답 문법·검증표·`at` 규칙 · 8~10절 결선).
 // 결정은 스크립트가, 추천과 질문은 모델이 — scan·questions·render·verify 는 관측만 하고, 파일을 쓰는 것은 answer(프로파일 1개 + prev) 뿐이다.
 //
-// 사용: node harness-intake.mjs <scan|questions|answer|render|verify|assemble|selftest> [--root <dir>] [--now <ISO>] …
+// 사용: node harness-intake.mjs <scan|questions|answer|render|verify|assemble|place|settings|selftest> [--root <dir>] [--now <ISO>] …
 //   scan              대상 루트(--root, 기본 cwd)의 에이전트·스킬·플러그인·신호·런타임을 15줄 계약으로 stdout 에
 //   questions         --mode <new|extend|maintain|update> [--orchestrator <이름>] [--after irreversible=<토큰,…>] → 문항 JSON 배열
 //   answer            --orchestrator <이름> (--set … | --from-env | --from-file <f>) [--defaults] [--recommended …] [--why …] [--mode new|extend]
@@ -14,6 +14,10 @@
 //   verify            --orchestrator <이름> → SKILL.md(블록 4종)·CLAUDE.md·AGENTS.md(premise) 대조 · stdout WIRED·DECLARED·ASSUMED 3줄
 //   assemble          --orchestrator <이름> --provider <id> --tier deep|standard|light --runtime <런타임> → 프로바이더 파라미터 조립
 //                     · stdout PROVIDER·MODEL·PARAMS·DROPPED 4줄 · 파일을 쓰지 않는다(v1.8.3 S1 · references/model-profiles.md)
+//   place             --orchestrator <이름> [--roster <f>] [--runtime claude|codex] [--agent <이름>] [--verify]
+//                     → 팀 구성표의 역할 한 줄에서 티어·모델·강도를 결정 · PLACE·AGENT·RATIONALE·UNMATCHED·FALLBACK · --verify 는 PLACED(v1.8.3 S2)
+//   settings          --orchestrator <이름> --set-fallback --runtime <런타임> --root <dir> [--now <ISO>] [--approve]
+//                     → <root>/.claude/settings.json 의 fallbackModel 만 키 단위 병합 · SETTINGS·FALLBACK·BACKUP(·NEEDS_APPROVAL) (v1.8.3 S2)
 //   그 밖             rc=2 `모르는 서브커맨드` + 사용법(stderr)
 // 종료코드: 0 정상 · 1 내용 검증 실패(scan·render 에는 없음 · verify 는 ok·na 아닌 판정) · 2 사용·환경 오류(프로파일 없음·손상 포함).
 // 규약: stdout = 계약 줄만(`KEY: value`, `\n`). 사람용 진단은 stderr — check-review-tools.sh 는 진단도 stdout 이라 선례가 아니다.
@@ -1483,6 +1487,64 @@ function setDotted(obj, dotted, value, file, id) {
   cur[segs[segs.length - 1]] = value;
 }
 
+/** 조립 코어 — `assemble` 과 `place` 가 **같은 함수**를 부른다(같은 규칙의 두 구현 금지 · §3-1 · S1 결과서 「다음 단계 참조」). */
+function assembleFor(mp, file, providerId, tier) {
+  const prov = mp.providers[providerId];
+  const tierObj = isObj(prov.tiers) && isObj(prov.tiers[tier]) ? prov.tiers[tier] : undefined;
+  if (tierObj === undefined) fail2(`providers.${providerId}.tiers.${tier} 가 없다: ${file}`);
+
+  const effort = tierObj.effort;
+  if (typeof effort !== "string" || effort === "") fail2(`providers.${providerId}.tiers.${tier}.effort 가 비었다: ${file}`);
+  const forbidden = Array.isArray(prov.effort_forbidden) ? prov.effort_forbidden : fail2(`providers.${providerId}.effort_forbidden 이 배열이 아니다: ${file}`);
+  // **MA3 — 금지값은 멈춘다.** 한 단계 올려 통과시키면(하한 클램프) 데이터 결함이 조용히 배포된다(PRD §3 제약 4).
+  if (forbidden.includes(effort)) fail2(`MA3 — tiers.${tier}.effort 가 금지값이다(providers.${providerId}.effort_forbidden): ${effort}`);
+  const vocab = Array.isArray(prov.effort_vocab) ? prov.effort_vocab : fail2(`providers.${providerId}.effort_vocab 이 배열이 아니다: ${file}`);
+  // S1 결정(S0 이월 · 결과서 §5-3) — 어휘에도 금지목록에도 없는 **오타값**은 모든 검사를 통과한 뒤 그대로 프로바이더로 나간다.
+  if (!vocab.includes(effort)) fail2(`tiers.${tier}.effort 가 effort_vocab 에 없다(providers.${providerId}): ${effort}(${vocab.join("|")})`);
+
+  const ef = prov.effort_field;
+  if (typeof ef !== "string" || ef === "") fail2(`providers.${providerId}.effort_field 가 비었다: ${file}`);
+  if (!isObj(prov.params)) fail2(`providers.${providerId}.params 가 객체가 아니다: ${file}`);
+  const drop = prov.drop;
+  if (!Array.isArray(drop) || drop.some((k) => typeof k !== "string")) fail2(`providers.${providerId}.drop 이 문자열 배열이 아니다: ${file}`);
+
+  // 조립 순서(§3-4): ① params 복사 → ② effort_field 얹기 → ③ drop 제거.
+  // 순서 자체는 **관측 불가능**하다 — 아래 명시 가드(drop 이 effort_field 를 제거 → rc=2)가 순서보다 먼저 걸리기 때문이다.
+  // 합법 입력 588조합 전수에서 두 순서의 결과가 다른 조합은 0 이다(설계서 §3-4 정정 · S1 결과서). 이 순서는 **읽는 사람의 모델**을 위한 것이고,
+  // 안전을 지키는 것은 가드 두 개와 아래 되읽기 사후조건이다.
+  const params = JSON.parse(JSON.stringify(prov.params));
+  const head = ef.split(".")[0];
+  setDotted(params, ef, effort, file, providerId);
+
+  const dropped = [];
+  for (const k of drop) {
+    // 추론 강도를 빼는 것은 MA2 위반이다 — 점 표기면 첫 마디도 같은 키다.
+    if (k === ef || k === head) fail2(`MA2 위반 — drop 이 effort_field 를 제거한다(providers.${providerId}.drop): ${k}`);
+    // **선언만 하고 아무것도 못 빼는 drop 은 rc=2** — 오타가 조용히 무효가 되면 "뺐다" 를 검증할 수 없다(§3-4).
+    if (!Object.hasOwn(params, k)) fail2(`drop 이 제거할 것이 없다(params 에 없는 키 · providers.${providerId}.drop): ${k}`);
+    delete params[k];
+    dropped.push(k);
+  }
+
+  // **되읽기 사후조건.** 조립이 끝난 뒤 `effort_field` 경로에 그 값이 실제로 있는지 확인한다.
+  // 위 두 가드(__proto__ · drop)가 막지 못한 새 경로로 추론 강도가 사라져도 여기서 멈춘다 —
+  // "조립했다" 는 rc=0 인데 보낼 것에 강도가 없는 상태를 통과시키지 않는다(MA2).
+  let cur = params;
+  for (const seg of ef.split(".")) {
+    if (!isObj(cur) || !Object.hasOwn(cur, seg)) cur = undefined;
+    else cur = cur[seg];
+    if (cur === undefined) break;
+  }
+  if (cur !== effort) fail2(`조립 결과에 effort_field 값이 없다(providers.${providerId}.effort_field=${ef}) — 조립이 추론 강도를 잃었다: ${file}`);
+
+  // pinned_id 는 사람이 명시할 때만 있다(§2-2) — 없으면 family_alias. 문자열 유효성은 검증하지 않는다(T-P7 · 실패 판정은 probe 몫).
+  const pinned = tierObj.pinned_id;
+  const model = typeof pinned === "string" && pinned !== "" ? pinned : tierObj.family_alias;
+  if (typeof model !== "string" || model === "") fail2(`providers.${providerId}.tiers.${tier}.family_alias 가 비었다: ${file}`);
+
+  return { model, effort, params, dropped };
+}
+
 function cmdAssemble(o, ctx) {
   const { mp, file } = loadModelProfiles();
 
@@ -1497,63 +1559,298 @@ function cmdAssemble(o, ctx) {
   if (!Object.hasOwn(mp.providers, o.provider)) {
     failUsage(`--provider 가 데이터 파일에 없다: ${o.provider}(${Object.keys(mp.providers).sort(cpCompare).join("|")})`);
   }
-  const prov = mp.providers[o.provider];
-  const tierObj = isObj(prov.tiers) && isObj(prov.tiers[o.tier]) ? prov.tiers[o.tier] : undefined;
-  if (tierObj === undefined) fail2(`providers.${o.provider}.tiers.${o.tier} 가 없다: ${file}`);
-
-  const effort = tierObj.effort;
-  if (typeof effort !== "string" || effort === "") fail2(`providers.${o.provider}.tiers.${o.tier}.effort 가 비었다: ${file}`);
-  const forbidden = Array.isArray(prov.effort_forbidden) ? prov.effort_forbidden : fail2(`providers.${o.provider}.effort_forbidden 이 배열이 아니다: ${file}`);
-  // **MA3 — 금지값은 멈춘다.** 한 단계 올려 통과시키면(하한 클램프) 데이터 결함이 조용히 배포된다(PRD §3 제약 4).
-  if (forbidden.includes(effort)) fail2(`MA3 — tiers.${o.tier}.effort 가 금지값이다(providers.${o.provider}.effort_forbidden): ${effort}`);
-  const vocab = Array.isArray(prov.effort_vocab) ? prov.effort_vocab : fail2(`providers.${o.provider}.effort_vocab 이 배열이 아니다: ${file}`);
-  // S1 결정(S0 이월 · 결과서 §5-3) — 어휘에도 금지목록에도 없는 **오타값**은 모든 검사를 통과한 뒤 그대로 프로바이더로 나간다.
-  if (!vocab.includes(effort)) fail2(`tiers.${o.tier}.effort 가 effort_vocab 에 없다(providers.${o.provider}): ${effort}(${vocab.join("|")})`);
-
-  const ef = prov.effort_field;
-  if (typeof ef !== "string" || ef === "") fail2(`providers.${o.provider}.effort_field 가 비었다: ${file}`);
-  if (!isObj(prov.params)) fail2(`providers.${o.provider}.params 가 객체가 아니다: ${file}`);
-  const drop = prov.drop;
-  if (!Array.isArray(drop) || drop.some((k) => typeof k !== "string")) fail2(`providers.${o.provider}.drop 이 문자열 배열이 아니다: ${file}`);
-
-  // 조립 순서(§3-4): ① params 복사 → ② effort_field 얹기 → ③ drop 제거.
-  // 순서 자체는 **관측 불가능**하다 — 아래 명시 가드(drop 이 effort_field 를 제거 → rc=2)가 순서보다 먼저 걸리기 때문이다.
-  // 합법 입력 588조합 전수에서 두 순서의 결과가 다른 조합은 0 이다(설계서 §3-4 정정 · S1 결과서). 이 순서는 **읽는 사람의 모델**을 위한 것이고,
-  // 안전을 지키는 것은 가드 두 개와 아래 되읽기 사후조건이다.
-  const params = JSON.parse(JSON.stringify(prov.params));
-  const head = ef.split(".")[0];
-  setDotted(params, ef, effort, file, o.provider);
-
-  const dropped = [];
-  for (const k of drop) {
-    // 추론 강도를 빼는 것은 MA2 위반이다 — 점 표기면 첫 마디도 같은 키다.
-    if (k === ef || k === head) fail2(`MA2 위반 — drop 이 effort_field 를 제거한다(providers.${o.provider}.drop): ${k}`);
-    // **선언만 하고 아무것도 못 빼는 drop 은 rc=2** — 오타가 조용히 무효가 되면 "뺐다" 를 검증할 수 없다(§3-4).
-    if (!Object.hasOwn(params, k)) fail2(`drop 이 제거할 것이 없다(params 에 없는 키 · providers.${o.provider}.drop): ${k}`);
-    delete params[k];
-    dropped.push(k);
-  }
-
-  // **되읽기 사후조건.** 조립이 끝난 뒤 `effort_field` 경로에 그 값이 실제로 있는지 확인한다.
-  // 위 두 가드(__proto__ · drop)가 막지 못한 새 경로로 추론 강도가 사라져도 여기서 멈춘다 —
-  // "조립했다" 는 rc=0 인데 보낼 것에 강도가 없는 상태를 통과시키지 않는다(MA2).
-  let cur = params;
-  for (const seg of ef.split(".")) {
-    if (!isObj(cur) || !Object.hasOwn(cur, seg)) cur = undefined;
-    else cur = cur[seg];
-    if (cur === undefined) break;
-  }
-  if (cur !== effort) fail2(`조립 결과에 effort_field 값이 없다(providers.${o.provider}.effort_field=${ef}) — 조립이 추론 강도를 잃었다: ${file}`);
-
-  // pinned_id 는 사람이 명시할 때만 있다(§2-2) — 없으면 family_alias. 문자열 유효성은 검증하지 않는다(T-P7 · 실패 판정은 probe 몫).
-  const pinned = tierObj.pinned_id;
-  const model = typeof pinned === "string" && pinned !== "" ? pinned : tierObj.family_alias;
-  if (typeof model !== "string" || model === "") fail2(`providers.${o.provider}.tiers.${o.tier}.family_alias 가 비었다: ${file}`);
+  const { model, params, dropped } = assembleFor(mp, file, o.provider, o.tier);
 
   // soft_switch 는 읽지 않는다(§3-4 R6 MED-1 · MA6 는 PRD §5 비목표) — `SOFT_SWITCH:` 줄도 만들지 않는다. T-D3 가 기계로 고정한다.
   const out = `PROVIDER: ${o.provider}\nMODEL: ${model}\nPARAMS: ${canon(params)}\n`
     + `DROPPED: ${dropped.length ? dropped.slice().sort(cpCompare).join(" ") : "none"}\n`;
   return { rc: 0, out, err: "" };
+}
+
+// ── S2(v1.8.3): 팀 구성표 · place · place --verify ──
+// 계약 단일 출처: 설계서 §3-2(roster) · §3-3(place) · §3-3-1(--verify) · §4(MA7 매핑).
+
+const ROSTER_SCHEMA = "team-roster/1";
+const ROSTER_MODES = ["hybrid", "sub", "team"];
+const RUN_KINDS = ["orchestrator", "sub-oneshot", "teammate"];
+const MULTITURN = ["orchestrator", "teammate"];        // 나머지(sub-oneshot)는 단발 — §3-2
+// 제어문자 검사는 기존 CTRL_RE(:774 · 탭 외 C0 + DEL)를 그대로 쓴다 — 같은 규칙의 두 상수를 만들지 않는다.
+// §4-1 기본 티어. **성격별 정책**이라 프로바이더와 무관하고, 데이터 파일 `placement` 는 keywords·priority·boundary
+// 셋만 갖는다(§2-2). 경계 행(build+단발 · 매칭 없음)만 데이터가 정한다. priority 에 있는 성격인데 여기 없으면 rc=2 —
+// 성격이 늘었는데 티어 정책이 비어 조용히 떨어지면 배치가 사라진 줄 모른다.
+const BASE_TIER = { build: "deep", collect: "light", design: "deep", docs: "standard", judge: "deep", orchestrate: "standard" };
+
+const rosterPath = (ctx, orch) => path.join(profilePaths(ctx, orch).dir, "team-roster.json");
+// --root 상대 경로를 **POSIX 구분자**로 낸다 — 출력이 OS 마다 달라지면 결정성 단정이 windows 에서만 깨진다.
+const relOf = (ctx, p) => path.relative(ctx.root, p).split(path.sep).join("/");
+// session_fallback 직렬화는 **함수 하나**다 — place 와 settings 가 같은 값을 내야 한다(T-S3).
+function fallbackChain(mp, file) {
+  const fb = mp.session_fallback;
+  if (!Array.isArray(fb) || fb.length === 0 || fb.some((x) => typeof x !== "string" || x === "")) {
+    fail2(`session_fallback 이 비지 않은 문자열 배열이 아니다: ${file}`);
+  }
+  return fb.join(",");
+}
+
+function readRoster(file) {
+  let raw;
+  try { raw = fs.readFileSync(file, "utf8"); }
+  catch (e) {
+    if (e.code === "ENOENT") fail2(`팀 구성표가 없다: ${file} — Phase 2-5 로 team-roster.json 을 만든다`);
+    fail2(`팀 구성표 읽기 실패: ${file} (${e.code || e.message})`);
+  }
+  let r;
+  try { r = JSON.parse(raw.replace(/^﻿/, "")); }
+  catch (e) { fail2(`팀 구성표 JSON 오류: ${file} (${e.message})`); }
+  if (!isObj(r)) fail2(`팀 구성표 최상위가 객체가 아니다: ${file}`);
+  // 여기서부터는 **내용 판정**이라 rc=1 이다 — 파일은 읽혔다(§3-3 rc 분할).
+  if (r.schema !== ROSTER_SCHEMA) fail1(`팀 구성표 schema 가 "${ROSTER_SCHEMA}" 가 아니다: ${JSON.stringify(r.schema)}`);
+  if (!ROSTER_MODES.includes(r.mode)) fail1(`mode 가 ${ROSTER_MODES.join("|")} 가 아니다: ${JSON.stringify(r.mode)}`);
+  if (!Array.isArray(r.agents) || r.agents.length === 0) fail1(`agents 가 비지 않은 배열이 아니다: ${file}`);
+  const seen = new Set();
+  for (const a of r.agents) {
+    if (!isObj(a)) fail1(`agents 항목이 객체가 아니다: ${file}`);
+    if (typeof a.name !== "string" || !ORCH_RE.test(a.name)) fail1(`agents[].name 이 ${ORCH_RE.source} 가 아니다: ${JSON.stringify(a.name)}`);
+    if (seen.has(a.name)) fail1(`agents[].name 이 중복이다: ${a.name}`);
+    seen.add(a.name);
+    // role 은 MA7 키워드 매칭의 입력이자 근거 주석에 실린다 — 제어문자가 들어오면 정의 파일 한 줄이 깨진다.
+    if (typeof a.role !== "string" || trimWs(a.role) === "") fail1(`agents[${a.name}].role 이 비어 있다`);
+    if (CTRL_RE.test(a.role)) fail1(`agents[${a.name}].role 에 제어문자가 있다(근거 주석은 한 줄이다)`);
+    if (!RUN_KINDS.includes(a.run)) fail1(`agents[${a.name}].run 이 ${RUN_KINDS.join("|")} 가 아니다: ${JSON.stringify(a.run)}`);
+    if (a.placed !== undefined && typeof a.placed !== "boolean") fail1(`agents[${a.name}].placed 가 불리언이 아니다`);
+    if (a.tier_override !== undefined) {
+      if (!TIERS.includes(a.tier_override)) fail1(`agents[${a.name}].tier_override 가 ${TIERS.join("|")} 가 아니다: ${JSON.stringify(a.tier_override)}`);
+      // **근거 없는 수동 배치 금지**(§3-2) — override 는 --verify 의 기대값을 바꾸므로 사유가 파일에 남아야 한다.
+      if (typeof a.tier_override_why !== "string" || trimWs(a.tier_override_why) === "") {
+        fail1(`agents[${a.name}] 에 tier_override_why 가 없다(근거 없는 수동 배치 금지)`);
+      }
+      if (CTRL_RE.test(a.tier_override_why)) fail1(`agents[${a.name}].tier_override_why 에 제어문자가 있다`);
+    }
+    // C-2 — 오케스트레이터는 스킬이라 정의 파일이 없다. placed:true 로 두면 전원 missing 으로 Phase 6 이 막힌다.
+    if (a.run === "orchestrator" && a.placed !== false) {
+      fail1(`agents[${a.name}] 은 run=orchestrator 인데 placed 가 false 가 아니다(오케스트레이터는 정의 파일이 없다 — C-2)`);
+    }
+  }
+  return r;
+}
+
+// §4-2 — 소문자화 + 연속 공백 1칸. **유니코드 정규화는 하지 않는다**(§12 미결 — 보이지 않는 변형을 같은 키로 만들지 않는다).
+const normRole = (role) => trimWs(String(role).toLowerCase().replace(/\s+/g, " "));
+
+/** 걸린 성격과 그 성격의 키워드들. 겹치면 placement.priority 순서가 이긴다(§4-2 규칙 3). 정규식이 아니라 부분 문자열이다. */
+function matchTrait(mp, role, file) {
+  const pl = mp.placement;
+  if (!isObj(pl) || !Array.isArray(pl.priority) || !isObj(pl.keywords)) fail2(`placement.priority·keywords 가 없다: ${file}`);
+  const n = normRole(role);
+  for (const t of pl.priority) {
+    const ws = pl.keywords[t];
+    // **빈 배열은 허용한다** — "그 성격은 매칭하지 않는다" 는 뜻이고, 어휘가 정말 데이터에서 오는지는
+    // 키워드를 지워 확인하는 것 외에 증명할 방법이 없다(MA2). 정본이 비지 않는다는 보장은 T-D2·감사 #13 이 갖는다.
+    if (!Array.isArray(ws) || ws.some((w) => typeof w !== "string")) fail2(`placement.keywords.${t} 가 문자열 배열이 아니다: ${file}`);
+    const hit = ws.filter((w) => typeof w === "string" && w !== "" && n.includes(w));
+    if (hit.length) return { trait: t, hit };
+  }
+  return { trait: null, hit: [] };
+}
+
+/** 성격·실행 모드·③ cost → 티어·via·사유 본문. **경계 행만** 데이터(placement.boundary)가 정한다(§4-3). */
+function decideTier(mp, trait, hit, run, cost, file) {
+  const bd = mp.placement.boundary;
+  if (!isObj(bd) || !isObj(bd.build_oneshot) || !isObj(bd.ambiguous)) fail2(`placement.boundary 가 없다: ${file}`);
+  const q = (xs) => xs.map((w) => `"${w}"`).join(",");
+  const fromBoundary = (row) => {
+    const t = bd[row][cost];
+    if (!TIERS.includes(t)) fail2(`placement.boundary.${row}.${cost} 가 티어가 아니다: ${file}`);
+    return t;
+  };
+  if (trait === null) return { tier: fromBoundary("ambiguous"), via: "ambiguous", why: "키워드 매칭 없음(모호)" };
+  if (trait === "build" && !MULTITURN.includes(run)) {   // 현재 유일한 경계 행(§4-3)
+    return { tier: fromBoundary("build_oneshot"), via: "boundary", why: `역할 어휘 ${q(hit)}→build(경계 행 · 단발)` };
+  }
+  const tier = BASE_TIER[trait];
+  if (tier === undefined) fail2(`placement.priority 의 성격 "${trait}" 에 §4-1 기본 티어가 없다: ${file}`);
+  return { tier, via: "matched", why: `역할 어휘 ${q(hit)}→${trait}(비경계)` };
+}
+
+/** roster 행 하나 → 배치 결과. --runtime codex 는 값을 정하지 않는다(런타임 기본 · SKILL.md:125). */
+function placeAgent(mp, file, a, cost, runtime, providerId) {
+  let tier, via, why, trait;
+  if (a.tier_override !== undefined) {          // 키워드·③ 승강을 통째로 건너뛴다(§3-2 · via 표)
+    tier = a.tier_override; via = "override"; why = a.tier_override_why; trait = "-";
+  } else {
+    const m = matchTrait(mp, a.role, file);
+    const d = decideTier(mp, m.trait, m.hit, a.run, cost, file);
+    tier = d.tier; via = d.via; why = d.why; trait = m.trait === null ? "-" : m.trait;
+  }
+  const base = { name: a.name, role: a.role, tier, trait, via, why };
+  if (runtime === "codex") return { ...base, model: "runtime-default", effort: "-" };
+  const asm = assembleFor(mp, file, providerId, tier);   // 같은 규칙의 두 구현 금지(§3-1) — S1 의 조립부를 그대로 부른다
+  return { ...base, model: asm.model, effort: asm.effort };
+}
+
+// 정의 파일에 들어갈 주석 한 줄. `--verify` 가 이 문자열을 **바이트 비교**한다(§3-3-1).
+const rationaleOf = (r, cost) => `# tier=${r.tier} trait=${r.trait} via=${r.via} cost=${cost} why=${r.why}`;
+
+/** place 공통 — roster·프로파일·데이터를 읽고 배치를 계산한다. `--verify` 와 **같은 입력·같은 계산**(§3-3-1). */
+function placeCore(o, ctx) {
+  const { mp, file } = loadModelProfiles();
+  const pp = profilePaths(ctx, o.orchestrator);
+  const prof = readProfile(pp.file);
+  if (prof === null) fail2(`하네스 프로파일이 없다: ${pp.file} (--root·--orchestrator 확인)`);
+  const rfile = o.roster === undefined ? rosterPath(ctx, o.orchestrator) : path.resolve(ctx.root, o.roster);
+  const roster = readRoster(rfile);
+
+  const cv = prof.obj.answers?.cost?.value;
+  const cost = Array.isArray(cv) ? cv[0] : undefined;
+  const costKeys = ITEM.cost.options.map((x) => x.key);
+  if (!costKeys.includes(cost)) fail1(`프로파일 ③ cost 답이 카탈로그 밖이다: ${JSON.stringify(cost)}(${costKeys.join("|")})`);
+
+  if (!Object.hasOwn(mp.runtime_provider, o.runtime)) {
+    failUsage(`--runtime 이 runtime_provider 에 없다: ${o.runtime}(${Object.keys(mp.runtime_provider).sort(cpCompare).join("|")})`);
+  }
+  const providerId = mp.runtime_provider[o.runtime];
+  if (!Object.hasOwn(mp.providers, providerId)) fail2(`runtime_provider.${o.runtime} = ${providerId} 가 providers 에 없다: ${file}`);
+
+  // placed:false 는 배치·검증 대상에서 뺀다(§3-2 · C-1·C-2). --agent 는 그 뒤에 한 명만 남긴다.
+  let rows = roster.agents.filter((a) => a.placed !== false);
+  if (o.agent !== undefined) {
+    rows = rows.filter((a) => a.name === o.agent);
+    if (rows.length === 0) fail1(`--agent 가 배치 대상에 없다: ${o.agent}`);
+  }
+  const placed = rows.map((a) => placeAgent(mp, file, a, cost, o.runtime, providerId)).sort((x, y) => cpCompare(x.name, y.name));
+  const head = `PLACE: ${o.orchestrator} roster=${relOf(ctx, rfile)} profile=${relOf(ctx, pp.file)} cost=${cost} runtime=${o.runtime} provider=${providerId}\n`;
+  return { mp, file, cost, placed, head, fallback: fallbackChain(mp, file) };
+}
+
+function cmdPlace(o, ctx) {
+  const c = placeCore(o, ctx);
+  if (o.verify) return placeVerify(o, ctx, c);
+  // AGENT: 의 why 는 **사유 본문 + " · <tier>"** 다(§3-3 예시). RATIONALE: 은 본문만 — 정의 파일에 그대로 들어간다.
+  const agents = c.placed.map((r) =>
+    `AGENT: ${r.name} tier=${r.tier} model=${r.model} effort=${r.effort} trait=${r.trait} via=${r.via} why=${r.why} · ${r.tier}\n`).join("");
+  const rats = c.placed.map((r) => `RATIONALE: ${r.name} ${rationaleOf(r, c.cost)}\n`).join("");
+  // 항목은 공백, 항목 **안의 토큰은 쉼표** — 둘 다 공백이면 이 줄을 파싱할 수 없다(설계서 §3-3 문구를 이렇게 확정).
+  const un = c.placed.filter((r) => r.via === "ambiguous").map((r) => `${r.name}=${normRole(r.role).split(" ").join(",")}`);
+  return { rc: 0, out: c.head + agents + rats + `UNMATCHED: ${un.length ? un.join(" ") : "none"}\n` + `FALLBACK: ${c.fallback}\n`, err: "" };
+}
+
+/** 정의 파일 한 개 판정. 우선순위 missing → unreadable → malformed → mismatch → ok(§3-3-1 · verify 규약과 같은 모양). */
+function verdictFor(ctx, r, cost) {
+  const f = path.join(ctx.root, ".claude", "agents", `${r.name}.md`);
+  const doc = readTarget(f);
+  if (doc.state === "absent") return "missing";
+  if (doc.state === "unreadable") return "unreadable";
+  const lines = doc.lines;
+  let i = 0;
+  while (i < lines.length && trimWs(lines[i]) === "") i++;
+  if (i >= lines.length || trimWs(lines[i]) !== "---") return "malformed";
+  let end = -1;
+  for (let j = i + 1; j < lines.length; j++) if (trimWs(lines[j]) === "---") { end = j; break; }
+  if (end === -1) return "malformed";
+  const fm = lines.slice(i + 1, end);
+  const field = (k) => {
+    const hit = fm.filter((l) => l.startsWith(`${k}:`));
+    return hit.length === 1 ? trimWs(hit[0].slice(k.length + 1)) : undefined;   // 중복 키는 undefined → mismatch
+  };
+  // 근거 주석은 **frontmatter 안**에 있어야 한다(§4-6) — 본문에 두면 사람이 본문을 고치다 지운다. 중복도 mismatch.
+  const cmt = fm.filter((l) => trimWs(l).startsWith("# tier="));
+  if (cmt.length !== 1 || trimWs(cmt[0]) !== rationaleOf(r, cost)) return "mismatch";
+  if (field("model") !== r.model || field("effort") !== r.effort) return "mismatch";
+  // **뒤따르는 `---` 블록이 배치값을 흉내 내면 mismatch.** 파서는 첫 블록만 읽으므로(실측: `scan` 이 첫 블록의
+  // model 을 낸다) 실행에는 영향이 없지만, 파일을 읽는 사람은 아래쪽 `model:` 을 진짜로 본다 — MA7 ① 이 지키려는 것이
+  // 바로 "적힌 근거를 믿을 수 있다" 이다. 본문의 수평선(`---`)은 정상이므로 **`model:`·`effort:` 를 담은 경우만** 잡는다.
+  for (let j = end + 1; j < lines.length; j += 1) {
+    const t = trimWs(lines[j]);
+    if (t.startsWith("model:") || t.startsWith("effort:") || t.startsWith("# tier=")) return "mismatch";
+  }
+  return "ok";
+}
+
+function placeVerify(o, ctx, c) {
+  // C-16 — codex 축은 배치값이 runtime-default/effort=- 라 **대조할 값이 없다**. 에이전트별로 내지 않는다.
+  if (o.runtime === "codex") return { rc: 0, out: c.head + "PLACED: na(codex — 런타임 기본)\n", err: "" };
+  const v = c.placed.map((r) => [r.name, verdictFor(ctx, r, c.cost)]);
+  // 배치 대상이 하나도 없으면(전원 placed:false) **`none`** 이다 — 빈 값은 "검사 결과 없음" 과 "줄이 깨졌다" 를
+  // 구분할 수 없고, 이 레포의 모든 계약 줄은 빈 경우 `none` 을 쓴다(`UNMATCHED:`·`BACKUP:`·`DROPPED:`).
+  const out = c.head + `PLACED: ${v.length ? v.map(([n, s]) => `${n}=${s}`).join(" ") : "none"}\n`;
+  // rc: 전부 ok 또는 na → 0(cmdVerify 와 같은 규약). na 를 실패로 세면 듀얼 감사가 상시 FAIL 한다(R34).
+  return { rc: v.some(([, s]) => s !== "ok" && s !== "na") ? 1 : 0, out, err: "" };
+}
+
+// 백업 파일명용 압축 시각 — ISO 에서 `-`·`:` 를 뺀다. **Windows 는 파일명에 `:` 를 쓸 수 없다**(2-OS CI 계약 · §3-6).
+const stampOf = (iso) => iso.replace(/[-:]/g, "");
+
+/** settings --set-fallback — **유일한 쓰기 명령**(§3-6). rc 는 0/2 뿐이고 승인 대기는 계약 줄로 낸다. */
+function cmdSettings(o, ctx, now) {
+  // ① 런타임 축을 **가장 먼저** 본다(C-15). Codex 전용 트리에는 `.claude/skills/<orch>/` 자체가 없어서
+  //    프로파일 가드를 먼저 두면 "건드리지 않는다" 가 rc=2 가 된다(T-S5 ①).
+  if (o.runtime !== "claude") {
+    const dir = profilePaths(ctx, o.orchestrator).dir;
+    // 듀얼 트리(.claude 쪽이 있다)인데 codex 를 넘긴 것은 **오용**이다 — 그대로 건너뛰면 MA7 자동 복구가 조용히 빠진다(R42).
+    if (fs.existsSync(dir)) {
+      fail2(`--runtime ${o.runtime} 인데 ${relOf(ctx, dir)} 가 있다(듀얼 하네스는 .claude 쪽 settings 를 써야 한다 — --runtime claude)`);
+    }
+    return { rc: 0, out: `SETTINGS: skipped runtime=${o.runtime}\n`, err: "" };
+  }
+
+  const pp = profilePaths(ctx, o.orchestrator);
+  if (readProfile(pp.file) === null) fail2(`하네스 프로파일이 없다: ${pp.file} (--root·--orchestrator 확인)`);
+  const { mp, file } = loadModelProfiles();
+  const want = fallbackChain(mp, file);            // place 의 FALLBACK: 과 **같은 함수**다(T-S3)
+
+  const cdir = path.join(ctx.root, ".claude");
+  const dest = path.join(cdir, "settings.json");
+  // 심링크는 따라가면 대상 밖을 덮는다 — 프로파일 쓰기 규칙과 같다(참조 문서 7절 「쓰기」).
+  if (isSymlink(cdir)) fail2(`심링크 디렉토리 — 쓰지 않는다: ${dest}`);
+  if (isSymlink(dest)) fail2(`심링크 — 따라가 다른 파일을 덮지 않도록 쓰지 않는다: ${dest}`);
+
+  let raw = null;
+  try { raw = fs.readFileSync(dest, "utf8"); }
+  catch (e) { if (e.code !== "ENOENT") fail2(`settings 읽기 실패: ${dest} (${e.code || e.message})`); }
+
+  const head = `SETTINGS: ${relOf(ctx, dest)}\nFALLBACK: ${want}\n`;
+  const backupLine = (p) => `BACKUP: ${p === null ? "none" : relOf(ctx, p)}\n`;
+
+  if (raw === null) {                              // 파일 없음 → 생성(디렉토리 포함) · 백업할 것이 없다
+    fs.mkdirSync(cdir, { recursive: true });
+    writeAtomic(dest, JSON.stringify({ fallbackModel: want }, null, 2) + "\n");
+    return { rc: 0, out: head + backupLine(null), err: "" };
+  }
+
+  let obj;
+  try { obj = JSON.parse(raw.replace(/^﻿/, "")); }
+  catch (e) { fail2(`settings JSON 오류 — 파일을 건드리지 않는다: ${dest} (${e.message})`); }
+  if (!isObj(obj)) fail2(`settings 최상위가 객체가 아니다 — 병합 대상이 아니다: ${dest}`);
+
+  const cur = obj.fallbackModel;
+  if (cur === want) return { rc: 0, out: head + backupLine(null), err: "" };   // 멱등 — 아무것도 쓰지 않는다
+
+  // 값이 **이미 있는데 다르면** 사람 확인 없이 덮지 않는다. 승인 대기는 실패가 아니라 결과이므로 rc=0 + 계약 줄이다(§3-6).
+  if (cur !== undefined && o.approve !== true) {
+    return {
+      rc: 0,
+      out: head + backupLine(null)
+        + `NEEDS_APPROVAL: fallbackModel before=${JSON.stringify(String(cur))} after=${JSON.stringify(want)} — --approve 로 다시 실행\n`,
+      err: "",
+    };
+  }
+
+  // 키 단위 병합 — 다른 키의 값·순서를 보존한다(있던 키면 제자리, 없던 키면 뒤에 붙는다).
+  // 같은 초에 두 번 쓰거나 --now 를 고정해 돌리면 백업 이름이 겹친다. 덮으면 **먼저 만든 백업을 잃고**,
+  // 그대로 실패시키면 사용자가 승인한 쓰기가 거부된다(드라이런 실측) — 겹치면 `-2`, `-3` … 으로 비켜 간다.
+  // `existsSync` 로 먼저 보고 쓰면 두 프로세스가 같은 경로를 고른다(TOCTOU · R2 codex MED).
+  // **`wx` 로 만들어 보고 EEXIST 면 다음 이름으로 전진**한다 — 만드는 행위 자체가 자리 선점이다.
+  const base = path.join(cdir, `settings.json.bak-${stampOf(now)}`);
+  let bak = null;
+  for (let n = 1; n <= 100; n += 1) {
+    const cand = n === 1 ? base : `${base}-${n}`;
+    try { fs.writeFileSync(cand, raw, { flag: "wx" }); bak = cand; break; }
+    catch (e) { if (e.code !== "EEXIST") fail2(`백업을 만들지 못해 쓰지 않는다: ${cand} (${e.code || e.message})`); }
+  }
+  if (bak === null) fail2(`백업 이름을 100회 시도해도 비우지 못했다 — 쓰지 않는다: ${base}`);
+  obj.fallbackModel = want;
+  writeAtomic(dest, JSON.stringify(obj, null, 2) + "\n");
+  return { rc: 0, out: head + backupLine(bak), err: "" };
 }
 
 // ── 인자 ──
@@ -1566,6 +1863,9 @@ const ARG_SPEC = {
   verify: { val: ["--root", "--orchestrator"], rep: [], flag: [] },
   // S4(v1.8.3) — 읽기 전용 셋. --now 를 받지 않는다(시각을 쓰지 않는다 · render·verify 와 같은 규약).
   assemble: { val: ["--root", "--orchestrator", "--provider", "--tier", "--runtime"], rep: [], flag: [] },
+  // S2(v1.8.3) — place 는 읽기 전용 셋(--now 거부) · settings 는 **유일한 쓰기 명령**이라 --now 를 받는다(백업 파일명).
+  place: { val: ["--root", "--orchestrator", "--roster", "--runtime", "--agent"], rep: [], flag: ["--verify"] },
+  settings: { val: ["--root", "--orchestrator", "--runtime", "--now"], rep: [], flag: ["--set-fallback", "--approve"] },
 };
 
 // 판정 순서 ① — 인자 형식·출처 개수·--orchestrator. 반복 가능 옵션(--set·--recommended·--why) 외에 두 번 오면 rc=2.
@@ -1584,7 +1884,7 @@ function parseS2Args(sub, argv) {
       const val = argv[++i];
       if (spec.rep.includes(a)) rep[a].push(val);
       else { if (seen.has(a)) failUsage(`옵션이 두 번: ${a}`); seen.add(a); v[a] = val; }
-    } else if (a === "--now" && (sub === "render" || sub === "verify" || sub === "assemble")) {
+    } else if (a === "--now" && (sub === "render" || sub === "verify" || sub === "assemble" || sub === "place")) {
       failUsage(`${sub} 는 --now 를 받지 않는다 — 시각을 쓰지 않는다(같은 프로파일 → 같은 출력)`);
     } else if (a.startsWith("-")) {
       failUsage(`모르는 옵션(${sub}): ${a}`);
@@ -1595,6 +1895,8 @@ function parseS2Args(sub, argv) {
   const o = {
     root: v["--root"], now: v["--now"], orchestrator: v["--orchestrator"], mode: v["--mode"], after: v["--after"], fromFile: v["--from-file"], block: v["--block"],
     provider: v["--provider"], tier: v["--tier"], runtime: v["--runtime"],
+    roster: v["--roster"], agent: v["--agent"], verify: seen.has("--verify"),
+    setFallback: seen.has("--set-fallback"), approve: seen.has("--approve"),
     fromEnv: seen.has("--from-env"), defaults: seen.has("--defaults"),
     set: rep["--set"], recommended: rep["--recommended"], why: rep["--why"],
   };
@@ -1609,6 +1911,16 @@ function parseS2Args(sub, argv) {
     if (o.orchestrator === undefined) failUsage("--orchestrator 가 없다");
     const n = (o.set.length ? 1 : 0) + (o.fromEnv ? 1 : 0) + (o.fromFile !== undefined ? 1 : 0);
     if (n > 1) failUsage("--set·--from-env·--from-file 중 하나만 쓴다");
+  } else if (sub === "place") {
+    if (o.orchestrator === undefined) failUsage("--orchestrator 가 없다");
+    if (o.runtime === undefined) o.runtime = "claude";   // place 의 --runtime 은 기본 claude(§3-1 — assemble 과 다르다)
+    if (o.agent !== undefined && !ORCH_RE.test(o.agent)) failUsage(`--agent 이름이 ${ORCH_RE.source} 가 아니다: ${JSON.stringify(o.agent)}`);
+  } else if (sub === "settings") {
+    if (o.orchestrator === undefined) failUsage("--orchestrator 가 없다");
+    // 유일한 쓰기 명령이라 cwd 추정을 금지한다 — 엉뚱한 디렉토리에 rc=0 으로 settings.json 을 만든다(§3-1).
+    if (o.root === undefined) failUsage("settings 는 --root 가 필요하다(유일한 쓰기 명령 — cwd 를 추정하지 않는다)");
+    if (!o.setFallback) failUsage("--set-fallback 이 없다(현재 settings 의 유일한 동작)");
+    if (o.runtime === undefined) failUsage("--runtime 이 없다(**대상 하네스의 런타임** — 실행 러너가 아니다)");
   } else if (sub === "assemble") {
     // 넷 다 필수다. --runtime 은 **대상 하네스의 런타임**이고(R25-1), 없으면 egress 강제 ①(S3)이 원리적으로 성립하지 않는다.
     if (o.orchestrator === undefined) failUsage("--orchestrator 가 없다");
@@ -1635,12 +1947,14 @@ function rootOf(root) {
 async function runS2(sub, argv) {
   try {
     const o = parseS2Args(sub, argv);
-    const now = sub === "questions" || sub === "answer" ? parseNow(o.now) : null; // render·verify·assemble 은 시각을 쓰지 않는다
+    const now = sub === "questions" || sub === "answer" || sub === "settings" ? parseNow(o.now) : null; // render·verify·assemble·place 는 시각을 쓰지 않는다
     const ctx = { root: rootOf(o.root), home: path.resolve(os.homedir()) };
     const r = sub === "questions" ? cmdQuestions(o, ctx)
       : sub === "answer" ? await cmdAnswer(o, ctx, now)
       : sub === "render" ? cmdRender(o, ctx)
       : sub === "assemble" ? cmdAssemble(o, ctx)
+      : sub === "place" ? cmdPlace(o, ctx)
+      : sub === "settings" ? cmdSettings(o, ctx, now)
       : cmdVerify(o, ctx);
     return exitWith(r.rc === undefined ? 0 : r.rc, r.out, r.err);
   } catch (e) {
@@ -1651,7 +1965,7 @@ async function runS2(sub, argv) {
 
 // ───────────────────────── CLI ─────────────────────────
 
-const USAGE = "사용: node harness-intake.mjs <scan|questions|answer|render|verify|assemble|selftest> [--root <dir>] [--now <ISO>] …(questions·answer·render·verify 옵션: references/harness-interview.md · assemble: references/model-profiles.md)";
+const USAGE = "사용: node harness-intake.mjs <scan|questions|answer|render|verify|assemble|place|settings|selftest> [--root <dir>] [--now <ISO>] …(questions·answer·render·verify 옵션: references/harness-interview.md · assemble·place·settings: references/model-profiles.md)";
 
 function exitWith(code, out, err) {
   if (err) process.stderr.write(err);
@@ -1671,7 +1985,7 @@ async function main(argv) {
     const r = spawnSync(process.execPath, [st, ...argv.slice(1)], { stdio: "inherit" });
     return exitWith(typeof r.status === "number" ? r.status : 2, "", r.error ? `harness-intake: selftest 실행 실패 (${r.error.message})\n` : "");
   }
-  if (sub === "questions" || sub === "answer" || sub === "render" || sub === "verify" || sub === "assemble") return runS2(sub, argv.slice(1));
+  if (sub === "questions" || sub === "answer" || sub === "render" || sub === "verify" || sub === "assemble" || sub === "place" || sub === "settings") return runS2(sub, argv.slice(1));
   if (sub !== "scan") return usageError(`모르는 서브커맨드: ${sub}`);
 
   let root = process.cwd();
