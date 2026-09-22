@@ -1,6 +1,7 @@
 # 설계서 — 모델 인지 하네스 (model-aware harness) v1.8.3
 
-> 상태: **시나리오 재검토 반영 · 교차검증 확인 라운드 미완**(2026-09-18 · **R35~R42 에서 HIGH 8건 추가 반영** · R43 은 codex 한도·agy 메모리로 미실행) — R1~R21 수렴 → 내부 재검토 21항목(R22~R32 수렴) → **사용자 시나리오 재검토**(검토자 4명 실행 기반 59건 → 확인 36건 반영) → R33 전파 수정 → **R34 는 codex 사용량 한도로 단일 출처(축소)라 수렴 카운트에 넣지 않았다**. **다음 세션에서 양 엔진 HIGH 0 2연속을 확인해야 구현(S0) 착수 조건이 선다** — `v183-design` R1~R21 수렴 → **2026-09-16 내부 재검토 21항목**(검토자 4명 · 소스 대조) → **R22~R25 반영 · 수렴 쌍 재시작**. 라운드별 트리 해시·판정은 검토 원장이 갖는다(**헤더에는 해시를 박지 않는다** — 라운드마다 바뀐다) · 상위: [`docs/v1.8.3/prd/model-aware-harness-prd.md`](../prd/model-aware-harness-prd.md)(MA1~MA9·MA15) · 검토 원장: [`docs/v1.8.3/working_history/prd-review.md`](../working_history/prd-review.md)(외부리뷰 R1~R12 수렴) · 작성일 2026-09-13 · 팩토리 버전 1.8.0(`.claude-plugin/plugin.json:4`)
+> 상태: **확정 — 외부리뷰 수렴**(2026-09-22 · `v183-design` **R1~R45** · R44·R45 양 엔진 신규 HIGH 0 2연속 · 트리 `8df5ac4`). 라운드별 판정·이월은 검토 원장이 갖는다 — R1~R21 수렴 → 내부 재검토 21항목(R22~R32 수렴) → **사용자 시나리오 재검토**(검토자 4명 실행 기반 59건 → 확인 36건 반영) → R33 전파 수정 → **R34 는 codex 사용량 한도로 단일 출처(축소)라 수렴 카운트에 넣지 않았다**. **다음 세션에서 양 엔진 HIGH 0 2연속을 확인해야 구현(S0) 착수 조건이 선다** — `v183-design` R1~R21 수렴 → **2026-09-16 내부 재검토 21항목**(검토자 4명 · 소스 대조) → **R22~R25 반영 · 수렴 쌍 재시작**. 라운드별 트리 해시·판정은 검토 원장이 갖는다(**헤더에는 해시를 박지 않는다** — 라운드마다 바뀐다) · 상위: [`docs/v1.8.3/prd/model-aware-harness-prd.md`](../prd/model-aware-harness-prd.md)(MA1~MA9·MA15) · 검토 원장: [`docs/v1.8.3/working_history/prd-review.md`](../working_history/prd-review.md)(외부리뷰 R1~R12 수렴) · 작성일 2026-09-13 · 팩토리 버전 1.8.0(`.claude-plugin/plugin.json:4`)
+> **수렴 후 편집(2026-09-22 · S0 착수 중 · 내용 불변 정정 2건).** 위 수렴 판정은 트리 `8df5ac4` 에 대한 것이고, 그 뒤 **자기모순 2건**만 고쳤다 — ① §2-2 qwen `soft_switch` 예시가 같은 절의 “모든 객체 키는 코드포인트 오름차순” 규약을 어겨 `{"off",…,"on"}` 순으로 정정(감사 #13·T-D2 가 FAIL 로 잡는 형태였다) · ② §4-2 `judge` 행에 `qa` 가 두 번 있어 1개로 정리(부분일치 집합이라 매칭 결과 불변). **계약·rc·테스트 ID 는 한 글자도 바뀌지 않았다.**
 > 이 문서가 확정하는 것(PRD 「다음 단계 참조」·검토 결과서 §4 가 설계서로 넘긴 7항목):
 > **프로파일 데이터 파일의 경로·형식·스키마 전체** · **어댑터 서브커맨드 계약(인자·출력 줄·rc)** · **MA7 매핑표(성격 6종·키워드·경계 행 승강)** · **MA7 ④ 배선 방식(a/b 중 택1)** · **MA15 `egress` 카탈로그 항목과 `:1229` 규칙 변경** · **정본 배선 치환표(배치 12줄 + 리뷰 엔진 5줄)** · **계약 테스트·probe 목록**.
 > 작성 원칙(v1.7.6 설계서와 동일): **모든 설계 근거는 소스·실행이다.** 확인하지 못한 것은 추정으로 채우지 않고 **"미실측"** 으로 표기하고 측정 항목(probe/계약 테스트)으로 올린다. 이 문서는 모델을 실행하지 않았다 — 런타임 실측이 필요한 항목은 전부 §9-2 probe 로 이월했다.
@@ -244,7 +245,7 @@ PRD §6-1 의 3층을 이 릴리스의 구현 경계로 내린다.
       "effort_forbidden": [],
       "params": {},
       "drop": [],
-      "soft_switch": { "on": "/think", "off": "/no_think" },
+      "soft_switch": { "off": "/no_think", "on": "/think" },
       "tiers": { … },
       "confirmed_at": "2026-09-10",
       "source_url": "https://docs.qwencloud.com/developer-guides/text-generation/thinking",
@@ -553,7 +554,7 @@ PRD MA7 이 기구(입력 2종 · 키워드 표 매칭 · 멀티턴/단발 = 실
 | 성격 | 키워드(부분 문자열 · 소문자 정규화 후) |
 |---|---|
 | `design` | `설계` `아키텍처` `adr` `prd` `기획` `스펙` `명세` `design` `architect` `spec` `plan` |
-| `judge` | `판정` `검증` `감사` `보안` `리뷰` `qa` `점검` `정합성` `테스트 작성` `verify` `review` `audit` `security` `qa` `validate` |
+| `judge` | `판정` `검증` `감사` `보안` `리뷰` `qa` `점검` `정합성` `테스트 작성` `verify` `review` `audit` `security` `validate` |
 | `build` | `구현` `리팩터` `수정` `개발` `빌드` `마이그레이션` `패치` `implement` `refactor` `build` `fix` `develop` |
 | `docs` | `문서` `동기화` `번역` `릴리스` `체인지로그` `readme` `doc` `sync` `translate` `release` `changelog` |
 | `orchestrate` | `조율` `오케스트레이` `통합` `배분` `지휘` `orchestrat` `coordinate` `integrate` |

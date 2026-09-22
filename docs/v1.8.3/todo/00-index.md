@@ -6,14 +6,15 @@
 
 ---
 
-## ⛔ 착수 전제 — 아직 열리지 않았다
+## ✅ 착수 전제 — 통과(2026-09-22)
 
-**설계서의 교차검증 확인 라운드가 미완이다.** R33 에서 시나리오 반영분의 전파 누락 5건(HIGH)을 고쳤고, R34 는 **codex 사용량 한도 소진**으로 agy 단독(축소) 라운드였다 — 정본 규약상 `degraded` 라운드는 교차검증이 아니므로 수렴 카운트에 넣지 않는다(`external-review-loop.md:182`).
+설계서 외부리뷰가 **수렴**했다 — `v183-design` **R44·R45 양 엔진 신규 HIGH 0 · 2연속**(트리 `8df5ac4`). 전체 45라운드 · 지적 114건(확인 103 · 기각 4 · 이월 6).
 
-- [ ] **R35 · R36 — 설계서 외부리뷰 양 엔진 신규 HIGH 0 · 2연속** — codex 한도 회복 후 실행. 통과해야 **S0 착수 조건이 선다**
-  - 근거: [검토 결과서 §8](../working_history/prd-review.md) · 원장 `_workspace/evals/external-review/v183-design/*/verdicts.json`(`termination_reason: running`)
-  - 실패 시: 지적을 반영하고 다시 2연속을 채운다. **반영 없이 단계로 넘어가지 않는다**
+- [x] **R44 · R45 — 설계서 외부리뷰 양 엔진 신규 HIGH 0 · 2연속** — ✔ 2026-09-22 · 미커밋 · 근거: `run-review.sh` 두 라운드 모두 두 엔진 `새 결함 없음` · 같은 트리 `8df5ac4` · 원장 `termination_reason: converged`([검토 결과서 §9](../working_history/prd-review.md))
+  - R35~R42 에서 **HIGH 13건**을 추가로 잡아 고쳤다(셸 스니펫 파싱 불가 · `tier_override` 계약 미폐쇄 · 듀얼 런타임 `settings` 누락 등) · R43 은 codex 한도·agy 메모리로 미실행
+  - **이월 6건**은 구현 단계에서 반영한다(S2 `T-P11` 산문 · S3 C-20 전파 · 표기 3건 · `.agents` 단독 비지원)
 
+**→ S0 이 열렸다.**
 ---
 
 ## 단계 목록 · 상태
@@ -22,7 +23,7 @@
 
 | 단계 | 문서 | 내용 | 등급 | 선행 | 테스트 | 상태 |
 |---|---|---|---|---|---|---|
-| S0 | [S0-preflight.md](S0-preflight.md) | 팩토리 리뷰 스킬 재생성 · `SKILL.md` 축소(단독 커밋) · 팩토리 번들 심링크·프로파일 · 데이터 파일 초안 | 중대 | 착수 전제 | 2 | ⬜ 미착수 |
+| S0 | [S0-preflight.md](S0-preflight.md) | 팩토리 리뷰 스킬 재생성 · `SKILL.md` 축소(단독 커밋) · 팩토리 번들 심링크·프로파일 · 데이터 파일 초안 | 중대 | 착수 전제 | 2 | ✅ 완료 |
 | S1 | [S1-assemble.md](S1-assemble.md) | `assemble` + MA2·MA3·MA4(프로바이더 어댑터·금지값·파라미터 제거) | 중대 | S0 | 6 | ⬜ 미착수 |
 | S2 | [S2-place-settings.md](S2-place-settings.md) | `place`·`place --verify` + MA7 매핑표 + roster + `settings --set-fallback` | 중대 | S1 | 14 | ⬜ 미착수 |
 | S3 | [S3-interview-egress.md](S3-interview-egress.md) | MA15 — 인터뷰 ⑥ `egress` · `catalog_version` 2 · `answer --only` · 연쇄 13곳 | 중대 | S2 | 17 | ⬜ 미착수 |
@@ -100,7 +101,7 @@
 | 3 | **모델 행동을 테스트로 고정하려 하기** — 스크립트 계약만 오프라인 단정 대상이다 | S2 T-S4 |
 | 4 | **배달 경로는 둘이다** — 생성(Phase 5 번들)과 갱신(`MANAGED_RELS`). 하나만 닫으면 갓 만든 하네스가 죽는다 | S5 |
 | 5 | **답을 조용히 덮기** — `--defaults` 는 선언 답을 기본값으로 되돌린다. `--only` 를 쓴다 | S3 |
-| 6 | **줄 예산은 지금 초과다** — 추가 +15 · 찾은 축소 −6 → `503/500`(감사 FAIL). S0 이 **≥11줄** 을 줄여야 S5 가 열린다 | S0 · S5 |
+| 6 | ~~줄 예산 초과~~ **해소(2026-09-22 · S0 ①)** — `SKILL.md` **494→478**(−16). S5 가 +15 를 더해도 **493/500 · 여유 7** | ~~S0~~ · S5 |
 
 ---
 
