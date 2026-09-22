@@ -26,7 +26,7 @@
 
 **구성:** 에이전트 5(`doc-syncer`, `release-manager`, `skill-maintainer`, `stabilizer`, `repo-qa`) + 스킬 3(`doc-sync`, `release-flow`, `skill-authoring`) + 오케스트레이터(`repo-maintainer`). 모드: 에이전트 팀(생성-검증+파이프라인 하이브리드), 전원 `model: opus`. **안정화 게이트(중대 blast-radius):** 팩토리 정본(`skills/myharness/`) 변경은 skill-maintainer→`stabilizer`(정책감사 `run-policy-audit.sh`·외부리뷰 `external-review-loop`·회귀 드라이런·리스크 등급 조절) 게이트 통과 후 배포. 상세는 각 `.claude/agents/*`, `.claude/skills/*`에서 단일 출처로 관리.
 
-**알려진 정합성 이슈:** 없음. 버전 1.8.0 정합(plugin=marketplace=badge×3=CHANGELOG), `bash skills/myharness/scripts/run-policy-audit.sh` PASS(fail 0, warn 0). **다음 릴리스 = v1.8.3**(모델 배치 · `docs/v1.8.3/` — 구 v1.7.7 재번호, 2026-09-13) — 설계서 수렴(R45) · 단계 계획서 8개 · **S0 완료(2026-09-22)**, 다음은 **S1 `assemble`**([`docs/v1.8.3/todo/00-index.md`](docs/v1.8.3/todo/00-index.md)). **HI10(인터뷰 효과 실측)은 보류 상태로 릴리스** — 배선은 검증, before/after 비교는 미실행(`docs/v1.7.6/working_history/S5-measurement.md` §5).
+**알려진 정합성 이슈:** 없음. 버전 1.8.0 정합(plugin=marketplace=badge×3=CHANGELOG), `bash skills/myharness/scripts/run-policy-audit.sh` PASS(fail 0, warn 0). **다음 릴리스 = v1.8.3**(모델 배치 · `docs/v1.8.3/` — 구 v1.7.7 재번호, 2026-09-13) — 설계서 수렴(R45) · 단계 계획서 8개 · **S0·S1 완료(2026-09-22)**, 다음은 **S2 `place`·`settings`**([`docs/v1.8.3/todo/00-index.md`](docs/v1.8.3/todo/00-index.md)). **HI10(인터뷰 효과 실측)은 보류 상태로 릴리스** — 배선은 검증, before/after 비교는 미실행(`docs/v1.7.6/working_history/S5-measurement.md` §5).
 
 ## 하네스: harness-ui-dev (harness-ui v0.6 기획·개발)
 
@@ -42,13 +42,13 @@
 
 ## 변경 이력
 
-전체 원장: [`docs/harness-history.md`](docs/harness-history.md) — 39건(2026-06-08~), 날짜 역순, 원문 보존. 과거 문서의 "CLAUDE.md 이력 YYYY-MM-DD" 인용은 원장의 같은 날짜 행이다.
+전체 원장: [`docs/harness-history.md`](docs/harness-history.md) — 40건(2026-06-08~), 날짜 역순, 원문 보존. 과거 문서의 "CLAUDE.md 이력 YYYY-MM-DD" 인용은 원장의 같은 날짜 행이다.
 **여기에는 최근 5건만 한 줄로 둔다** — 매 세션 로딩되는 파일이라 상세는 원장에 쓴다. 새 변경은 원장에 전문 행을 먼저 추가하고, 여기에 한 줄 요약을 올린 뒤 가장 오래된 요약을 지운다.
 
 | 날짜 | 변경 내용 | 대상 | 사유 |
 |------|----------|------|------|
+| 2026-09-22 | **v1.8.3 S1 완료** — `assemble`(MA2·MA3·MA4) 신설 · 설계서 §3-4 예시와 바이트 동일 · TDD 적색 26 → **30/30**(전체 538→**568** · 회귀 0) · 외부리뷰 **codex HIGH 1**(`effort_field: __proto__` 로 추론강도 조용히 유실) 가드 2개로 차단 · **설계서 정정 2건**(조립 순서는 관측 불가능 · `effort_vocab` 밖 rc=2) · R2·R3 양 엔진 0 수렴 | `skills/myharness/scripts/harness-intake.mjs`, `tests/**`, `docs/v1.8.3/**` | v1.8.3 S1 |
 | 2026-09-22 | **v1.8.3 S0 완료** — 리뷰 스킬 재생성(101→263줄 · 구판은 가드가 하나도 안 걸렸다) · `SKILL.md` **494→478**(줄 예산 해소) · 팩토리 번들 심링크+프로파일(이 레포 하네스 결선 최초 배선 · 헤딩 정본화) · `model-profiles.{json,md}` 신규 + T-D1·T-D2(테스트 518→538) · 외부리뷰 R1·R2 양 엔진 신규 결함 0 수렴 | `skills/myharness/**`, `.claude/skills/**`, `CLAUDE.md`, `AGENTS.md`, `docs/v1.8.3/**` | v1.8.3 S0 착수 |
 | 2026-09-18 | **v1.8.3 확인 라운드 R35~R43** — HIGH **8건** 추가 반영(셸 스니펫 파싱 불가 · `tier_override` 미폐쇄 · **듀얼 settings 누락** · 줄 예산 +15 재계수 등) · C 계열 고아 6건 일괄 전파 · 테스트 58 · **R43 은 codex 한도·agy 메모리로 미실행 → 수렴 미완** | `docs/v1.8.3/*` | 확인 라운드 요청 |
 | 2026-09-18 | **v1.8.3 작업계획서 8개**(00-index + S0~S6) — 체크박스 415 전부 미착수 · 완료 즉시 체크 + `✔ 날짜·커밋·근거` 규약(R-2) · 계약 테스트 56 정확 배정 · **착수 전제 = 설계 R35·R36 수렴**(미완) · 설계 줄 예산 −1 오류 정정 | `docs/v1.8.3/todo/` | 계획서 작성 요청 |
 | 2026-09-18 | **v1.8.3 시나리오 재검토** — 실행 기반 검토자 4명 59건 중 **36건 반영**(생성 번들 데이터 파일 · `MANAGED_RELS` 분리 · `answer --only` · roster `tier_override` · 팩토리 리뷰 스킬 재생성) · R33 전파 HIGH 5 · **R34 codex 한도로 축소** → **확인 라운드 미완**(다음 세션 R35·R36) | `docs/v1.8.3/` 문서 3종 | 시나리오 검토 요청 |
-| 2026-09-17 | **v1.8.3 재검토 수렴** — 내부 검토자 4명 69건(확인 66) + 외부리뷰 R22~R32 에서 **HIGH 12건 추가**(S5 게이트 교착 · 공허한 테스트 · ⑥ 미질문 · `at` 사양 버그 등) · 설계 1406줄 · PRD 499줄 · 테스트 48 · R31·R32 HIGH 0 2연속 | `docs/v1.8.3/` 문서 3종 | 사용자 재검토 요청 |

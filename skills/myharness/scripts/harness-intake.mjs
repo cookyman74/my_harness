@@ -4,7 +4,7 @@
 //   questions·answer·프로파일·render·verify = skills/myharness/references/harness-interview.md(카탈로그·기본값·답 문법·검증표·`at` 규칙 · 8~10절 결선).
 // 결정은 스크립트가, 추천과 질문은 모델이 — scan·questions·render·verify 는 관측만 하고, 파일을 쓰는 것은 answer(프로파일 1개 + prev) 뿐이다.
 //
-// 사용: node harness-intake.mjs <scan|questions|answer|render|verify|selftest> [--root <dir>] [--now <ISO>] …
+// 사용: node harness-intake.mjs <scan|questions|answer|render|verify|assemble|selftest> [--root <dir>] [--now <ISO>] …
 //   scan              대상 루트(--root, 기본 cwd)의 에이전트·스킬·플러그인·신호·런타임을 15줄 계약으로 stdout 에
 //   questions         --mode <new|extend|maintain|update> [--orchestrator <이름>] [--after irreversible=<토큰,…>] → 문항 JSON 배열
 //   answer            --orchestrator <이름> (--set … | --from-env | --from-file <f>) [--defaults] [--recommended …] [--why …] [--mode new|extend]
@@ -12,6 +12,8 @@
 //   selftest [대상]   selftest-harness-intake.mjs 로 얇게 위임(가드는 별도 파일 — 이 파일이 통째로 스텁으로 덮여도 살아남게)
 //   render            --orchestrator <이름> [--block <id>] → 프로파일만 읽어 표식 블록 5개(또는 1개)를 stdout 에(파일 쓰지 않음 · --now 거부)
 //   verify            --orchestrator <이름> → SKILL.md(블록 4종)·CLAUDE.md·AGENTS.md(premise) 대조 · stdout WIRED·DECLARED·ASSUMED 3줄
+//   assemble          --orchestrator <이름> --provider <id> --tier deep|standard|light --runtime <런타임> → 프로바이더 파라미터 조립
+//                     · stdout PROVIDER·MODEL·PARAMS·DROPPED 4줄 · 파일을 쓰지 않는다(v1.8.3 S1 · references/model-profiles.md)
 //   그 밖             rc=2 `모르는 서브커맨드` + 사용법(stderr)
 // 종료코드: 0 정상 · 1 내용 검증 실패(scan·render 에는 없음 · verify 는 ok·na 아닌 판정) · 2 사용·환경 오류(프로파일 없음·손상 포함).
 // 규약: stdout = 계약 줄만(`KEY: value`, `\n`). 사람용 진단은 stderr — check-review-tools.sh 는 진단도 stdout 이라 선례가 아니다.
@@ -1426,6 +1428,134 @@ function cmdVerify(o, ctx) {
   return { rc: w.some(([, v]) => v !== "ok" && v !== "na") ? 1 : 0, out, err: "" };
 }
 
+// ───────────────────────── S4(v1.8.3): 모델 프로파일 · assemble ─────────────────────────
+// 계약 단일 출처: docs/v1.8.3/design/model-aware-harness-design.md §2-1(경로)·§2-2(스키마)·§3-1(인자·rc)·§3-4(조립·출력).
+// **정본은 모델을 모른다** — 프로바이더·티어·파라미터는 전부 데이터 파일이 갖는다(MA2: 프로바이더 추가 = 파일 1개 편집, 코드 diff 0).
+
+const MODEL_PROFILES_SCHEMA = "model-profiles/1";
+const TIERS = ["deep", "standard", "light"];
+
+// 데이터 파일은 **SELF 상대 고정**이다(§2-1) — 이 스크립트와 함께 배달되는 정본이라 심링크로 실행해도 실경로로 풀린다.
+// `--root` 로 찾는 **인터뷰 프로파일과 경로 규칙이 다르다**(그쪽은 대상 레포의 것 · profilePaths).
+// env 노브는 두지 않는다 — 정책 입력을 env 로 열면 호출자가 fail-closed 를 우회한다(설계서 §0-7 c).
+const modelProfilesPath = () => path.join(path.dirname(SELF), "..", "references", "model-profiles.json");
+
+// 데이터 파일 로더 + 선사용 차단. `place`(S2)·`egress`(S3) 도 이 함수를 쓴다 — 같은 규칙의 두 구현을 만들지 않는다.
+function loadModelProfiles() {
+  const file = modelProfilesPath();
+  let raw;
+  try { raw = fs.readFileSync(file, "utf8"); }
+  catch (e) { fail2(`모델 프로파일 읽기 실패: ${file} (${e.code || e.message})`); }
+  let mp;
+  try { mp = JSON.parse(raw.replace(/^\uFEFF/, "")); }
+  catch (e) { fail2(`모델 프로파일 JSON 오류: ${file} (${e.message})`); }
+  if (!isObj(mp) || mp.schema !== MODEL_PROFILES_SCHEMA) fail2(`모델 프로파일 스키마 불일치(schema !== "${MODEL_PROFILES_SCHEMA}"): ${file}`);
+  if (!isObj(mp.providers) || Object.keys(mp.providers).length === 0) fail2(`모델 프로파일에 providers 가 없다: ${file}`);
+  if (!isObj(mp.runtime_provider) || Object.keys(mp.runtime_provider).length === 0) fail2(`모델 프로파일에 runtime_provider 가 없다: ${file}`);
+  // 예약 슬롯 선사용 차단(§2-2) — 값이 들어오면 **미검증 기능이 조용히 배포**된다. 뒤 릴리스가 열 자리다.
+  if (!isObj(mp.behavior) || Object.keys(mp.behavior).length !== 0) fail2(`behavior 는 이 릴리스에서 빈 객체여야 한다(L3 슬롯 예약 · MA5 는 ADR-002 뒤): ${file}`);
+  for (const id of Object.keys(mp.providers).sort(cpCompare)) {
+    const p = mp.providers[id];
+    if (!isObj(p)) fail2(`providers.${id} 가 객체가 아니다: ${file}`);
+    if (!isObj(p.local)) fail2(`providers.${id}.local 이 객체가 아니다: ${file}`);
+    for (const k of Object.keys(p.local).sort(cpCompare)) {
+      if (p.local[k] !== null) fail2(`providers.${id}.local.${k} 는 이 릴리스에서 null 이어야 한다(로컬 호스팅은 범위 밖 · MA2 슬롯): ${file}`);
+    }
+  }
+  return { mp, file };
+}
+
+// 점 표기 경로에 값을 얹는다 — `reasoning.effort` → {"reasoning":{"effort":…}}.
+// 중간 마디가 객체가 아니면 rc=2: 파라미터를 조용히 덮어써 **다른 요청이 나가는 것**을 막는다.
+function setDotted(obj, dotted, value, file, id) {
+  const segs = dotted.split(".");
+  if (segs.some((s) => s === "")) fail2(`providers.${id}.effort_field 의 점 표기가 비어 있다: ${JSON.stringify(dotted)} (${file})`);
+  // `__proto__` 는 일반 키가 아니다 — `obj["__proto__"] = v` 는 **키를 만들지 않고 프로토타입을 건드린다**.
+  // 그대로 두면 rc=0 인데 PARAMS 에 추론 강도가 없다(조용한 MA2 위반 · S1 R1 양 엔진 HIGH).
+  if (segs.includes("__proto__")) fail2(`providers.${id}.effort_field 에 __proto__ 마디를 쓸 수 없다: ${JSON.stringify(dotted)} (${file})`);
+  let cur = obj;
+  for (let i = 0; i < segs.length - 1; i++) {
+    const s = segs[i];
+    if (!Object.hasOwn(cur, s)) cur[s] = {};
+    else if (!isObj(cur[s])) fail2(`effort_field 경로가 params 와 충돌한다(providers.${id}.params.${segs.slice(0, i + 1).join(".")} 가 객체가 아니다): ${file}`);
+    cur = cur[s];
+  }
+  cur[segs[segs.length - 1]] = value;
+}
+
+function cmdAssemble(o, ctx) {
+  const { mp, file } = loadModelProfiles();
+
+  // 대상 하네스 확인(§3-1 fail-loud). 이 서브커맨드는 **파일을 쓰지 않지만**, 엉뚱한 --root 를 그대로 진행하면
+  // "조립됐다" 는 결과만 남고 어느 하네스의 것인지 알 수 없다. S3 의 egress 강제 ① 도 이 프로파일을 읽는다.
+  const pp = profilePaths(ctx, o.orchestrator);
+  if (readProfile(pp.file) === null) fail2(`하네스 프로파일이 없다: ${pp.file} (--root·--orchestrator 확인)`);
+
+  if (!Object.hasOwn(mp.runtime_provider, o.runtime)) {
+    failUsage(`--runtime 이 runtime_provider 에 없다: ${o.runtime}(${Object.keys(mp.runtime_provider).sort(cpCompare).join("|")})`);
+  }
+  if (!Object.hasOwn(mp.providers, o.provider)) {
+    failUsage(`--provider 가 데이터 파일에 없다: ${o.provider}(${Object.keys(mp.providers).sort(cpCompare).join("|")})`);
+  }
+  const prov = mp.providers[o.provider];
+  const tierObj = isObj(prov.tiers) && isObj(prov.tiers[o.tier]) ? prov.tiers[o.tier] : undefined;
+  if (tierObj === undefined) fail2(`providers.${o.provider}.tiers.${o.tier} 가 없다: ${file}`);
+
+  const effort = tierObj.effort;
+  if (typeof effort !== "string" || effort === "") fail2(`providers.${o.provider}.tiers.${o.tier}.effort 가 비었다: ${file}`);
+  const forbidden = Array.isArray(prov.effort_forbidden) ? prov.effort_forbidden : fail2(`providers.${o.provider}.effort_forbidden 이 배열이 아니다: ${file}`);
+  // **MA3 — 금지값은 멈춘다.** 한 단계 올려 통과시키면(하한 클램프) 데이터 결함이 조용히 배포된다(PRD §3 제약 4).
+  if (forbidden.includes(effort)) fail2(`MA3 — tiers.${o.tier}.effort 가 금지값이다(providers.${o.provider}.effort_forbidden): ${effort}`);
+  const vocab = Array.isArray(prov.effort_vocab) ? prov.effort_vocab : fail2(`providers.${o.provider}.effort_vocab 이 배열이 아니다: ${file}`);
+  // S1 결정(S0 이월 · 결과서 §5-3) — 어휘에도 금지목록에도 없는 **오타값**은 모든 검사를 통과한 뒤 그대로 프로바이더로 나간다.
+  if (!vocab.includes(effort)) fail2(`tiers.${o.tier}.effort 가 effort_vocab 에 없다(providers.${o.provider}): ${effort}(${vocab.join("|")})`);
+
+  const ef = prov.effort_field;
+  if (typeof ef !== "string" || ef === "") fail2(`providers.${o.provider}.effort_field 가 비었다: ${file}`);
+  if (!isObj(prov.params)) fail2(`providers.${o.provider}.params 가 객체가 아니다: ${file}`);
+  const drop = prov.drop;
+  if (!Array.isArray(drop) || drop.some((k) => typeof k !== "string")) fail2(`providers.${o.provider}.drop 이 문자열 배열이 아니다: ${file}`);
+
+  // 조립 순서(§3-4): ① params 복사 → ② effort_field 얹기 → ③ drop 제거.
+  // 순서 자체는 **관측 불가능**하다 — 아래 명시 가드(drop 이 effort_field 를 제거 → rc=2)가 순서보다 먼저 걸리기 때문이다.
+  // 합법 입력 588조합 전수에서 두 순서의 결과가 다른 조합은 0 이다(설계서 §3-4 정정 · S1 결과서). 이 순서는 **읽는 사람의 모델**을 위한 것이고,
+  // 안전을 지키는 것은 가드 두 개와 아래 되읽기 사후조건이다.
+  const params = JSON.parse(JSON.stringify(prov.params));
+  const head = ef.split(".")[0];
+  setDotted(params, ef, effort, file, o.provider);
+
+  const dropped = [];
+  for (const k of drop) {
+    // 추론 강도를 빼는 것은 MA2 위반이다 — 점 표기면 첫 마디도 같은 키다.
+    if (k === ef || k === head) fail2(`MA2 위반 — drop 이 effort_field 를 제거한다(providers.${o.provider}.drop): ${k}`);
+    // **선언만 하고 아무것도 못 빼는 drop 은 rc=2** — 오타가 조용히 무효가 되면 "뺐다" 를 검증할 수 없다(§3-4).
+    if (!Object.hasOwn(params, k)) fail2(`drop 이 제거할 것이 없다(params 에 없는 키 · providers.${o.provider}.drop): ${k}`);
+    delete params[k];
+    dropped.push(k);
+  }
+
+  // **되읽기 사후조건.** 조립이 끝난 뒤 `effort_field` 경로에 그 값이 실제로 있는지 확인한다.
+  // 위 두 가드(__proto__ · drop)가 막지 못한 새 경로로 추론 강도가 사라져도 여기서 멈춘다 —
+  // "조립했다" 는 rc=0 인데 보낼 것에 강도가 없는 상태를 통과시키지 않는다(MA2).
+  let cur = params;
+  for (const seg of ef.split(".")) {
+    if (!isObj(cur) || !Object.hasOwn(cur, seg)) cur = undefined;
+    else cur = cur[seg];
+    if (cur === undefined) break;
+  }
+  if (cur !== effort) fail2(`조립 결과에 effort_field 값이 없다(providers.${o.provider}.effort_field=${ef}) — 조립이 추론 강도를 잃었다: ${file}`);
+
+  // pinned_id 는 사람이 명시할 때만 있다(§2-2) — 없으면 family_alias. 문자열 유효성은 검증하지 않는다(T-P7 · 실패 판정은 probe 몫).
+  const pinned = tierObj.pinned_id;
+  const model = typeof pinned === "string" && pinned !== "" ? pinned : tierObj.family_alias;
+  if (typeof model !== "string" || model === "") fail2(`providers.${o.provider}.tiers.${o.tier}.family_alias 가 비었다: ${file}`);
+
+  // soft_switch 는 읽지 않는다(§3-4 R6 MED-1 · MA6 는 PRD §5 비목표) — `SOFT_SWITCH:` 줄도 만들지 않는다. T-D3 가 기계로 고정한다.
+  const out = `PROVIDER: ${o.provider}\nMODEL: ${model}\nPARAMS: ${canon(params)}\n`
+    + `DROPPED: ${dropped.length ? dropped.slice().sort(cpCompare).join(" ") : "none"}\n`;
+  return { rc: 0, out, err: "" };
+}
+
 // ── 인자 ──
 
 const ARG_SPEC = {
@@ -1434,6 +1564,8 @@ const ARG_SPEC = {
   // S3 — --now 는 받지 않는다(시각을 쓰지 않으므로 받으면 결정성을 오해한다 · rc=2).
   render: { val: ["--root", "--orchestrator", "--block"], rep: [], flag: [] },
   verify: { val: ["--root", "--orchestrator"], rep: [], flag: [] },
+  // S4(v1.8.3) — 읽기 전용 셋. --now 를 받지 않는다(시각을 쓰지 않는다 · render·verify 와 같은 규약).
+  assemble: { val: ["--root", "--orchestrator", "--provider", "--tier", "--runtime"], rep: [], flag: [] },
 };
 
 // 판정 순서 ① — 인자 형식·출처 개수·--orchestrator. 반복 가능 옵션(--set·--recommended·--why) 외에 두 번 오면 rc=2.
@@ -1452,7 +1584,7 @@ function parseS2Args(sub, argv) {
       const val = argv[++i];
       if (spec.rep.includes(a)) rep[a].push(val);
       else { if (seen.has(a)) failUsage(`옵션이 두 번: ${a}`); seen.add(a); v[a] = val; }
-    } else if (a === "--now" && (sub === "render" || sub === "verify")) {
+    } else if (a === "--now" && (sub === "render" || sub === "verify" || sub === "assemble")) {
       failUsage(`${sub} 는 --now 를 받지 않는다 — 시각을 쓰지 않는다(같은 프로파일 → 같은 출력)`);
     } else if (a.startsWith("-")) {
       failUsage(`모르는 옵션(${sub}): ${a}`);
@@ -1462,6 +1594,7 @@ function parseS2Args(sub, argv) {
   }
   const o = {
     root: v["--root"], now: v["--now"], orchestrator: v["--orchestrator"], mode: v["--mode"], after: v["--after"], fromFile: v["--from-file"], block: v["--block"],
+    provider: v["--provider"], tier: v["--tier"], runtime: v["--runtime"],
     fromEnv: seen.has("--from-env"), defaults: seen.has("--defaults"),
     set: rep["--set"], recommended: rep["--recommended"], why: rep["--why"],
   };
@@ -1476,6 +1609,13 @@ function parseS2Args(sub, argv) {
     if (o.orchestrator === undefined) failUsage("--orchestrator 가 없다");
     const n = (o.set.length ? 1 : 0) + (o.fromEnv ? 1 : 0) + (o.fromFile !== undefined ? 1 : 0);
     if (n > 1) failUsage("--set·--from-env·--from-file 중 하나만 쓴다");
+  } else if (sub === "assemble") {
+    // 넷 다 필수다. --runtime 은 **대상 하네스의 런타임**이고(R25-1), 없으면 egress 강제 ①(S3)이 원리적으로 성립하지 않는다.
+    if (o.orchestrator === undefined) failUsage("--orchestrator 가 없다");
+    if (o.provider === undefined) failUsage("--provider 가 없다");
+    if (o.tier === undefined) failUsage(`--tier 가 없다(${TIERS.join("|")})`);
+    if (!TIERS.includes(o.tier)) failUsage(`--tier 값이 아니다: ${o.tier}(${TIERS.join("|")})`);
+    if (o.runtime === undefined) failUsage("--runtime 이 없다(대상 하네스의 런타임 — 값 어휘는 데이터 파일 runtime_provider 가 갖는다)");
   } else {
     if (o.orchestrator === undefined) failUsage("--orchestrator 가 없다");
     if (o.block !== undefined && !BLOCK_IDS.includes(o.block)) failUsage(`--block 값이 블록 id 가 아니다: ${JSON.stringify(o.block)}(${BLOCK_IDS.join("|")})`);
@@ -1495,11 +1635,12 @@ function rootOf(root) {
 async function runS2(sub, argv) {
   try {
     const o = parseS2Args(sub, argv);
-    const now = sub === "questions" || sub === "answer" ? parseNow(o.now) : null; // render·verify 는 시각을 쓰지 않는다
+    const now = sub === "questions" || sub === "answer" ? parseNow(o.now) : null; // render·verify·assemble 은 시각을 쓰지 않는다
     const ctx = { root: rootOf(o.root), home: path.resolve(os.homedir()) };
     const r = sub === "questions" ? cmdQuestions(o, ctx)
       : sub === "answer" ? await cmdAnswer(o, ctx, now)
       : sub === "render" ? cmdRender(o, ctx)
+      : sub === "assemble" ? cmdAssemble(o, ctx)
       : cmdVerify(o, ctx);
     return exitWith(r.rc === undefined ? 0 : r.rc, r.out, r.err);
   } catch (e) {
@@ -1510,7 +1651,7 @@ async function runS2(sub, argv) {
 
 // ───────────────────────── CLI ─────────────────────────
 
-const USAGE = "사용: node harness-intake.mjs <scan|questions|answer|render|verify|selftest> [--root <dir>] [--now <ISO>] …(questions·answer·render·verify 옵션: references/harness-interview.md)";
+const USAGE = "사용: node harness-intake.mjs <scan|questions|answer|render|verify|assemble|selftest> [--root <dir>] [--now <ISO>] …(questions·answer·render·verify 옵션: references/harness-interview.md · assemble: references/model-profiles.md)";
 
 function exitWith(code, out, err) {
   if (err) process.stderr.write(err);
@@ -1530,7 +1671,7 @@ async function main(argv) {
     const r = spawnSync(process.execPath, [st, ...argv.slice(1)], { stdio: "inherit" });
     return exitWith(typeof r.status === "number" ? r.status : 2, "", r.error ? `harness-intake: selftest 실행 실패 (${r.error.message})\n` : "");
   }
-  if (sub === "questions" || sub === "answer" || sub === "render" || sub === "verify") return runS2(sub, argv.slice(1));
+  if (sub === "questions" || sub === "answer" || sub === "render" || sub === "verify" || sub === "assemble") return runS2(sub, argv.slice(1));
   if (sub !== "scan") return usageError(`모르는 서브커맨드: ${sub}`);
 
   let root = process.cwd();
