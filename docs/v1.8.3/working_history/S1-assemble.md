@@ -1,9 +1,10 @@
 # S1 결과서 — `assemble` 서브커맨드 (MA2·MA3·MA4)
 
 > 단계 문서: [`docs/v1.8.3/todo/S1-assemble.md`](../todo/S1-assemble.md) · 설계서 §3-1·§3-4·§2-1·§2-2·§9-1(T-A1~T-A4·T-D3·T-P7) · 등급 **중대**(팩토리 정본 변경 — 전 하네스 전파)
-> BASE `751d628`(S0 마감) · 작업 브랜치 `feat/model-aware-harness-v183` · 동결 트리 **R1 `6a85c84`** → **R2 `f299be6`**
+> BASE `751d628`(S0 마감) · 작업 브랜치 `feat/model-aware-harness-v183` · 동결 트리 **R1 `6a85c84`** → **R2·R3 `f299be6`** → **R4·R5 `f471fe0`**
 > 하네스: `repo-maintainer` — 오케스트레이터(계약 확정·구현·판정) · **테스트 작성자(repo-qa — 계약 테스트 28건을 구현 전에 적색으로)**
-> 상태: **완료 — 외부리뷰 수렴**(2026-09-22 · R1 HIGH 1 반영 → R2·R3 양 엔진 신규 결함 0 · 2연속 · 동결 트리 `f299be6`) · 커밋 대기(사용자 승인)
+> 상태: **완료 — 외부리뷰 수렴**(2026-09-22 · R1 HIGH 1 반영 → R2·R3 수렴 → 2-OS 수정 → **R4·R5 양 엔진 신규 결함 0 · 2연속 · 동결 트리 `f471fe0`**) 
+> 커밋 `151a794`(S1 본체) → `bdb521e`(2-OS 수정) · push · **2-OS green**
 > 선행 결과서: [S0](S0-preflight.md) 「다음 단계 참조」
 
 ---
@@ -90,7 +91,7 @@ S0 결과서 §5-3 이 남긴 구멍이다: `tiers.*.effort` 가 `effort_forbidd
 | `test-harness-update.sh` | rc=0 `PASS` |
 | `test-selftest-review-tools.sh` | rc=0 통과 10 · 실패 0 |
 | `test-run-review.sh` | rc=0 통과 34 · 실패 0 |
-| **2-OS green** | **미실행** — push(사용자 승인) 뒤 `factory-ci` 두 잡으로 잰다 |
+| **2-OS green** | **PASS** — `factory-ci` run `35703714400` · **windows success · linux success**(첫 push 의 run `35703256044` 은 windows 실패 → §9) |
 
 ## 8. 외부리뷰 (R-4 · 러너 `claude` 제외 · codex + agy)
 
@@ -102,7 +103,10 @@ S0 결과서 §5-3 이 남긴 구멍이다: `tiers.*.effort` 가 `effort_forbidd
 | R2 | `f299be6`(**동결**) | `새 결함 없음` | **`suspect`**(자체 테스트 대기로 판정 없이 종료) → 재실행 후 `새 결함 없음` | 신규 HIGH **0** |
 | R3 | `f299be6`(동결) | `새 결함 없음` | `새 결함 없음` | 신규 HIGH **0** |
 
-→ **양 엔진 신규 HIGH 0 · 2연속(R2·R3) · 동결 트리** = R-3 종료 조건 충족. `termination_reason: converged`.
+| R4 | `f471fe0`(**동결** · 2-OS 수정 반영) | `새 결함 없음` | `새 결함 없음` | 신규 HIGH **0** |
+| R5 | `f471fe0`(동결) | `새 결함 없음` | `새 결함 없음` | 신규 HIGH **0** |
+
+→ R2·R3 로 한 번 수렴했으나 **그 뒤 트리가 바뀌어**(§9 의 2-OS 수정) 수렴 쌍을 다시 셌다. **R4·R5 양 엔진 신규 HIGH 0 · 2연속 · 동결 트리 `f471fe0`** = R-3 종료 조건 충족. `termination_reason: converged`.
 
 **R1 판정(전건 소스 대조 · 위임하지 않았다)**
 
@@ -114,7 +118,20 @@ S0 결과서 §5-3 이 남긴 구멍이다: `tiers.*.effort` 가 `effort_forbidd
 
 **agy R2 의 `suspect` 원인과 조치.** agy 가 전체 스위트(130초)를 백그라운드로 돌리고 그 완료를 기다리다 판정 마커 없이 끝났다. `degraded`·판정 불명 라운드는 **수렴에 세지 않는다**(R-3) → 프롬프트에 "s4-assemble 하나만 전경으로 돌려라 · 전체 스위트는 돌리지 마라(이미 쟀다: 568 pass) · 반드시 판정 마커로 끝내라" 를 넣어 **재실행**했다. 같은 주의문을 이후 단계 프롬프트에 그대로 쓴다.
 
-스코어카드 — `_workspace/evals/external-review/v183-S1/20260922_071105/scorecard.json`: `rounds` 3 · `diff_lines` 853 · `risk_level` critical · 확인 2 · 부분 1 · 기각 0 · **`alignment_score` 0.83**. `regression_catch_rate` 는 **0** 이다 — R2·R3 재리뷰가 새로 잡은 것이 없다는 뜻이고, 결함이 R1 에 몰린 이 단계에서는 정상이다(S0 은 이슈 0 이라 지표가 전부 null 이었다).
+스코어카드 — `_workspace/evals/external-review/v183-S1/20260922_082355/scorecard.json`: `rounds` 5 · `diff_lines` 885 · `risk_level` critical · **확인 4 · 부분 1 · 기각 0** · **`alignment_score` 0.90**. `regression_catch_rate` 는 **0** 이다 — 재리뷰 라운드(R2~R5)가 새로 잡은 것이 없다는 뜻이고, 결함이 R1 과 **CI** 에 몰린 이 단계에서는 정상이다. **두 엔진이 못 잡은 결함 2건을 `factory-ci` 가 잡았다** — 그래서 verdicts 에 `source: factory-ci` 로 함께 기록했다(외부 리뷰어만으로는 이 단계가 닫히지 않았다는 사실을 지표에 남긴다).
+
+## 9. 2-OS 게이트가 잡은 것 — 리뷰어 둘이 못 본 결함 2건
+
+R2·R3 수렴 뒤 push 하자 `factory-ci` 의 **windows 잡이 실패**했다(linux 는 success). 둘 다 테스트·체크아웃 쪽이고 구현 계약은 바뀌지 않았다.
+
+| # | 증상 | 원인 | 조치 |
+|---|---|---|---|
+| 1 | `git diff 실패: fatal: unable to access '//./nul': Invalid argument`(rc=128) | **R1 에서 내가 넣은 수정이 원인이다.** agy MED 를 반영하며 `GIT_CONFIG_GLOBAL: os.devNull` 을 썼는데 Windows 에서 `os.devNull` 은 `\\.\nul` 이고 git(MSYS)은 그것을 config 경로로 열지 못한다 | **빈 임시 파일**로 교체 — 두 OS 에서 "설정 없음" 과 같다 |
+| 2 | 픽스처 바이트 비교 실패(`\r\n` vs `\n`) | 정본 `model-profiles.json` 이 windows 체크아웃에서 **CRLF** 가 된다. `.gitattributes` 가 `*.sh`·`*.mjs`·`*.yml` 만 덮고 **`*.json` 을 덮지 않았다** | `.gitattributes` 에 `*.json text eol=lf` 추가(기존 `*.sh`·`*.mjs` 와 같은 사유) **+** 테스트는 그것과 무관하게 성립하도록 개행 정규화 후 비교 |
+
+수정 후 **windows·linux 두 잡 모두 success**(run `35703714400`).
+
+**남길 교훈.** ① 외부 리뷰어 둘(macOS 한 대)이 R1~R3 을 통과시킨 뒤에도 **다른 OS 에서 깨지는 결함이 둘 남아 있었다** — 2-OS 게이트는 리뷰로 대체되지 않는다. ② **리뷰 지적을 반영한 수정이 새 결함을 만들 수 있다**(#1 은 내가 R1 에 넣은 줄이다) — 반영 뒤에도 게이트를 다시 통과시켜야 한다. ③ `.gitattributes` 가 덮지 않는 확장자는 **체크아웃이 환경마다 달라진다** — 바이트 비교 테스트를 새로 쓸 때 먼저 확인한다.
 
 ---
 
