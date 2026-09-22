@@ -4,6 +4,7 @@
 > BASE `6ce1006`(S1 마감) · 브랜치 `feat/model-aware-harness-v183` · 동결 트리 **R1 `2e75265`** → **R2 `01efe90`** → **R3·R4 `1c64599`**
 > 하네스: `repo-maintainer` — 오케스트레이터(계약 확정·구현·판정·드라이런) · **테스트 작성자(repo-qa — 계약 테스트 55건을 구현 전에 적색으로)**
 > 상태: **완료 — 외부리뷰 수렴**(2026-09-22 · R1 HIGH 1 · R2 MED 3 반영 → R3·R4 양 엔진 신규 결함 0 · 2연속)
+> 커밋 **a6d81ee** · push `6ce1006..a6d81ee` · **2-OS green**
 > 선행 결과서: [S1](S1-assemble.md) 「다음 단계 참조」
 
 ---
@@ -140,7 +141,7 @@ FALLBACK: opus,sonnet,haiku
 | `run-policy-audit.sh` | **PASS (fail 0, warn 0)** |
 | 셸 회귀 3종 | 전부 PASS · `git status` 에 없음(변화 0 이 기대값) |
 | end-to-end 드라이런 | 전 경로 계약대로 · **결함 1건 발견**(§4) |
-| 2-OS | push 뒤 `factory-ci` 두 잡으로 확인 |
+| 2-OS | **PASS** — `factory-ci` run `35735098265` · **windows success · linux success** |
 
 > **부하 플레이크 재확인(세 번째).** node 24 스위트와 node 20 스위트를 **동시에** 돌린 실행에서 기존 `s2-answer-profile` 계열 1건이 깨졌고 단독 재실행은 626/626 이었다. 원인은 `probeVersion` 의 **5000ms 하드 마감**(`harness-intake.mjs:400`) — CPU 포화 시 두 실행의 `scan.runtime` 값이 갈린다. **같은 뿌리가 S0 에서는 정책 감사 FAIL 로, S1 에서는 테스트 작성자의 플레이크로, 여기서는 node 20 실행으로 세 번 나타났다.** 테스트 수가 626 으로 늘었으니 **다음 단계에서 이 마감을 다루자**(제안: 테스트가 쓰는 경로에서 런타임 조회를 주입 가능하게 하거나, 마감 초과를 `unknown` 이 아니라 **재시도 1회** 로).
 
