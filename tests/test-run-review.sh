@@ -263,7 +263,9 @@ S=s-e2; mkp $S; recclear
 runx HARNESS_ORCHESTRATOR=ro-only REVIEW_GRADE=standard -- $S claude >/dev/null 2>"$TMP/e2.err"
 b=""
 js "$D/${S}_review_status.json" 'd.status==="no-reviewers"' || b="$b status;"
-js "$D/${S}_review_status.json" '/egress/.test(String(d.degraded||""))' || b="$b degraded에-egress-사유-없음;"
+# ⚠ 단정식을 `/` 로 시작하지 않는다 — Git Bash(MSYS)가 **경로로 오인해 인자를 변환**해 식이 깨진다
+#    (windows 잡 실측: `/egress/.test(…)` → `C:/Program Files/Git/egress/.test(…)` · 이 파일의 indexOf 단정들은 통과했다).
+js "$D/${S}_review_status.json" 'String(d.degraded||"").indexOf("egress")>=0' || b="$b degraded에-egress-사유-없음;"
 ranrev && b="$b 리뷰어가-실행됨;"
 S=s-e2b; mkp $S; recclear                                        # 대조군: 같은 트리·같은 스텁에서 any 프로파일은 리뷰어까지 간다
 runx HARNESS_ORCHESTRATOR="$ORCH" REVIEW_GRADE=standard -- $S claude >/dev/null 2>&1
