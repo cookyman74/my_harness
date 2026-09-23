@@ -162,7 +162,7 @@ R5·R6 에서 codex 가 연속으로 판정을 미뤘다. 원인은 이 변경�
 | `test-harness-update.sh` · `test-selftest-review-tools.sh` | 전부 PASS |
 | `run-policy-audit.sh` | **PASS (fail 0, warn 0)** — #11 이 `check-review-tools.sh` 를 격리 PATH 로 돌린다(탐지기를 안 건드렸음이 여기서 드러난다) |
 | 회귀 드라이런 | `status=completed` · `die_launcher` 없음 · `degraded` 예상과 일치(§6) |
-| 2-OS | **linux success · windows success**(run 35859541610 · 커밋 `7ccae56`) — linux **46/0/건너뜀 0** · windows **44/0/건너뜀 2**. 첫 push 는 windows 만 6건 실패했다(§9) |
+| 2-OS | **linux success · windows success**(run 35859541610 · 코드 최종 `7ccae56` · 마감 커밋 `9f05cbe` 도 두 잡 success) — linux **46/0/건너뜀 0** · windows **44/0/건너뜀 2**. 첫 push 는 windows 만 6건 실패했다(§9) |
 
 ## 9. 2-OS 게이트가 세 번째로 결함을 잡았다 — 이번엔 **테스트가 windows 에서 처음 돌았다**
 

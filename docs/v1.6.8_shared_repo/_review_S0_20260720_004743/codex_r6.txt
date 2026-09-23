@@ -1,0 +1,759 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.1
+--------
+workdir: /Users/junghojang/Developments/myProject/myHarness
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: medium
+reasoning summaries: none
+session id: 019f7b32-a262-77a2-ac95-dd0f2d2d2e04
+--------
+user
+readJsonlSafe 의 per-line JSON.parse 앞에 rawJsonDepth(line)>REG_MAX_STRUCT_DEPTH 깊이 가드를 추가했다(safeParseJson 과 동일·심층방어). 참고: V8 JSON.parse 는 실측상 깊은 중첩도 크래시/throw 없이 파싱하나(반복적 파서·프로세스 생존 확인), 깊은 객체가 하류 재귀에 유입되는 것을 차단하기 위해 진입 게이트로 거부(line-too-deep). 테스트 37 GREEN.
+harness-ui/src/server/adapters/regstore.ts readJsonlSafe 확인 + S0 전체(regstore.ts·regstore-index.ts·regstore-eval.ts) 최종 감사. 남은 HIGH 있나? 실코드만. 마지막 줄: '판정: no-high' 또는 '판정: HIGH n건'. 이건 보안 감사다.
+codex
+context-mode 적용. 먼저 지침과 대상 파일을 확인한 뒤, 변경된 깊이 가드가 실제 호출 경로에서 빠짐없이 동작하는지 보겠습니다.
+exec
+/bin/zsh -lc "sed -n '1,220p' /Users/junghojang/.codex/skills/context-mode/SKILL.md" in /Users/junghojang/Developments/myProject/myHarness
+ succeeded in 0ms:
+---
+name: context-mode
+description: Use the context-mode MCP server and routing hooks when tasks involve large context, many files, or repeated analysis that should be indexed instead of pasted.
+---
+
+# context-mode
+
+Use this skill when a task benefits from the context-mode MCP server installed from `mksglu/context-mode`.
+
+## What it does
+
+- Routes Codex tool use through context-mode hooks.
+- Pushes large or repeated context into indexed memory instead of flooding the chat.
+- Provides `ctx_*` commands for search, batch execution, indexing, and maintenance.
+
+## How to use
+
+- Keep `context-mode` installed on PATH.
+- Ensure `~/.codex/config.toml` contains the `context-mode` MCP server entry.
+- Ensure `~/.codex/hooks.json` points Codex hook events at `context-mode hook codex ...`.
+- Keep `~/.codex/AGENTS.md` loaded as the routing policy for Codex sessions.
+
+## When to prefer it
+
+- Large repo analysis.
+- Repeated file exploration.
+- Multi-file search or transform work.
+- Tasks that need a local indexed memory instead of raw transcript growth.
+
+## Operational rule
+
+- Prefer indexed search and batch execution over raw context dumps.
+- Prefer code that reads, indexes, and summarizes over manual copy/paste.
+
+exec
+/bin/zsh -lc 'git status --short' in /Users/junghojang/Developments/myProject/myHarness
+ succeeded in 0ms:
+ M harness-ui/scripts/eval-registry.mjs
+ M harness-ui/src/server/adapters/regstore-index.ts
+ M harness-ui/src/server/adapters/regstore.ts
+ M harness-ui/test/regstore-eval.test.ts
+ M harness-ui/test/regstore.test.ts
+?? docs/v1.6.8_shared_repo/_review_S0_20260720_004743/
+?? docs/v1.6.8_shared_repo/_review_S0_prompt.md
+
+codex
+작업 트리에 관련 변경이 이미 있습니다. 사용자 변경은 되돌리지 않고, 세 파일의 현재 실코드 기준으로 HIGH만 찾겠습니다.
+codex
+context-mode 도구 확인됨. 원문 덤프 대신 스크립트로 함수·호출부·재귀 위험 지점을 추려서 보겠습니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+codex
+첫 요약은 색인만 되고 세부가 바로 안 잡혔습니다. 이제 함수 단위로 줄 번호 포함 추출해서 readJsonlSafe와 S0 표면을 직접 확인합니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+codex
+색인 검색이 필요한 토큰을 못 찾아서, 출력 크기를 제한해 원문 일부를 직접 가져옵니다. 대상은 세 파일의 보안 관련 함수와 경계값뿐입니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+codex
+가드는 두 JSONL 파싱 지점 모두에 있습니다. 다음은 그 주변 구현이 false bypass나 하류 재귀 유입을 만들지 않는지, 그리고 S0 파일 간 신뢰 경계가 유지되는지 확인합니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+codex
+검색 레이어가 섹션을 과하게 쪼갰습니다. 작은 범위로 나눠 5KB 이하만 출력해 직접 읽겠습니다.
+exec
+/bin/zsh -lc "sed -n '1,140p' harness-ui/src/server/adapters/regstore-index.ts" in /Users/junghojang/Developments/myProject/myHarness
+exec
+/bin/zsh -lc "sed -n '1,120p' harness-ui/src/server/adapters/regstore-eval.ts" in /Users/junghojang/Developments/myProject/myHarness
+exec
+/bin/zsh -lc "sed -n '114,292p' harness-ui/src/server/adapters/regstore.ts" in /Users/junghojang/Developments/myProject/myHarness
+ succeeded in 0ms:
+// regstore-index.ts — 팀 공유 레지스트리 index.json 카탈로그 스키마·검증(S0·AR1·design §1-2).
+//   index.json 은 **CI 생성·검증**(수기 편집 금지). 각 엔트리 = 아티팩트 1개의 카탈로그 메타 + eval 등급.
+//   비신뢰 텍스트는 regstore.safeParseJson(크기·깊이 방어) 로 파싱 후 zod 검증(구조 위조 차단).
+import { z } from "zod";
+import { safeParseJson } from "./regstore.js";
+
+// 런타임 오리진(F12 런타임 id).
+export const RuntimeOrigin = z.enum(["claude", "codex", "gemini"]);
+
+export const RequiresSchema = z.object({
+  tools: z.array(z.string()).default([]), // 선언 tools(비신뢰 참고·안전 경계 아님·design §3-1)
+  model: z.string().nullable().default(null),
+});
+
+export const EvalSchema = z.object({
+  grade: z.enum(["A", "B", "C", "D"]),
+  mode: z.literal("static"), // S0 은 계층A 정적만(#/eval 재사용)
+  confidence: z.number().min(0).max(1),
+});
+
+export const IndexEntrySchema = z.object({
+  id: z.string().regex(/^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/i), // "{kind}/{name}" 정규 id
+  kind: z.enum(["skill", "agent"]),
+  name: z.string().min(1),
+  runtimeOrigin: RuntimeOrigin,
+  owner: z.string(), // git author 파생(meta.json)
+  version: z.string().default("0.0.0"),
+  description: z.string().default(""),
+  requires: RequiresSchema.default({ tools: [], model: null }),
+  eval: EvalSchema,
+  endorse: z.number().int().min(0).default(0), // ★ 집계
+  discussionUrl: z.string().url().nullable().default(null),
+});
+export type IndexEntry = z.infer<typeof IndexEntrySchema>;
+
+export const IndexSchema = z.object({
+  schema: z.literal("harness-registry/index@1"),
+  generatedAt: z.string(),
+  entries: z.array(IndexEntrySchema),
+});
+export type RegistryIndex = z.infer<typeof IndexSchema>;
+
+// meta.json(아티팩트별 소유자·오리진·토론링크·★) — 비신뢰 → safeParseJson + zod.
+//   **필드별 관대(.catch)**: 한 필드가 무효(예: 잘못된 URL)여도 전체를 기본값으로 날리지 않고
+//   그 필드만 폴백·나머지 유효 필드 보존(agy MED: 단일 무효 필드로 owner/endorse 유실되던 결함 수정).
+export const MetaSchema = z.object({
+  owner: z.string().default("unknown").catch("unknown"),
+  runtimeOrigin: RuntimeOrigin.default("claude").catch("claude"),
+  version: z.string().default("0.0.0").catch("0.0.0"),
+  tags: z.array(z.string()).default([]).catch([]),
+  endorse: z.number().int().min(0).default(0).catch(0),
+  discussionUrl: z.string().url().nullable().default(null).catch(null),
+});
+export type ArtifactMeta = z.infer<typeof MetaSchema>;
+
+export type ValidateResult<T> = { ok: true; value: T } | { ok: false; error: string };
+
+// index.json 텍스트 → 크기/깊이 안전 파싱 → 스키마 검증.
+export function validateIndex(text: string): ValidateResult<RegistryIndex> {
+  const parsed = safeParseJson(text);
+  if (!parsed.ok) return { ok: false, error: parsed.error };
+  const res = IndexSchema.safeParse(parsed.value);
+  if (!res.success) return { ok: false, error: "schema:" + res.error.issues[0]?.message };
+  return { ok: true, value: res.data };
+}
+
+// meta.json 텍스트 → 안전 파싱 → 스키마(관대·기본값 채움). 파싱 실패 시 기본 meta.
+export function parseMeta(text: string | null): ArtifactMeta {
+  if (!text) return MetaSchema.parse({});
+  const parsed = safeParseJson(text);
+  if (!parsed.ok) return MetaSchema.parse({});
+  const res = MetaSchema.safeParse(parsed.value);
+  return res.success ? res.data : MetaSchema.parse({});
+}
+
+ succeeded in 0ms:
+// regstore-eval.ts — 레지스트리 CI 자동채점(S0·AR2). 비신뢰 레지스트리 콘텐츠를 **안전 리더**로 읽어
+//   임시 런타임-채널 레이아웃으로 materialize → 기존 evaluateArtifacts(#/eval 4축) **무변경 재사용**(zero blast radius)
+//   → 등급/지적 산출 + index.json 카탈로그 생성. CI 가 PR 마다 실행(D등급 머지 차단은 옵션).
+//   모든 read 는 regstore(심링크 거부·크기캡·바이너리 거부·경로 allowlist) 경유 — 원격 오염 콘텐츠 격리.
+import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { evaluateArtifacts, type ArtifactScore } from "./artifacteval.js";
+import { readRegFile, listRegDirs } from "./regstore.js";
+import { parseMeta, IndexSchema, type IndexEntry, type RegistryIndex } from "./regstore-index.js";
+
+// 레지스트리 아티팩트 origin 포맷별 materialize 대상 채널(F12).
+const AGENT_FILES: Array<{ file: string; kind: "agent-md" | "agent-toml"; dest: (n: string) => string[] }> = [
+  { file: "claude.md", kind: "agent-md", dest: (n) => [".claude", "agents", `${n}.md`] },
+  { file: "codex.toml", kind: "agent-toml", dest: (n) => [".codex", "agents", `${n}.toml`] },
+  { file: "gemini.md", kind: "agent-md", dest: (n) => [".gemini", "agents", `${n}.md`] },
+];
+
+export interface RegistryEval {
+  index: RegistryIndex;
+  scores: ArtifactScore[];
+  skipped: Array<{ path: string; reason: string }>; // 안전 리더가 거부한 아티팩트(은폐 금지·명시)
+}
+
+// 안전 read → tmp 채널 파일 기록. 실패(거부)면 skipped 기록.
+async function materialize(
+  root: string,
+  segs: string[],
+  kind: Parameters<typeof readRegFile>[2],
+  tmp: string,
+  dest: string[],
+  skipped: RegistryEval["skipped"],
+): Promise<boolean> {
+  const r = await readRegFile(root, segs, kind);
+  if (!r.ok) {
+    skipped.push({ path: segs.join("/"), reason: r.error });
+    return false;
+  }
+  const full = join(tmp, ...dest);
+  await mkdir(join(full, ".."), { recursive: true });
+  await writeFile(full, r.text, "utf8");
+  return true;
+}
+
+// 레지스트리 root 를 CI 채점 → index.json + 점수. now = 결정적 타임스탬프(CI 주입).
+export async function evaluateRegistry(root: string, opts?: { now?: string }): Promise<RegistryEval> {
+  const now = opts?.now ?? "2026-01-01";
+  const skipped: RegistryEval["skipped"] = [];
+  const tmp = await mkdtemp(join(tmpdir(), "reg-eval-"));
+  // 이름 → meta(origin/owner/discussion) 색인.
+  const metaByName = new Map<string, ReturnType<typeof parseMeta>>();
+  try {
+    // ── 스킬: skills/{name}/SKILL.md → .claude/skills/{name}/SKILL.md ──
+    for (const name of await listRegDirs(root, "skills")) {
+      const ok = await materialize(root, ["skills", name, "SKILL.md"], "skill-md", tmp, [".claude", "skills", name, "SKILL.md"], skipped);
+      if (!ok) continue;
+      const m = await readRegFile(root, ["skills", name, "meta.json"], "meta");
+      metaByName.set("skill|" + name, parseMeta(m.ok ? m.text : null));
+    }
+    // ── 에이전트: agents/{name}/{claude.md|codex.toml|gemini.md} → 각 채널 ──
+    for (const name of await listRegDirs(root, "agents")) {
+      let placed = false;
+      for (const a of AGENT_FILES) {
+        const ok = await materialize(root, ["agents", name, a.file], a.kind, tmp, a.dest(name), skipped);
+        if (ok) placed = true;
+      }
+      if (!placed) continue;
+      const m = await readRegFile(root, ["agents", name, "meta.json"], "meta");
+      metaByName.set("agent|" + name, parseMeta(m.ok ? m.text : null));
+    }
+
+    // ── 기존 4축 평가 재사용(무변경) ──
+    const evalResult = await evaluateArtifacts(tmp, { now });
+
+    // ── index 엔트리 조립(eval + meta 조인) ──
+    const entries: IndexEntry[] = evalResult.artifacts.map((a) => {
+      const meta = metaByName.get(a.kind + "|" + a.name) ?? parseMeta(null);
+      return {
+        id: `${a.kind}/${a.name}`,
+        kind: a.kind,
+        name: a.name,
+        runtimeOrigin: meta.runtimeOrigin,
+        owner: meta.owner,
+        version: meta.version,
+        description: "", // 카탈로그는 요약만(본문은 diff/검토 관문서 — 원격 자동 신뢰 금지)
+        requires: { tools: [], model: null },
+        eval: { grade: a.grade, mode: "static" as const, confidence: a.confidence },
+        endorse: meta.endorse,
+        discussionUrl: meta.discussionUrl,
+      };
+    });
+    const index = IndexSchema.parse({ schema: "harness-registry/index@1", generatedAt: now, entries });
+    return { index, scores: evalResult.artifacts, skipped };
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+}
+
+ succeeded in 0ms:
+// 문자열-인지 raw 중첩 깊이 스캐너(JSON). "..." 내부의 괄호는 무시(false-reject 최소화).
+//   파싱 前 호출 → 깊은 중첩을 JSON.parse(스택 오버플로 위험) 전에 fail-closed 거부.
+export function rawJsonDepth(text: string): number {
+  let depth = 0;
+  let max = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === "{" || c === "[") {
+      depth++;
+      if (depth > max) max = depth;
+    } else if (c === "}" || c === "]") {
+      if (depth > 0) depth--;
+    }
+  }
+  return max;
+}
+
+// 파싱 결과 객체 깊이(BFS·비재귀 — 스택 안전·노드 예산 제한). cap 초과 즉시 true.
+// nodeBudget = BFS 순회 노드 상한(깊이가 아닌 노드폭발 DoS 보조가드). 기본은 넉넉히 —
+//   JSON.parse 가 이미 maxBytes 로 트리 크기를 제한하므로 정상 얕고-넓은 파일(대형 카탈로그)이
+//   오탐 거부되지 않게 한다(agy MED: 200k 로 16MB index 오탐 거부 수정). 호출측이 크기 비례로 지정.
+export function objectDepthExceeds(value: unknown, cap: number, nodeBudget = 10_000_000): boolean {
+  let budget = nodeBudget;
+  let frontier: unknown[] = [value];
+  let depth = 0;
+  while (frontier.length > 0) {
+    if (depth > cap) return true;
+    const next: unknown[] = [];
+    for (const node of frontier) {
+      if (--budget <= 0) return true; // 노드 폭발도 DoS → 거부
+      if (node && typeof node === "object") {
+        for (const v of Object.values(node as Record<string, unknown>)) next.push(v);
+      }
+    }
+    frontier = next;
+    depth++;
+  }
+  return false;
+}
+
+export type ParseResult<T = unknown> = { ok: true; value: T } | { ok: false; error: string };
+
+// YAML safe-load: `!!` 코드/커스텀 태그 사전 거부(방어적·eemeli 는 함수 실행 안 하나 명시 차단)
+//   + alias 확장 상한(maxAliasCount·billion-laughs) + 깊이 상한.
+const SAFE_YAML_TAG = /(^|[\s,{[])!!(?!str\b|int\b|float\b|bool\b|null\b|map\b|seq\b|binary\b|timestamp\b)/m;
+export function safeParseYaml(text: string): ParseResult {
+  if (SAFE_YAML_TAG.test(text)) return { ok: false, error: "unsafe-yaml-tag" };
+  let value: unknown;
+  try {
+    value = parseYaml(text, { maxAliasCount: REG_MAX_ALIAS });
+  } catch (e) {
+    return { ok: false, error: "yaml-parse:" + (e instanceof Error ? e.message : String(e)) };
+  }
+  if (objectDepthExceeds(value, REG_MAX_STRUCT_DEPTH)) return { ok: false, error: "yaml-too-deep" };
+  return { ok: true, value };
+}
+
+// JSON safe-parse: 크기 상한 → raw 깊이 상한(스택 방어) → JSON.parse → 결과 깊이 재확인.
+export function safeParseJson<T = unknown>(text: string, maxBytes = REG_MAX_INDEX): ParseResult<T> {
+  if (Buffer.byteLength(text, "utf8") > maxBytes) return { ok: false, error: "too-large" };
+  if (rawJsonDepth(text) > REG_MAX_STRUCT_DEPTH) return { ok: false, error: "json-too-deep" };
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (e) {
+    return { ok: false, error: "json-parse:" + (e instanceof Error ? e.message : String(e)) };
+  }
+  // 노드예산은 입력 크기 비례(정상 대형 카탈로그 오탐 방지·트리는 이미 maxBytes 로 제한됨).
+  if (objectDepthExceeds(value, REG_MAX_STRUCT_DEPTH, Math.max(10_000_000, Buffer.byteLength(text, "utf8")))) {
+    return { ok: false, error: "json-too-deep" };
+  }
+  return { ok: true, value: value as T };
+}
+
+// TOML safe-parse: 크기 상한 → @iarna strict parse(코드 실행 없음) → 깊이 상한.
+export function safeParseToml(text: string, maxBytes = REG_MAX_ARTIFACT): ParseResult {
+  if (Buffer.byteLength(text, "utf8") > maxBytes) return { ok: false, error: "too-large" };
+  let value: unknown;
+  try {
+    value = TOML.parse(text);
+  } catch (e) {
+    return { ok: false, error: "toml-parse:" + (e instanceof Error ? e.message : String(e)) };
+  }
+  if (objectDepthExceeds(value, REG_MAX_STRUCT_DEPTH)) return { ok: false, error: "toml-too-deep" };
+  return { ok: true, value };
+}
+
+// JSONL 스트리밍 안전 파서(게이트 파서 DoS 방어·R3 MED). FileHandle 청크 read 로
+//   줄당 max-line 상한 강제(2GB single-line 무-개행 → 버퍼 폭발 차단)·총 줄수 상한.
+//   경로안전 = 호출측이 신뢰 경로(우리 산출물) 전제. 반환 = 파싱된 엔트리 배열 or 에러.
+export async function readJsonlSafe(
+  path: string,
+  opts?: { maxLineBytes?: number; maxLines?: number },
+): Promise<{ ok: true; entries: unknown[] } | { ok: false; error: string }> {
+  const maxLine = opts?.maxLineBytes ?? REG_MAX_JSONL_LINE;
+  const maxLines = opts?.maxLines ?? REG_MAX_JSONL_LINES;
+  let fh;
+  try {
+    fh = await open(path, "r");
+  } catch {
+    return { ok: false, error: "open-failed" };
+  }
+  try {
+    const entries: unknown[] = [];
+    const CHUNK = 64 * 1024;
+    const chunk = Buffer.alloc(CHUNK);
+    // 줄을 **바이트**로 누적 후 개행에서 한 번에 디코딩 — 청크 경계서 UTF-8 멀티바이트(한글 등)
+    //   분할로 인한 `�` 오염 차단(agy HIGH: chunk.toString 부분 디코딩 결함 수정). 0x0a 는 UTF-8 에서
+    //   항상 단독 개행(연속/선두 바이트는 ≥0x80)이라 바이트 스캔이 문자 경계와 무관하게 안전.
+    let pendingChunks: Buffer[] = [];
+    let pendingBytes = 0;
+    let pos = 0;
+    const flushLine = (extra: Buffer): { line: string } => {
+      const buf = pendingChunks.length ? Buffer.concat([...pendingChunks, extra]) : extra;
+      pendingChunks = [];
+      pendingBytes = 0;
+      return { line: buf.toString("utf8").replace(/\r$/, "") };
+    };
+    for (;;) {
+      const { bytesRead } = await fh.read(chunk, 0, CHUNK, pos);
+      if (bytesRead === 0) break;
+      pos += bytesRead;
+      let start = 0;
+      for (let i = 0; i < bytesRead; i++) {
+        if (chunk[i] === 0x0a) {
+          // 라인 길이 = 이전 청크 누적 + 이번 청크 세그먼트. maxLine 을 청크 정렬 무관하게 강제
+          //   (codex non-HIGH: 한 청크 내 개행 라인 길이 재검사 누락 → 옵션 계약 느슨 수정).
+          if (pendingBytes + (i - start) > maxLine) return { ok: false, error: "line-too-long" };
+          const { line } = flushLine(chunk.subarray(start, i));
+          start = i + 1;
+          if (line.length === 0) continue;
+          if (entries.length >= maxLines) return { ok: false, error: "too-many-lines" };
+          // 깊이 가드 — safeParseJson 과 동일(일관성·심층방어·agy 지적). ※ 실측상 V8 JSON.parse 는
+          //   깊은 중첩도 크래시/throw 없이 파싱(반복적 파서)하나, 200k-깊이 객체가 파이프라인에
+          //   유입되면 하류 재귀 처리서 스택오버플로 가능 → 진입 차단(readJsonlSafe 가 가드 우회하던 결함).
+          if (rawJsonDepth(line) > REG_MAX_STRUCT_DEPTH) return { ok: false, error: "line-too-deep" };
+          try {
+            entries.push(JSON.parse(line));
+          } catch {
+            return { ok: false, error: "jsonl-parse" };
+          }
+        }
+      }
+      if (start < bytesRead) {
+        pendingBytes += bytesRead - start;
+        if (pendingBytes > maxLine) return { ok: false, error: "line-too-long" }; // 무-개행 폭주 차단
+        pendingChunks.push(Buffer.from(chunk.subarray(start, bytesRead))); // chunk 재사용 → 복사 필수
+      }
+    }
+    // 마지막 개행 없는 잔여 줄.
+    if (pendingBytes > 0) {
+      if (pendingBytes > maxLine) return { ok: false, error: "line-too-long" };
+      const { line } = flushLine(Buffer.alloc(0));
+      if (line.trim().length > 0) {
+        if (entries.length >= maxLines) return { ok: false, error: "too-many-lines" };
+        if (rawJsonDepth(line) > REG_MAX_STRUCT_DEPTH) return { ok: false, error: "line-too-deep" };
+        try {
+          entries.push(JSON.parse(line));
+        } catch {
+          return { ok: false, error: "jsonl-parse" };
+        }
+      }
+    }
+    return { ok: true, entries };
+  } catch {
+    return { ok: false, error: "read-failed" };
+  } finally {
+    await fh.close().catch(() => {});
+  }
+}
+
+codex
+readJsonlSafe 자체는 HIGH로 보이는 구멍이 없습니다. 이어서 readRegFile/listRegDirs 경계와 eval materialize 경로 연결을 대조합니다.
+exec
+/bin/zsh -lc "sed -n '1,113p' harness-ui/src/server/adapters/regstore.ts" in /Users/junghojang/Developments/myProject/myHarness
+exec
+/bin/zsh -lc "sed -n '293,520p' harness-ui/src/server/adapters/regstore.ts" in /Users/junghojang/Developments/myProject/myHarness
+ succeeded in 0ms:
+ succeeded in 0ms:
+// regstore.ts — 팀 공유 레지스트리(shared-repo·v1.6.8 S0) untrusted 콘텐츠 안전 리더·파서.
+//   원격 git clone 캐시는 **비신뢰**(§설계 §3-0·§4-2) → 모든 읽기에 심층방어:
+//     ① 경로안전 = 기존 openSafeFile 재사용(per-seg lstat 심링크 거부·realpath 이중앵커·dev/ino) — 신규 발명 금지.
+//     ② 크기 상한 = 파일 종류별(개별 아티팩트 작게·index.json 카탈로그 크게·R4 MED).
+//     ③ 바이너리 거부(NUL 스캔)·경로 allowlist(정규 텍스트 kind 만).
+//     ④ 구조 파서 DoS 방어: YAML `!!` 코드태그/alias 폭발/깊이·JSON/TOML 깊이·JSONL 스트리밍 max-line.
+//   스캔은 **advisory 아님 — 경계**: 여기서 fail-closed(거부) 하면 상위(diff·스캔·index·설치)가 오염 콘텐츠를 못 읽는다.
+import { open, opendir, lstat } from "node:fs/promises";
+import { join } from "node:path";
+import TOML from "@iarna/toml";
+import { parse as parseYaml } from "yaml";
+import { openSafeFile } from "../lib/servefile.js";
+import { isSafeSegment } from "../lib/paths.js";
+
+// ── 상한(종류별·R4 MED: 일괄 1MB 금지) ─────────────────────────────────────────
+export const REG_MAX_ARTIFACT = 256 * 1024; // 개별 아티팩트(SKILL.md·meta.json·codex.toml·ir.json) 256KB
+export const REG_MAX_INDEX = 16 * 1024 * 1024; // index.json 카탈로그(팀 성장 대비 큰 상한·스트리밍성)
+export const REG_MAX_JSONL_LINE = 1 * 1024 * 1024; // 게이트 파서(summary.jsonl 등) 한 줄 상한(2GB single-line OOM 차단)
+export const REG_MAX_JSONL_LINES = 100_000; // JSONL 총 줄 상한
+export const REG_MAX_STRUCT_DEPTH = 64; // JSON/TOML/YAML 중첩 깊이 상한(billion-laughs·깊은 중첩 DoS)
+export const REG_MAX_ALIAS = 100; // YAML alias 확장 상한(eemeli 기본과 동일·명시)
+
+// 레지스트리 파일 종류 → allowlist(정규 텍스트만)·크기 상한.
+export type RegKind = "skill-md" | "agent-md" | "agent-toml" | "agent-ir" | "meta" | "index";
+const KIND_MAX: Record<RegKind, number> = {
+  "skill-md": REG_MAX_ARTIFACT,
+  "agent-md": REG_MAX_ARTIFACT,
+  "agent-toml": REG_MAX_ARTIFACT,
+  "agent-ir": REG_MAX_ARTIFACT,
+  meta: REG_MAX_ARTIFACT,
+  index: REG_MAX_INDEX,
+};
+
+export type ReadResult =
+  | { ok: true; text: string; bytes: number }
+  | { ok: false; error: string };
+
+// NUL 바이트 스캔(바이너리 거부). 첫 8KB 만 검사(정규 텍스트는 헤더에 NUL 없음·비용 억제).
+function looksBinary(buf: Buffer): boolean {
+  const n = Math.min(buf.length, 8192);
+  for (let i = 0; i < n; i++) if (buf[i] === 0) return true;
+  return false;
+}
+
+// 비신뢰 캐시에서 kind 파일 안전 read. openSafeFile 로 경로안전 → 크기캡 → 바이너리 거부.
+//   segs = root 기준 상대 세그먼트(예: ["skills","foo","SKILL.md"]). 전 세그먼트 isSafeSegment.
+export async function readRegFile(root: string, segs: string[], kind: RegKind): Promise<ReadResult> {
+  if (segs.length === 0 || segs.some((s) => !isSafeSegment(s))) return { ok: false, error: "invalid-path" };
+  // denyPath: dotfile/.git 등 비아티팩트 경로 거부(rel 문자열·해석 前).
+  const r = await openSafeFile(root, root, segs, { denyPath: (rel) => /(^|\/)\./.test(rel) });
+  if (!r.ok) return { ok: false, error: r.error };
+  try {
+    const max = KIND_MAX[kind];
+    if (r.st.size > max) return { ok: false, error: "too-large" };
+    const buf = Buffer.alloc(r.st.size);
+    if (r.st.size > 0) await r.fh.read(buf, 0, r.st.size, 0);
+    if (looksBinary(buf)) return { ok: false, error: "binary-rejected" };
+    return { ok: true, text: buf.toString("utf8"), bytes: r.st.size };
+  } catch {
+    return { ok: false, error: "read-failed" };
+  } finally {
+    await r.fh.close().catch(() => {});
+  }
+}
+
+// 비신뢰 캐시 하위 dir 안전 리스팅. subdir(예 "skills"·"agents") 하위의 정규 디렉토리 이름만 반환.
+//   심링크 디렉토리 거부(lstat)·isSafeSegment·개수 상한(스캔 폭발 차단).
+export async function listRegDirs(root: string, subdir: string, cap = 2000, scanCapArg?: number): Promise<string[]> {
+  if (!isSafeSegment(subdir)) return [];
+  const base = join(root, subdir);
+  // subdir 자체가 심링크면 거부(비신뢰 캐시서 `skills`->/etc 같은 심링크로 경계 밖 디렉토리 enumeration·
+  //   entry 이름 유출 차단·codex HIGH). readdir 前 lstat 게이트.
+  try {
+    const bst = await lstat(base);
+    if (bst.isSymbolicLink() || !bst.isDirectory()) return [];
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  // opendir 지연 순회 — cap 에서 조기 중단(readdir 전량 로드 회피·거대 dir 메모리 DoS 방어).
+  //   scanCap = **총 스캔 엔트리 상한**(push 수 아님). safe-name 비디렉토리를 대량 배치해 전 엔트리
+  //   lstat 를 유발하는 스캔 폭발 DoS 차단(codex HIGH: cap 이 out.length 에만 적용되던 결함 수정).
+  const scanCap = scanCapArg ?? Math.max(cap * 8, 20_000);
+  let scanned = 0;
+  let dir;
+  try {
+    dir = await opendir(base);
+  } catch {
+    return [];
+  }
+  try {
+    for await (const e of dir) {
+      if (out.length >= cap || scanned >= scanCap) break; // break → for-await 가 iterator.return() 로 dir 자동 close
+      scanned++; // 모든 엔트리(디렉토리 아니어도) 카운트 → lstat 전량 수행 폭발 차단
+      if (!isSafeSegment(e.name)) continue;
+      // 엔트리 심링크 dir 거부(심링크로 경계 밖 유도 차단).
+      let st;
+      try {
+        st = await lstat(join(base, e.name));
+      } catch {
+        continue;
+      }
+      if (st.isSymbolicLink() || !st.isDirectory()) continue;
+      out.push(e.name);
+    }
+  } catch {
+    /* 순회 중 오류 흡수(부분 결과 반환·fail-safe) */
+  }
+  return out.sort();
+}
+
+// ── 구조 파서 DoS 방어 ─────────────────────────────────────────────────────────
+
+
+exec
+/bin/zsh -lc "rg -n \"readJsonlSafe|validateIndex|parseMeta|readRegFile|listRegDirs|safeParseJson|safeParseYaml|safeParseToml|JSON\\.parse|JSON\\.stringify|eval\\(|Function\\(|spawn|exec|child_process|writeFile|rm\\(\" harness-ui/src/server/adapters/regstore.ts harness-ui/src/server/adapters/regstore-index.ts harness-ui/src/server/adapters/regstore-eval.ts" in /Users/junghojang/Developments/myProject/myHarness
+ succeeded in 0ms:
+harness-ui/src/server/adapters/regstore-eval.ts:5:import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+harness-ui/src/server/adapters/regstore-eval.ts:9:import { readRegFile, listRegDirs } from "./regstore.js";
+harness-ui/src/server/adapters/regstore-eval.ts:10:import { parseMeta, IndexSchema, type IndexEntry, type RegistryIndex } from "./regstore-index.js";
+harness-ui/src/server/adapters/regstore-eval.ts:29:  kind: Parameters<typeof readRegFile>[2],
+harness-ui/src/server/adapters/regstore-eval.ts:34:  const r = await readRegFile(root, segs, kind);
+harness-ui/src/server/adapters/regstore-eval.ts:41:  await writeFile(full, r.text, "utf8");
+harness-ui/src/server/adapters/regstore-eval.ts:51:  const metaByName = new Map<string, ReturnType<typeof parseMeta>>();
+harness-ui/src/server/adapters/regstore-eval.ts:54:    for (const name of await listRegDirs(root, "skills")) {
+harness-ui/src/server/adapters/regstore-eval.ts:57:      const m = await readRegFile(root, ["skills", name, "meta.json"], "meta");
+harness-ui/src/server/adapters/regstore-eval.ts:58:      metaByName.set("skill|" + name, parseMeta(m.ok ? m.text : null));
+harness-ui/src/server/adapters/regstore-eval.ts:61:    for (const name of await listRegDirs(root, "agents")) {
+harness-ui/src/server/adapters/regstore-eval.ts:68:      const m = await readRegFile(root, ["agents", name, "meta.json"], "meta");
+harness-ui/src/server/adapters/regstore-eval.ts:69:      metaByName.set("agent|" + name, parseMeta(m.ok ? m.text : null));
+harness-ui/src/server/adapters/regstore-eval.ts:77:      const meta = metaByName.get(a.kind + "|" + a.name) ?? parseMeta(null);
+harness-ui/src/server/adapters/regstore-eval.ts:95:    await rm(tmp, { recursive: true, force: true });
+harness-ui/src/server/adapters/regstore.ts:47:export async function readRegFile(root: string, segs: string[], kind: RegKind): Promise<ReadResult> {
+harness-ui/src/server/adapters/regstore.ts:68:export async function listRegDirs(root: string, subdir: string, cap = 2000, scanCapArg?: number): Promise<string[]> {
+harness-ui/src/server/adapters/regstore.ts:115://   파싱 前 호출 → 깊은 중첩을 JSON.parse(스택 오버플로 위험) 전에 fail-closed 거부.
+harness-ui/src/server/adapters/regstore.ts:142://   JSON.parse 가 이미 maxBytes 로 트리 크기를 제한하므로 정상 얕고-넓은 파일(대형 카탈로그)이
+harness-ui/src/server/adapters/regstore.ts:168:export function safeParseYaml(text: string): ParseResult {
+harness-ui/src/server/adapters/regstore.ts:180:// JSON safe-parse: 크기 상한 → raw 깊이 상한(스택 방어) → JSON.parse → 결과 깊이 재확인.
+harness-ui/src/server/adapters/regstore.ts:181:export function safeParseJson<T = unknown>(text: string, maxBytes = REG_MAX_INDEX): ParseResult<T> {
+harness-ui/src/server/adapters/regstore.ts:186:    value = JSON.parse(text);
+harness-ui/src/server/adapters/regstore.ts:198:export function safeParseToml(text: string, maxBytes = REG_MAX_ARTIFACT): ParseResult {
+harness-ui/src/server/adapters/regstore.ts:213:export async function readJsonlSafe(
+harness-ui/src/server/adapters/regstore.ts:255:          // 깊이 가드 — safeParseJson 과 동일(일관성·심층방어·agy 지적). ※ 실측상 V8 JSON.parse 는
+harness-ui/src/server/adapters/regstore.ts:257:          //   유입되면 하류 재귀 처리서 스택오버플로 가능 → 진입 차단(readJsonlSafe 가 가드 우회하던 결함).
+harness-ui/src/server/adapters/regstore.ts:260:            entries.push(JSON.parse(line));
+harness-ui/src/server/adapters/regstore.ts:280:          entries.push(JSON.parse(line));
+harness-ui/src/server/adapters/regstore-index.ts:3://   비신뢰 텍스트는 regstore.safeParseJson(크기·깊이 방어) 로 파싱 후 zod 검증(구조 위조 차단).
+harness-ui/src/server/adapters/regstore-index.ts:5:import { safeParseJson } from "./regstore.js";
+harness-ui/src/server/adapters/regstore-index.ts:43:// meta.json(아티팩트별 소유자·오리진·토론링크·★) — 비신뢰 → safeParseJson + zod.
+harness-ui/src/server/adapters/regstore-index.ts:59:export function validateIndex(text: string): ValidateResult<RegistryIndex> {
+harness-ui/src/server/adapters/regstore-index.ts:60:  const parsed = safeParseJson(text);
+harness-ui/src/server/adapters/regstore-index.ts:68:export function parseMeta(text: string | null): ArtifactMeta {
+harness-ui/src/server/adapters/regstore-index.ts:70:  const parsed = safeParseJson(text);
+
+codex
+현재까지 위험 실행(`eval`/spawn)이나 원격 텍스트 직접 실행은 없습니다. 마지막으로 세 파일 밖 호출부가 안전 파서 계약을 우회하는지, 테스트가 깊이 가드를 실제로 잠그는지 빠르게 대조합니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+exec
+/bin/zsh -lc "rg -n \"readJsonlSafe\\(|safeParseYaml\\(|safeParseToml\\(|validateIndex\\(|readRegFile\\(|line-too-deep|json-too-deep|rawJsonDepth|REG_MAX_STRUCT_DEPTH\" harness-ui/src harness-ui/test --glob \"*.ts\" --glob \"*.mjs\"" in /Users/junghojang/Developments/myProject/myHarness
+ succeeded in 0ms:
+harness-ui/src/server/adapters/regstore.ts:20:export const REG_MAX_STRUCT_DEPTH = 64; // JSON/TOML/YAML 중첩 깊이 상한(billion-laughs·깊은 중첩 DoS)
+harness-ui/src/server/adapters/regstore.ts:47:export async function readRegFile(root: string, segs: string[], kind: RegKind): Promise<ReadResult> {
+harness-ui/src/server/adapters/regstore.ts:116:export function rawJsonDepth(text: string): number {
+harness-ui/src/server/adapters/regstore.ts:168:export function safeParseYaml(text: string): ParseResult {
+harness-ui/src/server/adapters/regstore.ts:176:  if (objectDepthExceeds(value, REG_MAX_STRUCT_DEPTH)) return { ok: false, error: "yaml-too-deep" };
+harness-ui/src/server/adapters/regstore.ts:183:  if (rawJsonDepth(text) > REG_MAX_STRUCT_DEPTH) return { ok: false, error: "json-too-deep" };
+harness-ui/src/server/adapters/regstore.ts:191:  if (objectDepthExceeds(value, REG_MAX_STRUCT_DEPTH, Math.max(10_000_000, Buffer.byteLength(text, "utf8")))) {
+harness-ui/src/server/adapters/regstore.ts:192:    return { ok: false, error: "json-too-deep" };
+harness-ui/src/server/adapters/regstore.ts:198:export function safeParseToml(text: string, maxBytes = REG_MAX_ARTIFACT): ParseResult {
+harness-ui/src/server/adapters/regstore.ts:206:  if (objectDepthExceeds(value, REG_MAX_STRUCT_DEPTH)) return { ok: false, error: "toml-too-deep" };
+harness-ui/src/server/adapters/regstore.ts:213:export async function readJsonlSafe(
+harness-ui/src/server/adapters/regstore.ts:258:          if (rawJsonDepth(line) > REG_MAX_STRUCT_DEPTH) return { ok: false, error: "line-too-deep" };
+harness-ui/src/server/adapters/regstore.ts:278:        if (rawJsonDepth(line) > REG_MAX_STRUCT_DEPTH) return { ok: false, error: "line-too-deep" };
+harness-ui/src/server/adapters/regstore-eval.ts:34:  const r = await readRegFile(root, segs, kind);
+harness-ui/src/server/adapters/regstore-eval.ts:57:      const m = await readRegFile(root, ["skills", name, "meta.json"], "meta");
+harness-ui/src/server/adapters/regstore-eval.ts:68:      const m = await readRegFile(root, ["agents", name, "meta.json"], "meta");
+harness-ui/src/server/adapters/regstore-index.ts:59:export function validateIndex(text: string): ValidateResult<RegistryIndex> {
+harness-ui/test/regstore-eval.test.ts:69:    const v = validateIndex(text);
+harness-ui/test/regstore.test.ts:15:  rawJsonDepth,
+harness-ui/test/regstore.test.ts:35:    const r = await readRegFile(root, ["skills", "good", "SKILL.md"], "skill-md");
+harness-ui/test/regstore.test.ts:41:    const r = await readRegFile(root, ["skills", "..", "..", "etc", "passwd"], "skill-md");
+harness-ui/test/regstore.test.ts:46:    const r = await readRegFile(root, ["skills", "..%2f", "SKILL.md"], "skill-md");
+harness-ui/test/regstore.test.ts:54:    const r = await readRegFile(root, ["skills", "evil", "SKILL.md"], "skill-md");
+harness-ui/test/regstore.test.ts:62:    const r = await readRegFile(root, ["skills", "good", "BIG.md"], "skill-md");
+harness-ui/test/regstore.test.ts:70:    const r = await readRegFile(root, ["skills", "good", "bin.md"], "skill-md");
+harness-ui/test/regstore.test.ts:116:    const r = safeParseYaml("name: foo\ntools:\n  - a\n  - b\n");
+harness-ui/test/regstore.test.ts:121:    const r = safeParseYaml("evil: !!js/function 'function(){return process}'\n");
+harness-ui/test/regstore.test.ts:127:    const r = safeParseYaml("x: !!python/object/apply:os.system ['id']\n");
+harness-ui/test/regstore.test.ts:138:    const r = safeParseYaml(y);
+harness-ui/test/regstore.test.ts:153:    if (!r.ok) expect(r.error).toBe("json-too-deep");
+harness-ui/test/regstore.test.ts:162:  it("rawJsonDepth 는 문자열 내부 괄호 무시", () => {
+harness-ui/test/regstore.test.ts:163:    expect(rawJsonDepth('{"k":"[[[[["}')).toBe(1); // 문자열 안 [ 는 미집계
+harness-ui/test/regstore.test.ts:164:    expect(rawJsonDepth("[[[]]]")).toBe(3);
+harness-ui/test/regstore.test.ts:170:    const r = safeParseToml('name = "foo"\n[meta]\nowner = "a"\n');
+harness-ui/test/regstore.test.ts:175:    const r = safeParseToml("= = =\n");
+harness-ui/test/regstore.test.ts:180:    const r = safeParseToml('a = "xxxxxxxxxx"\n', 5);
+harness-ui/test/regstore.test.ts:209:    const r = await readJsonlSafe(p);
+harness-ui/test/regstore.test.ts:218:    const r = await readJsonlSafe(p, { maxLineBytes: 1024 });
+harness-ui/test/regstore.test.ts:226:    const r = await readJsonlSafe(p, { maxLines: 10 });
+harness-ui/test/regstore.test.ts:235:    const r = await readJsonlSafe(p, { maxLineBytes: 1024 });
+harness-ui/test/regstore.test.ts:240:  it("깊은 중첩 라인 거부(line-too-deep·safeParseJson 일관성·agy 지적)", async () => {
+harness-ui/test/regstore.test.ts:243:    const r = await readJsonlSafe(p);
+harness-ui/test/regstore.test.ts:245:    if (!r.ok) expect(r.error).toBe("line-too-deep");
+harness-ui/test/regstore.test.ts:253:    const r = await readJsonlSafe(p);
+
+codex
+호출부 대조 결과 JSONL 파서는 테스트에서 직접 잠겨 있고, index/meta는 safeParseJson 경유입니다. 확인 차원에서 관련 테스트만 실행해 회귀 여부를 보겠습니다.
+exec
+/bin/zsh -lc "sed -n '232,258p' harness-ui/test/regstore.test.ts" in /Users/junghojang/Developments/myProject/myHarness
+ succeeded in 0ms:
+    const p = join(jroot, "midline.jsonl");
+    // 개행으로 끝나는 2KB 라인(64KB 청크 내) — maxLineBytes=1KB 면 거부돼야 계약 정확.
+    await writeFile(p, '{"x":"' + "a".repeat(2000) + '"}\n{"y":1}\n');
+    const r = await readJsonlSafe(p, { maxLineBytes: 1024 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe("line-too-long");
+  });
+
+  it("깊은 중첩 라인 거부(line-too-deep·safeParseJson 일관성·agy 지적)", async () => {
+    const p = join(jroot, "deepline.jsonl");
+    await writeFile(p, "[".repeat(200) + "]".repeat(200) + "\n");
+    const r = await readJsonlSafe(p);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toBe("line-too-deep");
+  });
+
+  it("청크 경계 UTF-8 멀티바이트(한글) 무손실(agy HIGH)", async () => {
+    const p = join(jroot, "korean.jsonl");
+    // 3바이트 한글 다수(>64KB 청크 경계 확실히 가로지름) → 부분 디코딩 시 � 오염.
+    const big = "가나다라마".repeat(20000); // ~300KB
+    await writeFile(p, JSON.stringify({ t: big }) + "\n");
+    const r = await readJsonlSafe(p);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect((r.entries[0] as { t: string }).t).toBe(big); // � 없음·완전 일치
+      expect((r.entries[0] as { t: string }).t).not.toContain("�");
+    }
+
+exec
+/bin/zsh -lc 'npm test -- --run harness-ui/test/regstore.test.ts harness-ui/test/regstore-eval.test.ts' in /Users/junghojang/Developments/myProject/myHarness/harness-ui
+ exited 1 in 1221ms:
+
+> harness-ui@0.9.0 test
+> vitest run --run harness-ui/test/regstore.test.ts harness-ui/test/regstore-eval.test.ts
+
+
+ RUN  v2.1.9 /Users/junghojang/Developments/myProject/myHarness/harness-ui
+
+filter:  harness-ui/test/regstore.test.ts, harness-ui/test/regstore-eval.test.ts
+include: test/**/*.test.ts
+exclude:  **/node_modules/**, **/dist/**, **/cypress/**, **/.{idea,git,cache,output,temp}/**, **/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*
+
+No test files found, exiting with code 1
+
+codex
+첫 테스트 명령은 작업 디렉터리 기준 경로를 잘못 줘서 파일을 못 찾았습니다. 같은 테스트를 올바른 상대 경로로 다시 실행합니다.
+exec
+/bin/zsh -lc 'npm test -- --run test/regstore.test.ts test/regstore-eval.test.ts' in /Users/junghojang/Developments/myProject/myHarness/harness-ui
+ succeeded in 1695ms:
+
+> harness-ui@0.9.0 test
+> vitest run --run test/regstore.test.ts test/regstore-eval.test.ts
+
+
+ RUN  v2.1.9 /Users/junghojang/Developments/myProject/myHarness/harness-ui
+
+ ✓ test/regstore.test.ts (30 tests) 74ms
+ ✓ test/regstore-eval.test.ts (7 tests) 48ms
+
+ Test Files  2 passed (2)
+      Tests  37 passed (37)
+   Start at  01:27:34
+   Duration  783ms (transform 91ms, setup 0ms, collect 177ms, tests 122ms, environment 0ms, prepare 72ms)
+
+
+codex
+확인 완료. `readJsonlSafe`는 두 JSONL 파싱 경로 모두에서 `JSON.parse` 전에 `rawJsonDepth(line) > REG_MAX_STRUCT_DEPTH`를 검사하고 `line-too-deep`으로 fail-closed 합니다: [regstore.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore.ts:258), [regstore.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore.ts:278).
+
+S0 전체 감사 결과:
+- `regstore.ts`: 경로 세그먼트 검증, `openSafeFile`, 크기 상한, 바이너리 거부, JSON/YAML/TOML 깊이 가드, JSONL line/line-count/depth 가드 확인.
+- `regstore-index.ts`: `index.json`/`meta.json` 모두 `safeParseJson` 후 zod 검증 확인.
+- `regstore-eval.ts`: 원격 레지스트리 콘텐츠는 `readRegFile`/`listRegDirs` 경유, tmp materialize 대상 경로는 코드 상수 기반이라 사용자 세그먼트 탈출 없음.
+- 관련 테스트 재실행: `37 passed`.
+
+판정: no-high
+tokens used
+43,429
+확인 완료. `readJsonlSafe`는 두 JSONL 파싱 경로 모두에서 `JSON.parse` 전에 `rawJsonDepth(line) > REG_MAX_STRUCT_DEPTH`를 검사하고 `line-too-deep`으로 fail-closed 합니다: [regstore.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore.ts:258), [regstore.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore.ts:278).
+
+S0 전체 감사 결과:
+- `regstore.ts`: 경로 세그먼트 검증, `openSafeFile`, 크기 상한, 바이너리 거부, JSON/YAML/TOML 깊이 가드, JSONL line/line-count/depth 가드 확인.
+- `regstore-index.ts`: `index.json`/`meta.json` 모두 `safeParseJson` 후 zod 검증 확인.
+- `regstore-eval.ts`: 원격 레지스트리 콘텐츠는 `readRegFile`/`listRegDirs` 경유, tmp materialize 대상 경로는 코드 상수 기반이라 사용자 세그먼트 탈출 없음.
+- 관련 테스트 재실행: `37 passed`.
+
+판정: no-high
+[codex done]

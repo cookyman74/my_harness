@@ -1,0 +1,155 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.1
+--------
+workdir: /Users/junghojang/Developments/myProject/myHarness
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: medium
+reasoning summaries: none
+session id: 019f7af0-9d91-77c1-b4ec-246b596b95fe
+--------
+user
+당신은 선검증(feasibility spike)·이종 런타임 상호운용·보안 전문 감사관이다. harness 레포 v1.6.8 shared_repo 기능의 **선검증 결과서** R1 외부감사.
+
+배경: "팀 공유 레지스트리 + 이종 런타임(클로드/코덱스/제미나이) 스킬·에이전트 교환" 기능. PRD·설계서·작업계획서는 외부감사 수렴. 이제 구현 착수 前 **선검증(P-1~P-5)**을 실증한 결과서를 감사한다. 규칙: 가정 위 구현 금지·P-1/P-2 는 전체 타당성 관문.
+
+검토 문서:
+- docs/v1.6.8_shared_repo/working_history/preflight_20260720_001500.md (선검증 결과서·go/no-go)
+- docs/v1.6.8_shared_repo/todo/plan.md §0-5 (체크 완료 표시)
+정합 대상: docs/v1.6.8_shared_repo/design.md·prd.md
+
+실증 요지(결과서 주장):
+- P-1 스킬: 공유 SKILL.md 파서 수용·GO(라이브 로드는 F13 근거 고신뢰·S0 재확인).
+- P-2 tool 매핑: **불성립** — claude(tools: 목록)·codex(.toml 샌드박스/승인)·gemini(md) 도구모델 상이 → IR tools 정규화 폐기·선언 보존+충실도 보고+사람 적응(S2 축소).
+- P-3 git/gh: git2.50·gh2.76·clone 안전플래그·core.symlinks=false·gh keyring 재사용 실증.
+- P-4 캐시 샌드박스: 악성 심링크가 core.symlinks=false clone 시 일반 텍스트로 무력화 실증.
+- P-5 IR 왕복: claude md→IR→왕복 extras 원문 보존 실증.
+
+감사 관점:
+(a) **판정 타당성** — 각 P 의 go/no-go 가 실증 근거로 정당한가? P-1 "구조 수용"을 "이종 로드 GO"로 결론낸 게 과도한가(라이브 로드 미실증인데)? P-4 "core.symlinks=false 무력화"가 실제 방어로 충분한가(다른 심링크 벡터·`.git` 내부·checkout 후 조작)?
+(b) **P-2 불성립 결정의 파급** — tool 정규화 폐기·"선언 보존+사람 적응" 축소가 S2 에이전트 교환을 실질 무의미하게 만드는가, 아니면 여전히 가치 있는가? 이 축소가 설계서/계획서(AR10~12·충실도)와 정합하나? 축소된 S2 가 사용자에게 "이종 에이전트 교환 됨"이라는 잘못된 기대를 주는가?
+(b2) **선검증 자체의 완결성** — P-1 라이브 로드·P-3 gh pr create(실제 PR)·P-5 codex.toml 실렌더(간이 md 왕복만 함) 등 **실증 안 된 가정이 "실증됨"으로 표기**된 게 있나?
+(c) 스코프 내 남은 HIGH/MED(선검증 갭·과잉 결론·미검증을 검증으로 표기·S0 착수 조건 미비)?
+
+각 지적: 심각도(HIGH/MED/LOW)+문서:섹션+근거+실패 시나리오. 마지막 줄: "판정: no-high" 또는 "판정: HIGH n건".
+codex
+`context-mode` 지침 적용. 원문을 통째로 끌어오지 않고 필요한 섹션만 색인/검색해 감사 근거를 좁히겠습니다.
+exec
+/bin/zsh -lc "sed -n '1,240p' /Users/junghojang/.codex/skills/context-mode/SKILL.md" in /Users/junghojang/Developments/myProject/myHarness
+ succeeded in 0ms:
+---
+name: context-mode
+description: Use the context-mode MCP server and routing hooks when tasks involve large context, many files, or repeated analysis that should be indexed instead of pasted.
+---
+
+# context-mode
+
+Use this skill when a task benefits from the context-mode MCP server installed from `mksglu/context-mode`.
+
+## What it does
+
+- Routes Codex tool use through context-mode hooks.
+- Pushes large or repeated context into indexed memory instead of flooding the chat.
+- Provides `ctx_*` commands for search, batch execution, indexing, and maintenance.
+
+## How to use
+
+- Keep `context-mode` installed on PATH.
+- Ensure `~/.codex/config.toml` contains the `context-mode` MCP server entry.
+- Ensure `~/.codex/hooks.json` points Codex hook events at `context-mode hook codex ...`.
+- Keep `~/.codex/AGENTS.md` loaded as the routing policy for Codex sessions.
+
+## When to prefer it
+
+- Large repo analysis.
+- Repeated file exploration.
+- Multi-file search or transform work.
+- Tasks that need a local indexed memory instead of raw transcript growth.
+
+## Operational rule
+
+- Prefer indexed search and batch execution over raw context dumps.
+- Prefer code that reads, indexes, and summarizes over manual copy/paste.
+
+codex
+검토 대상은 결과서, 계획서, PRD, 설계서 네 묶음입니다. 먼저 관련 헤더와 핵심 키워드만 추출해 판정 문맥을 잡겠습니다.
+codex
+문서 네 개를 소스별로 색인합니다. 이후 P-1~P-5, AR10~12, S0/S2, 충실도 문구만 검색해 교차 확인하겠습니다.
+mcp: context-mode/ctx_index started
+mcp: context-mode/ctx_index (completed)
+mcp: context-mode/ctx_index started
+mcp: context-mode/ctx_index (completed)
+mcp: context-mode/ctx_index started
+mcp: context-mode/ctx_index (completed)
+mcp: context-mode/ctx_index started
+mcp: context-mode/ctx_index (completed)
+codex
+색인 완료. 이제 주장과 정합 대상의 문구를 같은 키워드로 조회해 과잉 결론과 미검증 표기를 분리합니다.
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+codex
+초기 조회에서 일부 “실증 로그”가 요약 수준에 머뭅니다. 설계의 필수 수용기준과 결과서의 제외/한계를 비교해 HIGH 여부를 확정합니다.
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+codex
+결론상 P-1, P-4, P-5는 설계 §8의 원래 실증 범위보다 결과서가 좁습니다. 라인 단위 근거를 뽑아 최종 지적에 붙이겠습니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (failed)
+codex
+첫 라인 추출은 sandbox CWD 차이로 실패했습니다. 절대경로로 다시 실행합니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+codex
+라인 추출 결과가 커서 색인되었습니다. 필요한 라인 창만 다시 검색해 참조를 확정합니다.
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+codex
+결과서가 “제외/해석”으로 남긴 부분도 확인합니다. 이것이 체크 완료와 충돌하는지 보겠습니다.
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+codex
+P-2 축소가 제품 기대와 충돌하는지 PRD도 확인합니다. 특히 “교환”을 자동 실행 가능으로 약속했는지, 경고 기반인지가 핵심입니다.
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+codex
+**Findings**
+
+HIGH — `preflight_20260720_001500.md:§1/§4`, `plan.md:§0-5`, `design.md:§8 P-1`, `prd.md:AR3`  
+P-1 “스킬 이종 로드” GO가 과도합니다. 결과서 실증은 `canonicalize(skill) → OK` 수준이고, 결과서 §4도 “실제 codex/gemini 세션에서 활성화는 후속”이라고 남깁니다. 반면 설계 §8/PRD AR3는 실제 채널에 심고 “로드·활성 확인”을 선검증으로 요구합니다. 실패 시나리오: SKILL.md 구조 파싱은 통과하지만 Codex/Gemini 런타임 discovery, 캐시, activation trigger, 경로 규칙 차이로 실제 로드가 안 되는데 S0 규약·CI를 그 가정 위에 구현합니다.
+
+HIGH — `preflight_20260720_001500.md:§1/§3`, `plan.md:§0-5`, `design.md:§4-2/§8 P-4`, `prd.md:AR16`  
+P-4 “캐시 샌드박스 실효” GO가 방어 범위를 증명하지 못합니다. 실증은 `core.symlinks=false` clone에서 단일 symlink가 일반 텍스트가 된 것뿐입니다. 설계는 모든 캐시 읽기 경로에 `lstat` 거부, `O_NOFOLLOW`, open 후 inode 재검증, 크기 상한, allowlist, 바이너리 거부, submodule/LFS off, 거대파일 fixture 읽기 거부를 요구합니다. 실패 시나리오: checkout 후 조작된 worktree symlink, pull 후 생긴 symlink, hardlink/TOCTOU, 거대 `index.json`, allowlist 밖 파일, LFS/submodule 경로가 diff/scanner/index reader 중 하나에서 추종 또는 DoS를 일으킵니다. `core.symlinks=false`는 보조 완화이지 샌드박스 실효 증명이 아닙니다.
+
+HIGH — `preflight_20260720_001500.md:§1/§3`, `plan.md:§0-5`, `design.md:§2-2/§8 P-5`, `prd.md:AR11/AR17`  
+P-5 IR 왕복 GO가 요구 경로를 실증하지 않았습니다. 설계 §8은 `claude.md → IR → codex.toml → IR` 왕복, extras 보존, canonical 무손실, 역추출 금지/base merge까지 확인하라고 합니다. 결과서 로그는 `claude md → IR`과 extras 보존 요약뿐이며 `codex.toml` 렌더/파싱, TOML canonical 비교, IR sidecar, base merge 충돌/보존 경로를 증명하지 않습니다. 실패 시나리오: md 왕복은 통과하지만 TOML 직렬화에서 배열/멀티라인 본문/모델 힌트가 손상되거나 publish 역추출이 타 런타임 extras를 삭제합니다.
+
+MED — `preflight_20260720_001500.md:§1/§3`, `design.md:§8 P-3`, `plan.md:§0-5`  
+P-3는 “git/gh 가용성” 일부만 실증됐습니다. 설계 §8은 `gh pr create`, safe clone, 사용자 기존 자격 재사용, submodule/LFS off 실효 확인을 요구합니다. 결과서 로그는 git/gh 버전, clone 옵션 동작, `gh auth status` keyring 확인 수준입니다. 실패 시나리오: 인증은 되어 있지만 PR 생성 권한/remote push 권한/브랜치 보호/Discussion 권한이 없어 publish 흐름이 S1에서 막히거나, LFS smudge/submodule 차단이 실제 clone/pull 경로에 누락됩니다.
+
+MED — `preflight_20260720_001500.md:§1/다음 단계`, `design.md:§2-3`, `prd.md:S2 AR10~AR12`  
+P-2 불성립 결정 자체는 타당합니다. 공통 tool 어휘 정규화를 폐기하고 “선언 보존 + 충실도 보고 + 사람 적응”으로 축소하는 것은 설계 §2-3의 best-effort 전제와 정합합니다. 다만 사용자-facing 문구는 더 좁혀야 합니다. PRD 목표의 “설치·사용” 표현이 그대로 남으면 사용자는 에이전트가 이종 런타임에서 작동한다고 기대할 수 있습니다. 실패 시나리오: Claude agent가 본문에서 `Replace`/`Task`/`Bash`를 전제로 하는데 Codex에는 선언만 보존되어 설치되고, 사용자는 “교환됨” 배지만 보고 실행했다가 도구 호출 에러 루프 또는 위험 작업을 수동 승인합니다. S2는 “자동 호환”이 아니라 “포팅 초안 + 손실/런타임 결합 보고”로 표시해야 합니다.
+
+판정: HIGH 3건
+tokens used
+87,190
+**Findings**
+
+HIGH — `preflight_20260720_001500.md:§1/§4`, `plan.md:§0-5`, `design.md:§8 P-1`, `prd.md:AR3`  
+P-1 “스킬 이종 로드” GO가 과도합니다. 결과서 실증은 `canonicalize(skill) → OK` 수준이고, 결과서 §4도 “실제 codex/gemini 세션에서 활성화는 후속”이라고 남깁니다. 반면 설계 §8/PRD AR3는 실제 채널에 심고 “로드·활성 확인”을 선검증으로 요구합니다. 실패 시나리오: SKILL.md 구조 파싱은 통과하지만 Codex/Gemini 런타임 discovery, 캐시, activation trigger, 경로 규칙 차이로 실제 로드가 안 되는데 S0 규약·CI를 그 가정 위에 구현합니다.
+
+HIGH — `preflight_20260720_001500.md:§1/§3`, `plan.md:§0-5`, `design.md:§4-2/§8 P-4`, `prd.md:AR16`  
+P-4 “캐시 샌드박스 실효” GO가 방어 범위를 증명하지 못합니다. 실증은 `core.symlinks=false` clone에서 단일 symlink가 일반 텍스트가 된 것뿐입니다. 설계는 모든 캐시 읽기 경로에 `lstat` 거부, `O_NOFOLLOW`, open 후 inode 재검증, 크기 상한, allowlist, 바이너리 거부, submodule/LFS off, 거대파일 fixture 읽기 거부를 요구합니다. 실패 시나리오: checkout 후 조작된 worktree symlink, pull 후 생긴 symlink, hardlink/TOCTOU, 거대 `index.json`, allowlist 밖 파일, LFS/submodule 경로가 diff/scanner/index reader 중 하나에서 추종 또는 DoS를 일으킵니다. `core.symlinks=false`는 보조 완화이지 샌드박스 실효 증명이 아닙니다.
+
+HIGH — `preflight_20260720_001500.md:§1/§3`, `plan.md:§0-5`, `design.md:§2-2/§8 P-5`, `prd.md:AR11/AR17`  
+P-5 IR 왕복 GO가 요구 경로를 실증하지 않았습니다. 설계 §8은 `claude.md → IR → codex.toml → IR` 왕복, extras 보존, canonical 무손실, 역추출 금지/base merge까지 확인하라고 합니다. 결과서 로그는 `claude md → IR`과 extras 보존 요약뿐이며 `codex.toml` 렌더/파싱, TOML canonical 비교, IR sidecar, base merge 충돌/보존 경로를 증명하지 않습니다. 실패 시나리오: md 왕복은 통과하지만 TOML 직렬화에서 배열/멀티라인 본문/모델 힌트가 손상되거나 publish 역추출이 타 런타임 extras를 삭제합니다.
+
+MED — `preflight_20260720_001500.md:§1/§3`, `design.md:§8 P-3`, `plan.md:§0-5`  
+P-3는 “git/gh 가용성” 일부만 실증됐습니다. 설계 §8은 `gh pr create`, safe clone, 사용자 기존 자격 재사용, submodule/LFS off 실효 확인을 요구합니다. 결과서 로그는 git/gh 버전, clone 옵션 동작, `gh auth status` keyring 확인 수준입니다. 실패 시나리오: 인증은 되어 있지만 PR 생성 권한/remote push 권한/브랜치 보호/Discussion 권한이 없어 publish 흐름이 S1에서 막히거나, LFS smudge/submodule 차단이 실제 clone/pull 경로에 누락됩니다.
+
+MED — `preflight_20260720_001500.md:§1/다음 단계`, `design.md:§2-3`, `prd.md:S2 AR10~AR12`  
+P-2 불성립 결정 자체는 타당합니다. 공통 tool 어휘 정규화를 폐기하고 “선언 보존 + 충실도 보고 + 사람 적응”으로 축소하는 것은 설계 §2-3의 best-effort 전제와 정합합니다. 다만 사용자-facing 문구는 더 좁혀야 합니다. PRD 목표의 “설치·사용” 표현이 그대로 남으면 사용자는 에이전트가 이종 런타임에서 작동한다고 기대할 수 있습니다. 실패 시나리오: Claude agent가 본문에서 `Replace`/`Task`/`Bash`를 전제로 하는데 Codex에는 선언만 보존되어 설치되고, 사용자는 “교환됨” 배지만 보고 실행했다가 도구 호출 에러 루프 또는 위험 작업을 수동 승인합니다. S2는 “자동 호환”이 아니라 “포팅 초안 + 손실/런타임 결합 보고”로 표시해야 합니다.
+
+판정: HIGH 3건
+[codex done]

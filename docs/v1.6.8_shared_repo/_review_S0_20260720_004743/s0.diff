@@ -1,0 +1,947 @@
+diff --git a/docs/v1.6.8_shared_repo/registry-example/.github/workflows/eval.yml b/docs/v1.6.8_shared_repo/registry-example/.github/workflows/eval.yml
+new file mode 100644
+index 0000000..70c52b5
+--- /dev/null
++++ b/docs/v1.6.8_shared_repo/registry-example/.github/workflows/eval.yml
+@@ -0,0 +1,77 @@
++# 레지스트리 CI 자동채점(S0·AR2) — PR 마다 아티팩트 4축 채점 + index.json 검증.
++#
++# 보안 자세(plan §0-3 · pwn-request 방어):
++#   - permissions: contents:read 만(GITHUB_TOKEN read-only) — 토큰 exfil 표면 최소화.
++#   - secrets 미주입 — 평가는 순수 정적 채점(외부 자격 불요).
++#   - PR 콘텐츠(skills/·agents/·index.json)는 **비신뢰 데이터**로만 취급 — 실행하지 않는다.
++#     채점기는 regstore 안전 리더(심링크 거부·크기캡·바이너리 거부·경로 allowlist)로만 읽는다.
++#   - 채점기 번들은 **고정 ref** 의 harness-ui 에서 가져온다(PR 이 채점기 로직을 못 바꾸게).
++#
++# ⚠ 진짜 pwn-request 면역(정직한 한계·plan §0-3):
++#   pull_request 는 PR 브랜치의 이 워크플로 '정의'를 즉시 실행한다 → PR 이 eval.yml 자체를 고치면 우회 가능.
++#   → 실제 게이트는 아래 중 하나로 굳혀야 한다(이 파일만으로는 불충분):
++#     (a) org-level "required workflows"(default 브랜치 정의 강제), 또는
++#     (b) branch protection + CODEOWNERS 로 .github/workflows/ 편집에 소유자 승인 필수 +
++#         required status check 이름 고정("registry-eval") + "Include administrators" ON.
++#   이 워크플로는 심층방어이지, 결탁 내부자를 막는 증명이 아니다(대상=팀·상호신뢰·§설계 §3-0).
++
++name: registry-eval
++on:
++  pull_request:
++    paths: ["skills/**", "agents/**", "index.json"]
++
++permissions:
++  contents: read
++
++concurrency:
++  group: registry-eval-${{ github.ref }}
++  cancel-in-progress: true
++
++jobs:
++  eval:
++    runs-on: ubuntu-latest
++    steps:
++      # PR 콘텐츠 = 비신뢰 데이터. 별도 디렉토리(registry/)에 체크아웃하고 실행하지 않는다.
++      - name: Checkout PR content (untrusted data)
++        uses: actions/checkout@v4
++        with:
++          path: registry
++          persist-credentials: false
++
++      # 채점기 = 고정 ref 의 harness-ui 번들(PR 이 못 바꿈).
++      - name: Fetch evaluator (pinned)
++        uses: actions/checkout@v4
++        with:
++          repository: your-org/harness   # ← 팀 harness 레포로 교체
++          ref: v1.6.8                     # ← 고정 태그(가변 브랜치 금지)
++          path: evaluator
++          persist-credentials: false
++
++      - uses: actions/setup-node@v4
++        with:
++          node-version: "22"
++
++      # 번들이 커밋돼 있으면 그대로 실행. 아니면 빌드(build:reg-eval).
++      - name: Build evaluator bundle if missing
++        working-directory: evaluator/harness-ui
++        run: |
++          if [ ! -f scripts/eval-registry.mjs ]; then
++            npm ci
++            npm run build:reg-eval
++          fi
++
++      # 채점 + index.json 검증. --block-d 로 D등급 머지 차단(옵션).
++      - name: Evaluate registry
++        run: |
++          node evaluator/harness-ui/scripts/eval-registry.mjs "$GITHUB_WORKSPACE/registry" --block-d > eval-summary.json
++          cat eval-summary.json
++
++      # index.json 이 CI 산출과 일치하는지 검증(수기 편집 차단).
++      - name: Verify index.json matches CI output
++        run: |
++          node evaluator/harness-ui/scripts/eval-registry.mjs "$GITHUB_WORKSPACE/registry" --write
++          if ! git -C registry diff --quiet index.json; then
++            echo "::error::index.json 이 CI 생성물과 다릅니다(수기 편집 금지). 커밋된 index.json 을 CI 출력으로 교체하세요."
++            git -C registry --no-pager diff index.json
++            exit 1
++          fi
+diff --git a/docs/v1.6.8_shared_repo/registry-example/README.md b/docs/v1.6.8_shared_repo/registry-example/README.md
+new file mode 100644
+index 0000000..9d3985e
+--- /dev/null
++++ b/docs/v1.6.8_shared_repo/registry-example/README.md
+@@ -0,0 +1,77 @@
++# 팀 공유 레지스트리 규약 (harness-registry · S0)
++
++> 이 디렉토리는 **팀 공유 레지스트리 repo 의 표준 구조 예시**다(별도 사설 git repo 로 복제해 사용).
++> 규약 = 스킬·에이전트를 팀이 PR 로 올리고, CI 가 자동채점하고, 사용자가 검토 후 설치하는 형식.
++> 근거: [`../design.md`](../design.md) §1·§2 · [`../prd.md`](../prd.md) AR1~AR3.
++
++## 표준 디렉토리 구조
++
++```
++<registry-repo>/
++├── skills/
++│   └── {name}/
++│       ├── SKILL.md          # 3런타임 공통 포맷(claude·codex·gemini 동일)
++│       └── meta.json         # owner·runtimeOrigin·version·tags·endorse·discussionUrl
++├── agents/
++│   └── {name}/
++│       ├── agent.ir.json     # (S2) 중립 IR — 이종 포팅의 진실 소스
++│       ├── claude.md         # (있으면) Claude/Gemini md-frontmatter 렌더물
++│       ├── codex.toml        # (있으면) Codex TOML 렌더물
++│       ├── gemini.md         # (있으면) Gemini md 렌더물
++│       └── meta.json
++├── index.json                # 카탈로그(CI 생성·검증 — 수기 편집 금지)
++└── .github/workflows/eval.yml # PR 자동채점 CI
++```
++
++- **경로 규약:** `{name}` 은 `[A-Za-z0-9._-]+`(안전 세그먼트). `skills/*/`·`agents/*/`·`index.json`·`meta.json` 만 정규 텍스트로 취급. 그 외·심링크·바이너리·거대 파일은 채점기가 **거부(skipped)**.
++- **스킬-먼저:** 스킬은 세 런타임 `SKILL.md` 포맷이 동일 → 번역 없이 이종 설치(라이브 dogfood 실증·§선검증 P-1). **설치 채널은 런타임별로 다름**: claude=`.claude/skills`·codex=`.agents/skills`(공유)·**gemini=`.gemini/skills`**(공유 `.agents/skills` 미discovery·dogfood 정정).
++- **에이전트:** 포맷이 런타임마다 다름(md↔TOML) → **포팅 초안 + 손실 보고**(S2·자동 호환 아님·§선검증 P-2).
++
++## index.json 스키마
++
++```jsonc
++{
++  "schema": "harness-registry/index@1",
++  "generatedAt": "2026-07-20",           // CI 주입(결정적)
++  "entries": [{
++    "id": "skill/greet-team",            // "{kind}/{name}"
++    "kind": "skill",                      // skill | agent
++    "name": "greet-team",
++    "runtimeOrigin": "claude",            // claude | codex | gemini (meta.json)
++    "owner": "alice",                     // git author 파생(meta.json)
++    "version": "1.0.0",
++    "description": "",                    // 카탈로그는 요약만(본문은 검토 관문 diff 로 — 원격 자동 신뢰 금지)
++    "requires": { "tools": [], "model": null },  // 선언 tools=비신뢰 참고(안전 경계 아님·§design §3-1)
++    "eval": { "grade": "C", "mode": "static", "confidence": 0.5 },  // #/eval 4축 정적(품질·비안전)
++    "endorse": 2,                         // ★ 집계
++    "discussionUrl": null                 // GitHub Discussions 스레드(의견·경험지)
++  }]
++}
++```
++
++스키마 검증 = `regstore-index.ts`(zod) + `regstore.safeParseJson`(크기·깊이 DoS 방어).
++
++## meta.json (아티팩트별)
++
++```json
++{ "owner": "alice", "runtimeOrigin": "claude", "version": "1.0.0",
++  "tags": ["team"], "endorse": 2, "discussionUrl": null }
++```
++
++## CI 자동채점 (AR2)
++
++PR 마다 `eval.yml` 이 채점기 번들을 실행:
++
++```bash
++node eval-registry.mjs <registry-root>            # 검증만(stdout: summary + index)
++node eval-registry.mjs <registry-root> --write    # index.json 갱신(CI 만)
++node eval-registry.mjs <registry-root> --block-d  # D등급 있으면 exit 1(머지 차단·옵션)
++```
++
++- 등급 = `#/eval` 4축 정적 채점(트리거·구조·유도·가지치기) 재사용. **"품질 등급 ≠ 안전"** — 안전은 별도 사람 검토(본문·권한·시크릿).
++- 오염 아티팩트(심링크·거대·바이너리)는 채점 대상서 **제외(skipped)**·CI 로그에 명시(은폐 금지).
++- **보안(§0-4b):** 채점기는 모든 read 를 안전 리더로 — 심링크 거부·크기 상한(아티팩트 256KB·index 16MB)·바이너리 거부·경로 allowlist·YAML `!!` 코드태그/alias 폭발/깊이·JSON/TOML 깊이·JSONL 스트리밍 max-line 방어.
++
++## 게이트 (물리 강제 · plan §0-3)
++
++`eval.yml` 단독은 pwn-request 에 완전 면역이 아니다(PR 이 워크플로를 고칠 수 있음). 실제 게이트 = **branch protection + CODEOWNERS(`.github/workflows/` 소유자 승인) + required status check("registry-eval") + "Include administrators" ON**, 또는 org-level required workflows. 신뢰 경계 = 팀·상호신뢰 + 사람 본문 검토 + 런타임 샌드박스(스캔은 advisory 신호지 경계가 아님).
+diff --git a/harness-ui/src/server/adapters/regstore-cli.ts b/harness-ui/src/server/adapters/regstore-cli.ts
+new file mode 100644
+index 0000000..4ee202f
+--- /dev/null
++++ b/harness-ui/src/server/adapters/regstore-cli.ts
+@@ -0,0 +1,34 @@
++// portable CLI 엔트리(S0·AR2) — esbuild 로 scripts/eval-registry.mjs 로 번들(무의존·서버 불요).
++//   레지스트리 repo CI 가 vendor/실행: node eval-registry.mjs <registry-root> [--write] [--block-d]
++//     기본:      채점 결과 + index JSON 을 stdout(검증만·부작용 없음).
++//     --write:   <root>/index.json 갱신(CI 생성·수기 편집 금지).
++//     --block-d: D등급 아티팩트 있으면 exit 1(머지 차단 게이트·옵션).
++//   모든 read 는 regstore 안전 리더(심링크 거부·크기캡·바이너리 거부·경로 allowlist) 경유.
++import { writeFile } from "node:fs/promises";
++import { join } from "node:path";
++import { evaluateRegistry } from "./regstore-eval.js";
++
++const args = process.argv.slice(2);
++const write = args.includes("--write");
++const blockD = args.includes("--block-d");
++const root = args.find((a) => !a.startsWith("--")) || process.cwd();
++const now = new Date().toISOString().slice(0, 10);
++
++evaluateRegistry(root, { now })
++  .then(async (r) => {
++    if (write) await writeFile(join(root, "index.json"), JSON.stringify(r.index, null, 2) + "\n", "utf8");
++    const dGrades = r.index.entries.filter((e) => e.eval.grade === "D");
++    const summary = {
++      artifacts: r.index.entries.length,
++      grades: r.index.entries.reduce((m, e) => ((m[e.eval.grade] = (m[e.eval.grade] ?? 0) + 1), m), {} as Record<string, number>),
++      skipped: r.skipped,
++      dBlocked: blockD ? dGrades.map((e) => e.id) : [],
++    };
++    process.stdout.write(JSON.stringify(write ? summary : { summary, index: r.index }, null, 2) + "\n");
++    if (r.skipped.length > 0) process.stderr.write(`[reg-eval] ${r.skipped.length} artifact(s) skipped(오염·거부): ${r.skipped.map((s) => s.path).join(", ")}\n`);
++    if (blockD && dGrades.length > 0) {
++      process.stderr.write(`[reg-eval] D-grade 머지 차단: ${dGrades.map((e) => e.id).join(", ")}\n`);
++      process.exit(1);
++    }
++  })
++  .catch((e) => { process.stderr.write(String(e?.stack || e) + "\n"); process.exit(1); });
+diff --git a/harness-ui/src/server/adapters/regstore-eval.ts b/harness-ui/src/server/adapters/regstore-eval.ts
+new file mode 100644
+index 0000000..e4f96bd
+--- /dev/null
++++ b/harness-ui/src/server/adapters/regstore-eval.ts
+@@ -0,0 +1,97 @@
++// regstore-eval.ts — 레지스트리 CI 자동채점(S0·AR2). 비신뢰 레지스트리 콘텐츠를 **안전 리더**로 읽어
++//   임시 런타임-채널 레이아웃으로 materialize → 기존 evaluateArtifacts(#/eval 4축) **무변경 재사용**(zero blast radius)
++//   → 등급/지적 산출 + index.json 카탈로그 생성. CI 가 PR 마다 실행(D등급 머지 차단은 옵션).
++//   모든 read 는 regstore(심링크 거부·크기캡·바이너리 거부·경로 allowlist) 경유 — 원격 오염 콘텐츠 격리.
++import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { evaluateArtifacts, type ArtifactScore } from "./artifacteval.js";
++import { readRegFile, listRegDirs } from "./regstore.js";
++import { parseMeta, IndexSchema, type IndexEntry, type RegistryIndex } from "./regstore-index.js";
++
++// 레지스트리 아티팩트 origin 포맷별 materialize 대상 채널(F12).
++const AGENT_FILES: Array<{ file: string; kind: "agent-md" | "agent-toml"; dest: (n: string) => string[] }> = [
++  { file: "claude.md", kind: "agent-md", dest: (n) => [".claude", "agents", `${n}.md`] },
++  { file: "codex.toml", kind: "agent-toml", dest: (n) => [".codex", "agents", `${n}.toml`] },
++  { file: "gemini.md", kind: "agent-md", dest: (n) => [".gemini", "agents", `${n}.md`] },
++];
++
++export interface RegistryEval {
++  index: RegistryIndex;
++  scores: ArtifactScore[];
++  skipped: Array<{ path: string; reason: string }>; // 안전 리더가 거부한 아티팩트(은폐 금지·명시)
++}
++
++// 안전 read → tmp 채널 파일 기록. 실패(거부)면 skipped 기록.
++async function materialize(
++  root: string,
++  segs: string[],
++  kind: Parameters<typeof readRegFile>[2],
++  tmp: string,
++  dest: string[],
++  skipped: RegistryEval["skipped"],
++): Promise<boolean> {
++  const r = await readRegFile(root, segs, kind);
++  if (!r.ok) {
++    skipped.push({ path: segs.join("/"), reason: r.error });
++    return false;
++  }
++  const full = join(tmp, ...dest);
++  await mkdir(join(full, ".."), { recursive: true });
++  await writeFile(full, r.text, "utf8");
++  return true;
++}
++
++// 레지스트리 root 를 CI 채점 → index.json + 점수. now = 결정적 타임스탬프(CI 주입).
++export async function evaluateRegistry(root: string, opts?: { now?: string }): Promise<RegistryEval> {
++  const now = opts?.now ?? "2026-01-01";
++  const skipped: RegistryEval["skipped"] = [];
++  const tmp = await mkdtemp(join(tmpdir(), "reg-eval-"));
++  // 이름 → meta(origin/owner/discussion) 색인.
++  const metaByName = new Map<string, ReturnType<typeof parseMeta>>();
++  try {
++    // ── 스킬: skills/{name}/SKILL.md → .claude/skills/{name}/SKILL.md ──
++    for (const name of await listRegDirs(root, "skills")) {
++      const ok = await materialize(root, ["skills", name, "SKILL.md"], "skill-md", tmp, [".claude", "skills", name, "SKILL.md"], skipped);
++      if (!ok) continue;
++      const m = await readRegFile(root, ["skills", name, "meta.json"], "meta");
++      metaByName.set("skill|" + name, parseMeta(m.ok ? m.text : null));
++    }
++    // ── 에이전트: agents/{name}/{claude.md|codex.toml|gemini.md} → 각 채널 ──
++    for (const name of await listRegDirs(root, "agents")) {
++      let placed = false;
++      for (const a of AGENT_FILES) {
++        const ok = await materialize(root, ["agents", name, a.file], a.kind, tmp, a.dest(name), skipped);
++        if (ok) placed = true;
++      }
++      if (!placed) continue;
++      const m = await readRegFile(root, ["agents", name, "meta.json"], "meta");
++      metaByName.set("agent|" + name, parseMeta(m.ok ? m.text : null));
++    }
++
++    // ── 기존 4축 평가 재사용(무변경) ──
++    const evalResult = await evaluateArtifacts(tmp, { now });
++
++    // ── index 엔트리 조립(eval + meta 조인) ──
++    const entries: IndexEntry[] = evalResult.artifacts.map((a) => {
++      const meta = metaByName.get(a.kind + "|" + a.name) ?? parseMeta(null);
++      return {
++        id: `${a.kind}/${a.name}`,
++        kind: a.kind,
++        name: a.name,
++        runtimeOrigin: meta.runtimeOrigin,
++        owner: meta.owner,
++        version: meta.version,
++        description: "", // 카탈로그는 요약만(본문은 diff/검토 관문서 — 원격 자동 신뢰 금지)
++        requires: { tools: [], model: null },
++        eval: { grade: a.grade, mode: "static" as const, confidence: a.confidence },
++        endorse: meta.endorse,
++        discussionUrl: meta.discussionUrl,
++      };
++    });
++    const index = IndexSchema.parse({ schema: "harness-registry/index@1", generatedAt: now, entries });
++    return { index, scores: evalResult.artifacts, skipped };
++  } finally {
++    await rm(tmp, { recursive: true, force: true });
++  }
++}
+diff --git a/harness-ui/src/server/adapters/regstore-index.ts b/harness-ui/src/server/adapters/regstore-index.ts
+new file mode 100644
+index 0000000..f4a314c
+--- /dev/null
++++ b/harness-ui/src/server/adapters/regstore-index.ts
+@@ -0,0 +1,72 @@
++// regstore-index.ts — 팀 공유 레지스트리 index.json 카탈로그 스키마·검증(S0·AR1·design §1-2).
++//   index.json 은 **CI 생성·검증**(수기 편집 금지). 각 엔트리 = 아티팩트 1개의 카탈로그 메타 + eval 등급.
++//   비신뢰 텍스트는 regstore.safeParseJson(크기·깊이 방어) 로 파싱 후 zod 검증(구조 위조 차단).
++import { z } from "zod";
++import { safeParseJson } from "./regstore.js";
++
++// 런타임 오리진(F12 런타임 id).
++export const RuntimeOrigin = z.enum(["claude", "codex", "gemini"]);
++
++export const RequiresSchema = z.object({
++  tools: z.array(z.string()).default([]), // 선언 tools(비신뢰 참고·안전 경계 아님·design §3-1)
++  model: z.string().nullable().default(null),
++});
++
++export const EvalSchema = z.object({
++  grade: z.enum(["A", "B", "C", "D"]),
++  mode: z.literal("static"), // S0 은 계층A 정적만(#/eval 재사용)
++  confidence: z.number().min(0).max(1),
++});
++
++export const IndexEntrySchema = z.object({
++  id: z.string().regex(/^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/i), // "{kind}/{name}" 정규 id
++  kind: z.enum(["skill", "agent"]),
++  name: z.string().min(1),
++  runtimeOrigin: RuntimeOrigin,
++  owner: z.string(), // git author 파생(meta.json)
++  version: z.string().default("0.0.0"),
++  description: z.string().default(""),
++  requires: RequiresSchema.default({ tools: [], model: null }),
++  eval: EvalSchema,
++  endorse: z.number().int().min(0).default(0), // ★ 집계
++  discussionUrl: z.string().url().nullable().default(null),
++});
++export type IndexEntry = z.infer<typeof IndexEntrySchema>;
++
++export const IndexSchema = z.object({
++  schema: z.literal("harness-registry/index@1"),
++  generatedAt: z.string(),
++  entries: z.array(IndexEntrySchema),
++});
++export type RegistryIndex = z.infer<typeof IndexSchema>;
++
++// meta.json(아티팩트별 소유자·오리진·토론링크·★) — 비신뢰 → safeParseJson + zod.
++export const MetaSchema = z.object({
++  owner: z.string().default("unknown"),
++  runtimeOrigin: RuntimeOrigin.default("claude"),
++  version: z.string().default("0.0.0"),
++  tags: z.array(z.string()).default([]),
++  endorse: z.number().int().min(0).default(0),
++  discussionUrl: z.string().url().nullable().default(null),
++});
++export type ArtifactMeta = z.infer<typeof MetaSchema>;
++
++export type ValidateResult<T> = { ok: true; value: T } | { ok: false; error: string };
++
++// index.json 텍스트 → 크기/깊이 안전 파싱 → 스키마 검증.
++export function validateIndex(text: string): ValidateResult<RegistryIndex> {
++  const parsed = safeParseJson(text);
++  if (!parsed.ok) return { ok: false, error: parsed.error };
++  const res = IndexSchema.safeParse(parsed.value);
++  if (!res.success) return { ok: false, error: "schema:" + res.error.issues[0]?.message };
++  return { ok: true, value: res.data };
++}
++
++// meta.json 텍스트 → 안전 파싱 → 스키마(관대·기본값 채움). 파싱 실패 시 기본 meta.
++export function parseMeta(text: string | null): ArtifactMeta {
++  if (!text) return MetaSchema.parse({});
++  const parsed = safeParseJson(text);
++  if (!parsed.ok) return MetaSchema.parse({});
++  const res = MetaSchema.safeParse(parsed.value);
++  return res.success ? res.data : MetaSchema.parse({});
++}
+diff --git a/harness-ui/src/server/adapters/regstore.ts b/harness-ui/src/server/adapters/regstore.ts
+new file mode 100644
+index 0000000..c743e66
+--- /dev/null
++++ b/harness-ui/src/server/adapters/regstore.ts
+@@ -0,0 +1,251 @@
++// regstore.ts — 팀 공유 레지스트리(shared-repo·v1.6.8 S0) untrusted 콘텐츠 안전 리더·파서.
++//   원격 git clone 캐시는 **비신뢰**(§설계 §3-0·§4-2) → 모든 읽기에 심층방어:
++//     ① 경로안전 = 기존 openSafeFile 재사용(per-seg lstat 심링크 거부·realpath 이중앵커·dev/ino) — 신규 발명 금지.
++//     ② 크기 상한 = 파일 종류별(개별 아티팩트 작게·index.json 카탈로그 크게·R4 MED).
++//     ③ 바이너리 거부(NUL 스캔)·경로 allowlist(정규 텍스트 kind 만).
++//     ④ 구조 파서 DoS 방어: YAML `!!` 코드태그/alias 폭발/깊이·JSON/TOML 깊이·JSONL 스트리밍 max-line.
++//   스캔은 **advisory 아님 — 경계**: 여기서 fail-closed(거부) 하면 상위(diff·스캔·index·설치)가 오염 콘텐츠를 못 읽는다.
++import { open, readdir, lstat } from "node:fs/promises";
++import { join } from "node:path";
++import TOML from "@iarna/toml";
++import { parse as parseYaml } from "yaml";
++import { openSafeFile } from "../lib/servefile.js";
++import { isSafeSegment } from "../lib/paths.js";
++
++// ── 상한(종류별·R4 MED: 일괄 1MB 금지) ─────────────────────────────────────────
++export const REG_MAX_ARTIFACT = 256 * 1024; // 개별 아티팩트(SKILL.md·meta.json·codex.toml·ir.json) 256KB
++export const REG_MAX_INDEX = 16 * 1024 * 1024; // index.json 카탈로그(팀 성장 대비 큰 상한·스트리밍성)
++export const REG_MAX_JSONL_LINE = 1 * 1024 * 1024; // 게이트 파서(summary.jsonl 등) 한 줄 상한(2GB single-line OOM 차단)
++export const REG_MAX_JSONL_LINES = 100_000; // JSONL 총 줄 상한
++export const REG_MAX_STRUCT_DEPTH = 64; // JSON/TOML/YAML 중첩 깊이 상한(billion-laughs·깊은 중첩 DoS)
++export const REG_MAX_ALIAS = 100; // YAML alias 확장 상한(eemeli 기본과 동일·명시)
++
++// 레지스트리 파일 종류 → allowlist(정규 텍스트만)·크기 상한.
++export type RegKind = "skill-md" | "agent-md" | "agent-toml" | "agent-ir" | "meta" | "index";
++const KIND_MAX: Record<RegKind, number> = {
++  "skill-md": REG_MAX_ARTIFACT,
++  "agent-md": REG_MAX_ARTIFACT,
++  "agent-toml": REG_MAX_ARTIFACT,
++  "agent-ir": REG_MAX_ARTIFACT,
++  meta: REG_MAX_ARTIFACT,
++  index: REG_MAX_INDEX,
++};
++
++export type ReadResult =
++  | { ok: true; text: string; bytes: number }
++  | { ok: false; error: string };
++
++// NUL 바이트 스캔(바이너리 거부). 첫 8KB 만 검사(정규 텍스트는 헤더에 NUL 없음·비용 억제).
++function looksBinary(buf: Buffer): boolean {
++  const n = Math.min(buf.length, 8192);
++  for (let i = 0; i < n; i++) if (buf[i] === 0) return true;
++  return false;
++}
++
++// 비신뢰 캐시에서 kind 파일 안전 read. openSafeFile 로 경로안전 → 크기캡 → 바이너리 거부.
++//   segs = root 기준 상대 세그먼트(예: ["skills","foo","SKILL.md"]). 전 세그먼트 isSafeSegment.
++export async function readRegFile(root: string, segs: string[], kind: RegKind): Promise<ReadResult> {
++  if (segs.length === 0 || segs.some((s) => !isSafeSegment(s))) return { ok: false, error: "invalid-path" };
++  // denyPath: dotfile/.git 등 비아티팩트 경로 거부(rel 문자열·해석 前).
++  const r = await openSafeFile(root, root, segs, { denyPath: (rel) => /(^|\/)\./.test(rel) });
++  if (!r.ok) return { ok: false, error: r.error };
++  try {
++    const max = KIND_MAX[kind];
++    if (r.st.size > max) return { ok: false, error: "too-large" };
++    const buf = Buffer.alloc(r.st.size);
++    if (r.st.size > 0) await r.fh.read(buf, 0, r.st.size, 0);
++    if (looksBinary(buf)) return { ok: false, error: "binary-rejected" };
++    return { ok: true, text: buf.toString("utf8"), bytes: r.st.size };
++  } catch {
++    return { ok: false, error: "read-failed" };
++  } finally {
++    await r.fh.close().catch(() => {});
++  }
++}
++
++// 비신뢰 캐시 하위 dir 안전 리스팅. subdir(예 "skills"·"agents") 하위의 정규 디렉토리 이름만 반환.
++//   심링크 디렉토리 거부(lstat)·isSafeSegment·개수 상한(스캔 폭발 차단).
++export async function listRegDirs(root: string, subdir: string, cap = 2000): Promise<string[]> {
++  if (!isSafeSegment(subdir)) return [];
++  let entries;
++  try {
++    entries = await readdir(join(root, subdir), { withFileTypes: true });
++  } catch {
++    return [];
++  }
++  const out: string[] = [];
++  for (const e of entries) {
++    if (out.length >= cap) break;
++    if (!isSafeSegment(e.name)) continue;
++    // 심링크 dir 거부(비신뢰 캐시 — 심링크로 경계 밖 유도 차단).
++    let st;
++    try {
++      st = await lstat(join(root, subdir, e.name));
++    } catch {
++      continue;
++    }
++    if (st.isSymbolicLink() || !st.isDirectory()) continue;
++    out.push(e.name);
++  }
++  return out.sort();
++}
++
++// ── 구조 파서 DoS 방어 ─────────────────────────────────────────────────────────
++
++// 문자열-인지 raw 중첩 깊이 스캐너(JSON). "..." 내부의 괄호는 무시(false-reject 최소화).
++//   파싱 前 호출 → 깊은 중첩을 JSON.parse(스택 오버플로 위험) 전에 fail-closed 거부.
++export function rawJsonDepth(text: string): number {
++  let depth = 0;
++  let max = 0;
++  let inStr = false;
++  let esc = false;
++  for (let i = 0; i < text.length; i++) {
++    const c = text[i];
++    if (inStr) {
++      if (esc) esc = false;
++      else if (c === "\\") esc = true;
++      else if (c === '"') inStr = false;
++      continue;
++    }
++    if (c === '"') inStr = true;
++    else if (c === "{" || c === "[") {
++      depth++;
++      if (depth > max) max = depth;
++    } else if (c === "}" || c === "]") {
++      if (depth > 0) depth--;
++    }
++  }
++  return max;
++}
++
++// 파싱 결과 객체 깊이(BFS·비재귀 — 스택 안전·노드 예산 제한). cap 초과 즉시 true.
++export function objectDepthExceeds(value: unknown, cap: number, nodeBudget = 200_000): boolean {
++  let budget = nodeBudget;
++  let frontier: unknown[] = [value];
++  let depth = 0;
++  while (frontier.length > 0) {
++    if (depth > cap) return true;
++    const next: unknown[] = [];
++    for (const node of frontier) {
++      if (--budget <= 0) return true; // 노드 폭발도 DoS → 거부
++      if (node && typeof node === "object") {
++        for (const v of Object.values(node as Record<string, unknown>)) next.push(v);
++      }
++    }
++    frontier = next;
++    depth++;
++  }
++  return false;
++}
++
++export type ParseResult<T = unknown> = { ok: true; value: T } | { ok: false; error: string };
++
++// YAML safe-load: `!!` 코드/커스텀 태그 사전 거부(방어적·eemeli 는 함수 실행 안 하나 명시 차단)
++//   + alias 확장 상한(maxAliasCount·billion-laughs) + 깊이 상한.
++const SAFE_YAML_TAG = /(^|[\s,{[])!!(?!str\b|int\b|float\b|bool\b|null\b|map\b|seq\b|binary\b|timestamp\b)/m;
++export function safeParseYaml(text: string): ParseResult {
++  if (SAFE_YAML_TAG.test(text)) return { ok: false, error: "unsafe-yaml-tag" };
++  let value: unknown;
++  try {
++    value = parseYaml(text, { maxAliasCount: REG_MAX_ALIAS });
++  } catch (e) {
++    return { ok: false, error: "yaml-parse:" + (e instanceof Error ? e.message : String(e)) };
++  }
++  if (objectDepthExceeds(value, REG_MAX_STRUCT_DEPTH)) return { ok: false, error: "yaml-too-deep" };
++  return { ok: true, value };
++}
++
++// JSON safe-parse: 크기 상한 → raw 깊이 상한(스택 방어) → JSON.parse → 결과 깊이 재확인.
++export function safeParseJson<T = unknown>(text: string, maxBytes = REG_MAX_INDEX): ParseResult<T> {
++  if (Buffer.byteLength(text, "utf8") > maxBytes) return { ok: false, error: "too-large" };
++  if (rawJsonDepth(text) > REG_MAX_STRUCT_DEPTH) return { ok: false, error: "json-too-deep" };
++  let value: unknown;
++  try {
++    value = JSON.parse(text);
++  } catch (e) {
++    return { ok: false, error: "json-parse:" + (e instanceof Error ? e.message : String(e)) };
++  }
++  if (objectDepthExceeds(value, REG_MAX_STRUCT_DEPTH)) return { ok: false, error: "json-too-deep" };
++  return { ok: true, value: value as T };
++}
++
++// TOML safe-parse: 크기 상한 → @iarna strict parse(코드 실행 없음) → 깊이 상한.
++export function safeParseToml(text: string, maxBytes = REG_MAX_ARTIFACT): ParseResult {
++  if (Buffer.byteLength(text, "utf8") > maxBytes) return { ok: false, error: "too-large" };
++  let value: unknown;
++  try {
++    value = TOML.parse(text);
++  } catch (e) {
++    return { ok: false, error: "toml-parse:" + (e instanceof Error ? e.message : String(e)) };
++  }
++  if (objectDepthExceeds(value, REG_MAX_STRUCT_DEPTH)) return { ok: false, error: "toml-too-deep" };
++  return { ok: true, value };
++}
++
++// JSONL 스트리밍 안전 파서(게이트 파서 DoS 방어·R3 MED). FileHandle 청크 read 로
++//   줄당 max-line 상한 강제(2GB single-line 무-개행 → 버퍼 폭발 차단)·총 줄수 상한.
++//   경로안전 = 호출측이 신뢰 경로(우리 산출물) 전제. 반환 = 파싱된 엔트리 배열 or 에러.
++export async function readJsonlSafe(
++  path: string,
++  opts?: { maxLineBytes?: number; maxLines?: number },
++): Promise<{ ok: true; entries: unknown[] } | { ok: false; error: string }> {
++  const maxLine = opts?.maxLineBytes ?? REG_MAX_JSONL_LINE;
++  const maxLines = opts?.maxLines ?? REG_MAX_JSONL_LINES;
++  let fh;
++  try {
++    fh = await open(path, "r");
++  } catch {
++    return { ok: false, error: "open-failed" };
++  }
++  try {
++    const entries: unknown[] = [];
++    const CHUNK = 64 * 1024;
++    const chunk = Buffer.alloc(CHUNK);
++    let pending = ""; // 현재 줄 누적(개행 전까지)
++    let pendingBytes = 0;
++    let pos = 0;
++    for (;;) {
++      const { bytesRead } = await fh.read(chunk, 0, CHUNK, pos);
++      if (bytesRead === 0) break;
++      pos += bytesRead;
++      let start = 0;
++      for (let i = 0; i < bytesRead; i++) {
++        if (chunk[i] === 0x0a) {
++          // \n
++          pending += chunk.toString("utf8", start, i);
++          const line = pending.replace(/\r$/, "");
++          pending = "";
++          pendingBytes = 0;
++          start = i + 1;
++          if (line.length === 0) continue;
++          if (entries.length >= maxLines) return { ok: false, error: "too-many-lines" };
++          try {
++            entries.push(JSON.parse(line));
++          } catch {
++            return { ok: false, error: "jsonl-parse" };
++          }
++        }
++      }
++      if (start < bytesRead) {
++        pendingBytes += bytesRead - start;
++        if (pendingBytes > maxLine) return { ok: false, error: "line-too-long" }; // 무-개행 폭주 차단
++        pending += chunk.toString("utf8", start, bytesRead);
++      }
++    }
++    // 마지막 개행 없는 잔여 줄.
++    if (pending.trim().length > 0) {
++      if (Buffer.byteLength(pending, "utf8") > maxLine) return { ok: false, error: "line-too-long" };
++      if (entries.length >= maxLines) return { ok: false, error: "too-many-lines" };
++      try {
++        entries.push(JSON.parse(pending));
++      } catch {
++        return { ok: false, error: "jsonl-parse" };
++      }
++    }
++    return { ok: true, entries };
++  } catch {
++    return { ok: false, error: "read-failed" };
++  } finally {
++    await fh.close().catch(() => {});
++  }
++}
+diff --git a/harness-ui/test/regstore-eval.test.ts b/harness-ui/test/regstore-eval.test.ts
+new file mode 100644
+index 0000000..d4a6a4f
+--- /dev/null
++++ b/harness-ui/test/regstore-eval.test.ts
+@@ -0,0 +1,100 @@
++// regstore-eval.test.ts — CI 자동채점(evaluateRegistry) + index 스키마(S0·AR1·AR2).
++//   픽스처 레지스트리를 채점 → index.json 생성·검증. 오염 아티팩트(심링크·거대·바이너리)는 skipped(크래시 아님).
++import { describe, it, expect, beforeAll, afterAll } from "vitest";
++import { mkdtemp, rm, mkdir, writeFile, symlink } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { evaluateRegistry } from "../src/server/adapters/regstore-eval.js";
++import { validateIndex, IndexSchema } from "../src/server/adapters/regstore-index.js";
++
++let root: string;
++const isWin = process.platform === "win32";
++
++const SKILL = `---
++name: greet-team
++description: 팀 인사 스킬. "인사" 트리거 시 팀에 인사 메시지 출력.
++---
++# greet-team
++
++## 목적
++팀에 인사한다.
++
++## 사용
++"인사해줘" → 인사 메시지.
++`;
++
++const AGENT_MD = `---
++name: reviewer
++description: 코드 리뷰 에이전트. PR diff 를 받아 위험을 지적한다.
++model: opus
++---
++# reviewer
++
++PR 을 검토하고 위험을 보고한다.
++`;
++
++beforeAll(async () => {
++  root = await mkdtemp(join(tmpdir(), "reg-"));
++  // 정상 스킬.
++  await mkdir(join(root, "skills", "greet-team"), { recursive: true });
++  await writeFile(join(root, "skills", "greet-team", "SKILL.md"), SKILL);
++  await writeFile(join(root, "skills", "greet-team", "meta.json"), JSON.stringify({ owner: "alice", runtimeOrigin: "claude", version: "1.0.0", endorse: 3, discussionUrl: "https://github.com/x/y/discussions/1" }));
++  // 정상 에이전트(claude md).
++  await mkdir(join(root, "agents", "reviewer"), { recursive: true });
++  await writeFile(join(root, "agents", "reviewer", "claude.md"), AGENT_MD);
++  await writeFile(join(root, "agents", "reviewer", "meta.json"), JSON.stringify({ owner: "bob", runtimeOrigin: "claude" }));
++});
++afterAll(async () => {
++  await rm(root, { recursive: true, force: true });
++});
++
++describe("evaluateRegistry — CI 채점 + index 생성", () => {
++  it("정상 아티팩트 채점 → index 스키마 유효", async () => {
++    const r = await evaluateRegistry(root, { now: "2026-07-20" });
++    const parsed = IndexSchema.safeParse(r.index);
++    expect(parsed.success).toBe(true);
++    expect(r.index.entries.length).toBe(2);
++    const skill = r.index.entries.find((e) => e.kind === "skill");
++    expect(skill?.name).toBe("greet-team");
++    expect(skill?.owner).toBe("alice");
++    expect(skill?.endorse).toBe(3);
++    expect(["A", "B", "C", "D"]).toContain(skill!.eval.grade);
++    const agent = r.index.entries.find((e) => e.kind === "agent");
++    expect(agent?.owner).toBe("bob");
++  });
++
++  it("생성된 index 는 validateIndex round-trip 통과", async () => {
++    const r = await evaluateRegistry(root, { now: "2026-07-20" });
++    const text = JSON.stringify(r.index);
++    const v = validateIndex(text);
++    expect(v.ok).toBe(true);
++  });
++
++  it("결정적 — 동일 입력·동일 now → 동일 등급", async () => {
++    const a = await evaluateRegistry(root, { now: "2026-07-20" });
++    const b = await evaluateRegistry(root, { now: "2026-07-20" });
++    expect(a.index.entries.map((e) => e.eval.grade)).toEqual(b.index.entries.map((e) => e.eval.grade));
++  });
++});
++
++describe("evaluateRegistry — 오염 아티팩트 격리(크래시 아님)", () => {
++  it.skipIf(isWin)("심링크 SKILL.md 는 skipped(로드 안 됨)", async () => {
++    const badRoot = await mkdtemp(join(tmpdir(), "reg-bad-"));
++    await mkdir(join(badRoot, "skills", "evil"), { recursive: true });
++    await symlink("/etc/passwd", join(badRoot, "skills", "evil", "SKILL.md")).catch(() => {});
++    const r = await evaluateRegistry(badRoot, { now: "2026-07-20" });
++    expect(r.index.entries.find((e) => e.name === "evil")).toBeUndefined();
++    expect(r.skipped.some((s) => s.path.includes("evil"))).toBe(true);
++    await rm(badRoot, { recursive: true, force: true });
++  });
++
++  it("거대 SKILL.md 는 skipped", async () => {
++    const badRoot = await mkdtemp(join(tmpdir(), "reg-big-"));
++    await mkdir(join(badRoot, "skills", "huge"), { recursive: true });
++    await writeFile(join(badRoot, "skills", "huge", "SKILL.md"), "x".repeat(300 * 1024));
++    const r = await evaluateRegistry(badRoot, { now: "2026-07-20" });
++    expect(r.index.entries.find((e) => e.name === "huge")).toBeUndefined();
++    expect(r.skipped.some((s) => s.reason === "too-large")).toBe(true);
++    await rm(badRoot, { recursive: true, force: true });
++  });
++});
+diff --git a/harness-ui/test/regstore.test.ts b/harness-ui/test/regstore.test.ts
+new file mode 100644
+index 0000000..9539ecd
+--- /dev/null
++++ b/harness-ui/test/regstore.test.ts
+@@ -0,0 +1,191 @@
++// regstore.test.ts — S0 untrusted 콘텐츠 안전 리더·파서 negative/positive 스위트(§0-4b·비협상).
++//   공격 fixture(심링크·거대·바이너리·traversal·YAML !!태그/alias 폭발·깊은 JSON/TOML·거대 single-line JSONL)
++//   전건 차단 실증. 정상 콘텐츠는 통과.
++import { describe, it, expect, beforeAll, afterAll } from "vitest";
++import { mkdtemp, rm, writeFile, symlink, mkdir } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import {
++  readRegFile,
++  safeParseYaml,
++  safeParseJson,
++  safeParseToml,
++  readJsonlSafe,
++  rawJsonDepth,
++  objectDepthExceeds,
++  REG_MAX_ARTIFACT,
++} from "../src/server/adapters/regstore.js";
++
++let root: string;
++const isWin = process.platform === "win32";
++
++beforeAll(async () => {
++  root = await mkdtemp(join(tmpdir(), "regstore-"));
++  await mkdir(join(root, "skills", "good"), { recursive: true });
++  await writeFile(join(root, "skills", "good", "SKILL.md"), "---\nname: good\n---\n# good\n본문.\n");
++  await writeFile(join(root, "index.json"), JSON.stringify({ entries: [] }));
++});
++afterAll(async () => {
++  await rm(root, { recursive: true, force: true });
++});
++
++describe("readRegFile — 경로/크기/바이너리 방어", () => {
++  it("정상 SKILL.md 통과", async () => {
++    const r = await readRegFile(root, ["skills", "good", "SKILL.md"], "skill-md");
++    expect(r.ok).toBe(true);
++    if (r.ok) expect(r.text).toContain("name: good");
++  });
++
++  it("traversal 세그먼트(..) 거부", async () => {
++    const r = await readRegFile(root, ["skills", "..", "..", "etc", "passwd"], "skill-md");
++    expect(r.ok).toBe(false);
++  });
++
++  it("불안전 세그먼트(%·절대경로 흉내) 거부", async () => {
++    const r = await readRegFile(root, ["skills", "..%2f", "SKILL.md"], "skill-md");
++    expect(r.ok).toBe(false);
++  });
++
++  it.skipIf(isWin)("경로 내 심링크 거부(SKILL.md → /etc/passwd)", async () => {
++    const evilDir = join(root, "skills", "evil");
++    await mkdir(evilDir, { recursive: true });
++    await symlink("/etc/passwd", join(evilDir, "SKILL.md")).catch(() => {});
++    const r = await readRegFile(root, ["skills", "evil", "SKILL.md"], "skill-md");
++    expect(r.ok).toBe(false);
++    if (!r.ok) expect(r.error).toMatch(/symlink|not-file|not-found/);
++  });
++
++  it("크기 상한 초과 거부(> 256KB artifact)", async () => {
++    const big = join(root, "skills", "good", "BIG.md");
++    await writeFile(big, "x".repeat(REG_MAX_ARTIFACT + 10));
++    const r = await readRegFile(root, ["skills", "good", "BIG.md"], "skill-md");
++    expect(r.ok).toBe(false);
++    if (!r.ok) expect(r.error).toBe("too-large");
++  });
++
++  it("바이너리(NUL) 거부", async () => {
++    const bin = join(root, "skills", "good", "bin.md");
++    await writeFile(bin, Buffer.from([0x23, 0x00, 0x41, 0x42]));
++    const r = await readRegFile(root, ["skills", "good", "bin.md"], "skill-md");
++    expect(r.ok).toBe(false);
++    if (!r.ok) expect(r.error).toBe("binary-rejected");
++  });
++});
++
++describe("safeParseYaml — 코드태그/alias/깊이 방어", () => {
++  it("정상 YAML 통과", () => {
++    const r = safeParseYaml("name: foo\ntools:\n  - a\n  - b\n");
++    expect(r.ok).toBe(true);
++  });
++
++  it("!!js/function 코드 실행 태그 거부", () => {
++    const r = safeParseYaml("evil: !!js/function 'function(){return process}'\n");
++    expect(r.ok).toBe(false);
++    if (!r.ok) expect(r.error).toBe("unsafe-yaml-tag");
++  });
++
++  it("커스텀 !!python/object 태그 거부", () => {
++    const r = safeParseYaml("x: !!python/object/apply:os.system ['id']\n");
++    expect(r.ok).toBe(false);
++  });
++
++  it("alias 폭발(billion-laughs) 거부", () => {
++    // 확장 시 지수 폭발하는 alias 참조 다발.
++    let y = "a: &a [x,x,x,x,x,x,x,x,x,x]\n";
++    y += "b: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a,*a]\n";
++    y += "c: &c [*b,*b,*b,*b,*b,*b,*b,*b,*b,*b]\n";
++    y += "d: &d [*c,*c,*c,*c,*c,*c,*c,*c,*c,*c]\n";
++    y += "e: [*d,*d,*d,*d,*d,*d,*d,*d,*d,*d]\n";
++    const r = safeParseYaml(y);
++    expect(r.ok).toBe(false); // maxAliasCount 초과 throw
++  });
++});
++
++describe("safeParseJson — 크기/깊이 방어", () => {
++  it("정상 JSON 통과", () => {
++    const r = safeParseJson('{"entries":[{"id":"a"}]}');
++    expect(r.ok).toBe(true);
++  });
++
++  it("깊은 중첩 거부(> 64)", () => {
++    const deep = "[".repeat(200) + "]".repeat(200);
++    const r = safeParseJson(deep);
++    expect(r.ok).toBe(false);
++    if (!r.ok) expect(r.error).toBe("json-too-deep");
++  });
++
++  it("크기 상한 초과 거부", () => {
++    const r = safeParseJson('{"x":1}', 3);
++    expect(r.ok).toBe(false);
++    if (!r.ok) expect(r.error).toBe("too-large");
++  });
++
++  it("rawJsonDepth 는 문자열 내부 괄호 무시", () => {
++    expect(rawJsonDepth('{"k":"[[[[["}')).toBe(1); // 문자열 안 [ 는 미집계
++    expect(rawJsonDepth("[[[]]]")).toBe(3);
++  });
++});
++
++describe("safeParseToml — 크기/깊이 방어", () => {
++  it("정상 TOML 통과", () => {
++    const r = safeParseToml('name = "foo"\n[meta]\nowner = "a"\n');
++    expect(r.ok).toBe(true);
++  });
++
++  it("malformed TOML 거부(throw 흡수)", () => {
++    const r = safeParseToml("= = =\n");
++    expect(r.ok).toBe(false);
++  });
++
++  it("크기 상한 초과 거부", () => {
++    const r = safeParseToml('a = "xxxxxxxxxx"\n', 5);
++    expect(r.ok).toBe(false);
++    if (!r.ok) expect(r.error).toBe("too-large");
++  });
++});
++
++describe("objectDepthExceeds — 노드 예산/깊이", () => {
++  it("얕은 객체 통과", () => {
++    expect(objectDepthExceeds({ a: { b: 1 } }, 64)).toBe(false);
++  });
++  it("깊은 객체 거부", () => {
++    let o: unknown = 1;
++    for (let i = 0; i < 100; i++) o = { n: o };
++    expect(objectDepthExceeds(o, 64)).toBe(true);
++  });
++});
++
++describe("readJsonlSafe — 스트리밍 max-line 방어", () => {
++  let jroot: string;
++  beforeAll(async () => {
++    jroot = await mkdtemp(join(tmpdir(), "jsonl-"));
++  });
++  afterAll(async () => {
++    await rm(jroot, { recursive: true, force: true });
++  });
++
++  it("정상 JSONL 파싱", async () => {
++    const p = join(jroot, "ok.jsonl");
++    await writeFile(p, '{"a":1}\n{"b":2}\n{"c":3}\n');
++    const r = await readJsonlSafe(p);
++    expect(r.ok).toBe(true);
++    if (r.ok) expect(r.entries.length).toBe(3);
++  });
++
++  it("개행 없는 초장문 한 줄 거부(2GB single-line 시뮬)", async () => {
++    const p = join(jroot, "huge.jsonl");
++    // maxLineBytes 를 작게 줘서 무-개행 폭주 차단 실증(실제 2GB 안 쓰고 계약 검증).
++    await writeFile(p, "x".repeat(500_000)); // 개행 0
++    const r = await readJsonlSafe(p, { maxLineBytes: 1024 });
++    expect(r.ok).toBe(false);
++    if (!r.ok) expect(r.error).toBe("line-too-long");
++  });
++
++  it("총 줄수 상한 초과 거부", async () => {
++    const p = join(jroot, "many.jsonl");
++    await writeFile(p, '{"a":1}\n'.repeat(50));
++    const r = await readJsonlSafe(p, { maxLines: 10 });
++    expect(r.ok).toBe(false);
++    if (!r.ok) expect(r.error).toBe("too-many-lines");
++  });
++});

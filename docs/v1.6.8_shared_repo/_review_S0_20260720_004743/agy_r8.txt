@@ -1,0 +1,36 @@
+사용자님의 지침에 따라 `regstore.ts`, `regstore-index.ts`, `regstore-eval.ts` 3개 파일의 정합성과 방어적 코딩 기법에 대한 최종 코드리뷰 및 자가점검을 수행했습니다. 
+
+전체적으로 이전 라운드 피드백(심층방어, 심링크 DoS/유출 방어, 스트리밍 OOM, Zod catch 폴백 등)이 완벽하게 수렴되었으며 무결하게 구현되었습니다.
+
+### 🛡️ 파일별 코드 리뷰 및 정합성 점검
+
+**1. `regstore.ts` (안전 파일 리더 및 파서)**
+- **정합성 및 방어 로직**: 
+  - `readRegFile`: `openSafeFile`을 재사용하여 원격 캐시의 Directory Traversal을 차단하고 종류(kind)별로 크기 상한(256KB/16MB)과 NUL 바이너리 스캔 방어를 수행합니다.
+  - `listRegDirs`: 반복적인 `opendir` 호출 과정에서 `scanned` 변수를 통해 디렉토리가 아닌 엔트리에 대해서도 `lstat` 비용을 조기에 차단(`scanCap` 강제)하여 스캔 폭발 DoS를 막아냅니다.
+  - `readJsonlSafe`: 줄 단위 청크(chunk) 분할 시 `pendingBytes` 상한을 개행 전부터 선제적으로 검사하여 무개행(non-newline) 폭탄으로 인한 버퍼 오버플로우를 안전하게 차단합니다.
+  - `rawJsonDepth` 및 `objectDepthExceeds`: JSON 파싱 전/후로 스택 오버플로우나 노드 폭발(Billion-laughs 변형)을 2중으로 차단하며, 특히 `nodeBudget` 산정 시 입력 파일 크기에 비례하게 부여하여 정상 카탈로그가 오탐 거부되지 않도록 안전하게 정합성이 맞춰져 있습니다.
+- **발견 사항**: 특이사항 없음(취약점 없음).
+
+**2. `regstore-index.ts` (카탈로그 스키마 검증)**
+- **정합성 및 방어 로직**: 
+  - `validateIndex` 및 `parseMeta`: `safeParseJson`을 이용하여 무거운 카탈로그를 파싱하기 전 깊이와 크기 제한을 적용한 후 Zod Schema에 넘깁니다. 
+  - `.catch()` 폴백: `MetaSchema`에서 각 필드 단위로 `.catch()` 처리가 적용되어 있어, 단일 URL 형식 오류나 잘못된 Origin 값이 기입되더라도 유효한 작성자(`owner`)나 추천수(`endorse`)를 잃어버리는 일 없이 기본값으로 부분 구제(partial rescue)됩니다.
+- **발견 사항**: 특이사항 없음(취약점 없음).
+
+**3. `regstore-eval.ts` (CI 자동채점)**
+- **정합성 및 방어 로직**: 
+  - 임시 디렉토리 레이아웃(`materialize` 함수): 비신뢰 원격 리포지토리 파일을 안전 리더(`readRegFile`)로 읽은 뒤 `fs.mkdtemp`로 생성된 임시 채널 구조에만 투영시킵니다. 이후 기존의 평가 모듈(`evaluateArtifacts`)을 무변경 재사용함으로써, 블래스트 반경(Blast Radius)을 철저하게 격리시켰습니다.
+  - 파싱 실패 은폐 방지: `materialize` 과정 중 안전 리더에 의해 거부된(too-large, binary-rejected, invalid-path 등) 악성/오염 아티팩트는 조용히 넘어가는 것이 아니라, `skipped` 배열에 사유와 함께 명시적으로 기록되도록 처리해 보안 가시성(Visibility)을 높였습니다.
+  - 메모리 릭 및 리소스 정리: `evaluateRegistry` 마지막 부분에 `finally` 블록 안에서 `rm(tmp, { recursive: true, force: true })`를 안전하게 수행하여 임시 디렉토리 유출 문제를 방어합니다.
+- **발견 사항**: 특이사항 없음(취약점 없음).
+
+---
+**최종 결론**
+3개 파일 모두에 걸쳐 서로간의 함수 계약, 데이터 상한선, Schema 폴백 처리, 그리고 파일 핸들 생명주기가 철저하게 맞아떨어집니다. 추가적인 코드 수정은 불필요합니다.
+
+판정: no-high
+백그라운드에서 실행 중이던 파일 탐색 태스크(`task-10`)가 완료되었습니다. 앞서 제가 빠른 검색(mdfind)으로 찾아내어 리뷰를 완료한 파일 경로들과 정확히 일치하는 것을 확인했습니다.
+
+요청하신 코드 리뷰 및 방어적 자가점검은 모두 완료되었으며, 추가로 필요한 사항이 있으시다면 언제든 말씀해 주세요!
+[agy done]

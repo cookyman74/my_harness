@@ -1,0 +1,177 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.1
+--------
+workdir: /Users/junghojang/Developments/myProject/myHarness
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: medium
+reasoning summaries: none
+session id: 019f7b10-a026-79e1-a31e-46c850f207c7
+--------
+user
+너는 보안·설계 외부 감사자다. 아래는 팀 공유 레지스트리(사설 git repo)의 **S0 단계** 구현 diff 다.
+리스크 등급 = **중대**(원격 콘텐츠 읽기 개시·실행 지시문 공급망·비신뢰 캐시). 실코드 기준으로 **고위험(HIGH) 위주** 적대적 리뷰하라.
+
+## 맥락(설계 전제 — 이건 의도된 것·지적 대상 아님)
+- 서버 미신설·git 레지스트리(clone 캐시=비신뢰). 127.0.0.1 로컬 전용 불변.
+- 스킬은 3런타임 SKILL.md 동일 포맷(이종 설치 가능·라이브 dogfood 실증). 에이전트 이종 번역은 S2(이번 아님).
+- eval 등급 = 품질이지 안전 아님. 정적 스캔 = advisory 신호. **실 보안 경계 = 팀 신뢰 + 사람 본문 검토 + 런타임 샌드박스.**
+- 대상 = 팀·상호신뢰. **머지 권한 있는 결탁 내부자는 범위 밖**(인사 문제). 심층방어·감사추적·부주의/외부위협 차단이 목표.
+- `eval-registry.mjs`(14600줄)는 **esbuild 생성 번들** — 리뷰 대상 아님(소스는 regstore-cli.ts).
+
+## 중점 감사 항목(S0)
+1. **untrusted 파싱 방어(`regstore.ts`)** — 심링크/traversal/크기캡/바이너리/경로 allowlist 우회 가능?
+   - `readRegFile`·`listRegDirs`(심링크 dir·TOCTOU)·openSafeFile 재사용 계약이 실제로 성립?
+   - `safeParseYaml`: `!!js/function` 등 코드태그 차단 정규식이 우회 가능한가(공백/인용/블록스칼라/멀티라인 태그)? eemeli yaml 이 실제로 함수 실행 안 하나? alias 폭발(maxAliasCount) 실효?
+   - `safeParseJson`/`rawJsonDepth`: 문자열-인지 스캐너가 깊이 우회 당하나(이스케이프·유니코드)? `objectDepthExceeds` 노드예산 우회?
+   - `safeParseToml`: @iarna 파싱서 DoS/깊이 우회?
+   - `readJsonlSafe`: 무-개행 폭주 실제 차단되나(청크 경계·pendingBytes 계산 오류)? OOM 가능?
+2. **CI 채점(`regstore-eval.ts`)** — tmp 채널 materialize 가 경계 밖 쓰기/오염 유도 가능? evaluateArtifacts 재사용이 오염 콘텐츠를 실행/신뢰하나? skipped 은폐 없나? 결정성?
+3. **스키마(`regstore-index.ts`)** — zod 검증 우회·프로토타입 오염(`__proto__`)·id 정규식 우회?
+4. **CLI(`regstore-cli.ts`)** — `--write` 가 index.json 외 임의경로 쓰기 가능? exit code 게이트 정확?
+5. **eval.yml** — pwn-request/토큰 exfil/비신뢰 실행 방어가 실제로 되나(고정 ref·read-only·secrets 없음)? diff 게이트 우회? (한계는 README/결과서에 명시됨 — 그래도 빠진 위험 지적하라.)
+6. **negative fixture 충분성** — 차단 주장 대비 테스트가 실제로 그 경계를 증명하나? 빠진 공격 벡터?
+
+## 출력 형식(엄수)
+각 지적: **심각도(HIGH/MED/LOW)** + 파일:섹션 + 근거 + **구체적 실패 시나리오(입력→잘못된 결과)**.
+마지막 줄에 반드시: `판정: no-high` 또는 `판정: HIGH n건`.
+추측·일반론 금지. 실코드 근거만. 이미 결과서/README 에 "정직한 한계"로 명시된 것은 새 HIGH 아님(단, 명시 안 된 실제 구멍은 지적).
+
+## 리뷰할 실제 소스 파일(정독하라)
+- harness-ui/src/server/adapters/regstore.ts
+- harness-ui/src/server/adapters/regstore-index.ts
+- harness-ui/src/server/adapters/regstore-eval.ts
+- harness-ui/src/server/adapters/regstore-cli.ts
+- harness-ui/test/regstore.test.ts
+- harness-ui/test/regstore-eval.test.ts
+- docs/v1.6.8_shared_repo/registry-example/.github/workflows/eval.yml
+- docs/v1.6.8_shared_repo/registry-example/README.md
+참고: 재사용 앵커 harness-ui/src/server/lib/servefile.ts(openSafeFile)·lib/paths.ts. diff 요약: docs/v1.6.8_shared_repo/_review_S0_20260720_004743/s0.diff
+codex
+`context-mode` 스킬을 사용해 큰 diff와 소스 파일을 인덱싱 기반으로 확인하겠습니다. 먼저 스킬 지시를 읽고, 실제 코드 근거가 있는 HIGH 위주로 좁혀 보겠습니다.
+exec
+/bin/zsh -lc "sed -n '1,220p' /Users/junghojang/.codex/skills/context-mode/SKILL.md" in /Users/junghojang/Developments/myProject/myHarness
+ succeeded in 0ms:
+---
+name: context-mode
+description: Use the context-mode MCP server and routing hooks when tasks involve large context, many files, or repeated analysis that should be indexed instead of pasted.
+---
+
+# context-mode
+
+Use this skill when a task benefits from the context-mode MCP server installed from `mksglu/context-mode`.
+
+## What it does
+
+- Routes Codex tool use through context-mode hooks.
+- Pushes large or repeated context into indexed memory instead of flooding the chat.
+- Provides `ctx_*` commands for search, batch execution, indexing, and maintenance.
+
+## How to use
+
+- Keep `context-mode` installed on PATH.
+- Ensure `~/.codex/config.toml` contains the `context-mode` MCP server entry.
+- Ensure `~/.codex/hooks.json` points Codex hook events at `context-mode hook codex ...`.
+- Keep `~/.codex/AGENTS.md` loaded as the routing policy for Codex sessions.
+
+## When to prefer it
+
+- Large repo analysis.
+- Repeated file exploration.
+- Multi-file search or transform work.
+- Tasks that need a local indexed memory instead of raw transcript growth.
+
+## Operational rule
+
+- Prefer indexed search and batch execution over raw context dumps.
+- Prefer code that reads, indexes, and summarizes over manual copy/paste.
+
+exec
+/bin/zsh -lc "pwd && rg --files harness-ui/src/server/adapters harness-ui/src/server/lib harness-ui/test docs/v1.6.8_shared_repo | rg 'regstore|servefile|paths|eval\\.yml|README|s0\\.diff'" in /Users/junghojang/Developments/myProject/myHarness
+ succeeded in 0ms:
+/Users/junghojang/Developments/myProject/myHarness
+harness-ui/src/server/lib/contextpaths.ts
+harness-ui/src/server/lib/paths.ts
+harness-ui/src/server/lib/servefile.ts
+harness-ui/test/regstore.test.ts
+harness-ui/test/servefile.toctou.test.ts
+harness-ui/src/server/adapters/regstore-index.ts
+harness-ui/src/server/adapters/regstore.ts
+harness-ui/src/server/adapters/regstore-eval.ts
+harness-ui/src/server/adapters/regstore-cli.ts
+docs/v1.6.8_shared_repo/_review_S0_20260720_004743/s0.diff
+harness-ui/test/contextpaths.test.ts
+harness-ui/test/servefile.binary.r2fix.test.ts
+harness-ui/test/regstore-eval.test.ts
+docs/v1.6.8_shared_repo/registry-example/README.md
+
+codex
+스킬은 “인덱싱/요약 우선”만 요구합니다. 이 환경에서는 직접 노출된 `ctx_*` 도구가 보이지 않아, 우선 로컬 스크립트로 필요한 섹션과 위험 패턴만 추출해 원문 덤프를 피하겠습니다.
+codex
+`ctx_*` 도구를 로드했습니다. 이제 대상 파일과 diff를 인덱싱하고, 위험 함수 주변만 검색해서 검토하겠습니다.
+mcp: context-mode/ctx_index started
+mcp: context-mode/ctx_index (completed)
+mcp: context-mode/ctx_index started
+mcp: context-mode/ctx_index (completed)
+mcp: context-mode/ctx_index started
+mcp: context-mode/ctx_index (completed)
+mcp: context-mode/ctx_index started
+mcp: context-mode/ctx_index (completed)
+codex
+검토 범위가 인덱스에 들어갔습니다. 지금은 심링크/경로 검증, YAML/JSONL 파서, eval materialize, CLI write, workflow 권한 경계를 중심으로 실제 실패 가능한 지점만 찾고 있습니다.
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+codex
+초기 검색상 핵심 구현은 `regstore.ts`, `regstore-eval.ts`, workflow에 몰려 있습니다. 다음 단계는 라인 번호가 있는 함수 본문을 추출해 “입력→잘못된 결과”가 실제로 성립하는지 확인하는 것입니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+codex
+라인 추출 결과에서 JSONL과 YAML은 별도 확인이 필요합니다. 특히 “정규식 기반 YAML 태그 차단”과 “JSONL pending 누적”은 실제 우회/DoS 여부를 작은 재현으로 검증하겠습니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+codex
+대상 파일 전체는 인덱스 처리됐고, 필요한 구간은 검색으로 회수 중입니다. 아직 HIGH 단정 전이라, 잠재 이슈마다 실제 테스트 입력을 실행해 false positive를 줄이겠습니다.
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+codex
+잠재 쟁점 하나: `SAFE_YAML_TAG`는 `!!bad`만 사전 차단합니다. 이게 HIGH가 되려면 eemeli `yaml` 파서가 우회 태그를 실행하거나 위험 객체를 생성해야 하므로, 로컬 의존성 버전에서 실제 동작을 확인합니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+codex
+의존성은 `yaml@2.7.1`입니다. 이제 코드의 exported 함수로 우회 후보들을 직접 넣어, “차단 실패”와 “위험한 값 생성”을 분리해서 보겠습니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+codex
+실제 HIGH 후보 하나가 재현됐습니다. `skills` 자체가 심링크면 `listRegDirs`가 경계 밖 디렉터리를 먼저 열어 이름을 가져오고, 이후 `readRegFile`에서 막혀도 `skipped`로 외부 이름이 출력됩니다. 이제 테스트 커버리지와 다른 유사 경로를 확인합니다.
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+codex
+현재까지 실증된 HIGH는 1건입니다. 나머지 파서/스키마/CLI 쪽은 실패 모드를 실행해도 대부분 fail-closed 또는 문서화된 한계로 보이며, 보고서에는 HIGH가 아닌 테스트 공백만 LOW/MED로 분리하겠습니다.
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+codex
+HIGH + [regstore.ts:listRegDirs](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore.ts:68) + `listRegDirs`가 `readdir(join(root, subdir))`를 먼저 호출해 `skills`/`agents` 자체가 심링크인지 확인하기 전에 경계 밖 디렉터리를 연다. 이후 `lstat(join(root, subdir, e.name))`는 중간 세그먼트 심링크를 검사하지 못하고, `readRegFile`에서 뒤늦게 `symlink-in-path`로 막혀도 이미 외부 디렉터리 엔트리명이 `out`/`skipped`에 반영된다. `cap`도 `readdir` 뒤에 적용돼 대형 외부 디렉터리 DoS 방어가 아니다.  
+실패 시나리오: 입력 = 레지스트리 root 안에 `skills -> /tmp/outside-secret` 디렉터리 심링크, `/tmp/outside-secret/secretProject/` 존재. 결과 = `listRegDirs(root, "skills")`가 `["secretProject"]` 반환, `evaluateRegistry`가 `skipped: [{"path":"skills/secretProject/SKILL.md","reason":"symlink-in-path"}]` 출력. 잘못된 결과 = 비신뢰 clone 캐시가 registry root 밖 디렉터리 이름을 읽고 CI 출력에 노출한다. 테스트도 [regstore.test.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/test/regstore.test.ts:49), [regstore-eval.test.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/test/regstore-eval.test.ts:81) 모두 leaf `SKILL.md` 심링크만 검증하고 parent `skills`/`agents` 심링크를 검증하지 않는다.
+
+판정: HIGH 1건
+tokens used
+68,966
+HIGH + [regstore.ts:listRegDirs](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore.ts:68) + `listRegDirs`가 `readdir(join(root, subdir))`를 먼저 호출해 `skills`/`agents` 자체가 심링크인지 확인하기 전에 경계 밖 디렉터리를 연다. 이후 `lstat(join(root, subdir, e.name))`는 중간 세그먼트 심링크를 검사하지 못하고, `readRegFile`에서 뒤늦게 `symlink-in-path`로 막혀도 이미 외부 디렉터리 엔트리명이 `out`/`skipped`에 반영된다. `cap`도 `readdir` 뒤에 적용돼 대형 외부 디렉터리 DoS 방어가 아니다.  
+실패 시나리오: 입력 = 레지스트리 root 안에 `skills -> /tmp/outside-secret` 디렉터리 심링크, `/tmp/outside-secret/secretProject/` 존재. 결과 = `listRegDirs(root, "skills")`가 `["secretProject"]` 반환, `evaluateRegistry`가 `skipped: [{"path":"skills/secretProject/SKILL.md","reason":"symlink-in-path"}]` 출력. 잘못된 결과 = 비신뢰 clone 캐시가 registry root 밖 디렉터리 이름을 읽고 CI 출력에 노출한다. 테스트도 [regstore.test.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/test/regstore.test.ts:49), [regstore-eval.test.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/test/regstore-eval.test.ts:81) 모두 leaf `SKILL.md` 심링크만 검증하고 parent `skills`/`agents` 심링크를 검증하지 않는다.
+
+판정: HIGH 1건
+[codex done]

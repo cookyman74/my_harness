@@ -1,0 +1,23 @@
+사용자님께서 추가하신 `readJsonlSafe` 내 `rawJsonDepth` 깊이 가드와 `regstore.ts`, `regstore-index.ts`, `regstore-eval.ts` (S0 전체)에 대한 방어적 자가 점검 및 최종 코드를 감사한 결과입니다.
+
+### 1. `readJsonlSafe` 정합성 및 엣지 케이스 검토
+*   **깊은 중첩 DoS 방어 (Depth Guard):** `rawJsonDepth(line) > REG_MAX_STRUCT_DEPTH` 가드가 `JSON.parse()` 직전에 정확히 배치되었습니다. V8의 `JSON.parse`가 깊은 중첩에서 크래시를 내지 않더라도, 생성된 깊은 객체가 하류 파이프라인(재귀 순회 등)에 유입되어 스택 오버플로를 유발하는 것을 진입 게이트에서 완벽하게 차단(fail-closed)합니다. 의도하신 심층 방어가 정확히 작동합니다.
+*   **UTF-8 멀티바이트 잘림(Tearing) 방어:** 청크 경계에서 한글 등 멀티바이트 문자가 잘릴 때 발생하는 `` 오염 문제를, 바이트 단위로 먼저 누적한 뒤 `toString("utf8")`을 한 번만 수행하는 방식으로 말끔히 해결했습니다. `0x0a`는 UTF-8에서 절대 다른 문자의 후속 바이트로 등장하지 않으므로 바이트 스캔의 정합성이 매우 뛰어납니다.
+*   **Buffer 오염 방지:** `pendingChunks.push(Buffer.from(chunk.subarray(start, bytesRead)))`에서 `Buffer.from`을 사용하여 명시적으로 복사(Copy)를 수행한 것은 매우 훌륭합니다. 하나의 `chunk` 버퍼를 재사용하는 구조에서 이전 데이터가 덮어씌워지는 메모리 오염 엣지 케이스를 완벽하게 차단했습니다.
+*   **파일 핸들 누수 방지:** 중간에 `line-too-long`이나 `line-too-deep` 등으로 반환(return)되더라도, 외부 `finally { await fh.close().catch(...) }` 블록이 무조건 실행되어 파일 디스크립터(FD) 누수가 발생하지 않습니다.
+
+### 2. `regstore.ts` & `regstore-index.ts` 전체 감사
+*   **스키마 관대성 (Graceful Fallback):** `regstore-index.ts`의 `MetaSchema`에서 개별 필드에 `.catch()`를 적용한 설계가 돋보입니다. 비신뢰 환경에서 단일 필드(예: 잘못된 `discussionUrl`)가 무효하더라도 `owner`나 `endorse` 같은 중요 메타데이터 전체가 유실되지 않도록 견고하게 설계되었습니다.
+*   **파서 DoS 방어:** `validateIndex`가 Zod 검증 전에 `safeParseJson`을 먼저 호출하도록 구성하여, 극단적으로 크거나 깊은 페이로드가 Zod 파서를 멈추게 하는(ReDoS 또는 Node Explosion) 공격 벡터를 이중으로 차단하고 있습니다.
+*   **메모리 고갈(OOM) 방어:** `readJsonlSafe`는 개별 줄 1MB(`maxLine`), 총 100,000줄(`maxLines`) 상한을 적용합니다. 이론상 두 상한을 꽉 채울 경우 큰 메모리가 필요하지만, 해당 함수는 "우리 산출물(trusted 경로)"을 대상으로 하도록 설계(호출측 제약)되어 있으므로 원격 공격자에 의한 임의 파일 주입 OOM 취약점이 되지 않습니다 (Threat Model 내 안전). 
+
+### 3. `regstore-eval.ts` 전체 감사
+*   **Zero Blast Radius:** 비신뢰 저장소의 평가를 수행할 때 `materialize`를 거쳐 격리된 `tmp` 디렉토리에 엄격한 Allowlist 기반으로 파일만 배치한 후 평가를 실행합니다. 악성 심링크나 디렉토리 트래버설(`../../`) 공격은 `listRegDirs`의 `isSafeSegment`와 `readRegFile`의 `denyPath`에서 모두 막힙니다.
+*   **임시 자원 소거 보장:** `finally` 블록의 `rm(tmp, { recursive: true, force: true })` 호출로, 평가 중 예외(Out of Memory, Timeout 등)가 발생해도 호스트 환경에 가비지 파일이 누적되지 않습니다.
+
+---
+**최종 결론:** 
+제출하신 코드의 방어적 설계가 완비되어 있으며, V8의 파싱 특성 및 Node.js의 Buffer 스트리밍 엣지 케이스까지 고려된 매우 높은 수준의 하드닝이 적용되어 있습니다. 실제 코드상에서 발견되는 추가적인 OOM, 스택 오버플로, 경로 조작(Path Traversal) 등의 HIGH 등급 취약점은 없습니다.
+
+판정: no-high
+[agy done]
