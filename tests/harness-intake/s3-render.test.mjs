@@ -27,7 +27,7 @@ function expectBlock(prof, id, inner, { hash = true } = {}) {
 
 // 10-2 에서 그대로 옮긴 고정 줄(예시와 같은 줄은 EX 에서 인용)
 const T0 = EX.tier[0];
-const FLOOR = '하한: 실패 비용 = 오류 우선 → 코드·설계 단계는 최소 표준';
+const FLOOR = '하한: 실패 비용 = 오류 우선 → 코드·설계 단계는 최소 표준(standard)'; // S3 — 표시 어휘 + 기계 키 병기(시나리오 C-6)
 const LADDER = '- 중대 단계 승인 사다리(PRD→계획서→실행) (`ladder`)';
 const NO_AUTO = '- 자율 노브(_workspace/.autonomous): 허용하지 않음';
 const AUTO = '- 자율 노브 허용(_workspace/.autonomous) (`autonomous`)';
@@ -38,9 +38,9 @@ test('[오라클] 정규 JSON(8절) · 예시 프로파일의 completion·premis
   assert.equal(canon({ b: 1, a: [2, { d: null, c: true }], 'é': 'ü' }), '{"a":[2,{"c":true,"d":null}],"b":1,"é":"ü"}');
   const p = exampleProfile();
   assert.equal(canon(hashInput('completion', p)),
-    '{"block":"completion","catalog_version":1,"completion":{"other":null,"source":"declared","value":["tests-pass","ci-green"]}}');
+    '{"block":"completion","catalog_version":2,"completion":{"other":null,"source":"declared","value":["tests-pass","ci-green"]}}');
   assert.equal(canon(hashInput('premise', p)),
-    '{"assumed":{"cost":{"other":null,"source":"assumed","value":["error-worse"]}},"block":"premise","catalog_version":1,"date":"2026-09-11",'
+    '{"assumed":{"cost":{"other":null,"source":"assumed","value":["error-worse"]}},"block":"premise","catalog_version":2,"date":"2026-09-11",'
     + '"factory_version":"1.7.5","irreversible":{"other":"데이터 삭제","source":"declared","value":["release-publish","unknown"]},'
     + '"profile":".claude/skills/orch1/harness-profile.json"}');
   assert.deepEqual(EX.premise[0], premLine('2026-09-11'), '10-2 예시 premise 첫 줄 = premLine(손 계산 날짜 09-11)');
@@ -78,7 +78,7 @@ test('[변형] ② = none → tier 비가역 줄 없음·번호 1~3 · premise �
     Object.assign(A.irreversible, { value: ['none'], other: null, options_incomplete: false });
     A.approval.value = ['ladder'];
   });
-  expectBlock(p, 'tier', [T0, '1. 계약 변경·다도메인(SKILL.md 5-6 표) → 중대', '2. 다파일·기능 추가 → 표준', '3. 그 밖 → 경량', FLOOR]);
+  expectBlock(p, 'tier', [T0, '1. 계약 변경·다도메인(SKILL.md 5-6 표) → 중대(critical)', '2. 다파일·기능 추가 → 표준(standard)', '3. 그 밖 → 경량(light)', FLOOR]);
   expectBlock(p, 'premise', [premLine('2026-09-11'), COST_ASSUMED, '- 비가역: 없음 — 전부 되돌릴 수 있다']);
   expectBlock(p, 'approval', [LADDER, NO_AUTO]);
 });
@@ -121,7 +121,7 @@ test('[변형] ② 선택지 한 개 · other 없음 → tier "라벨 (`키`)" �
     Object.assign(A.irreversible, { value: ['release-publish'], other: null, options_incomplete: false });
     A.approval.value = ['before:release-publish', 'ladder'];
   });
-  expectBlock(p, 'tier', [T0, '1. 단계 산출물이 비가역 목록에 닿는다 → 중대 — 비가역: 릴리스·태그 발행 (`release-publish`)', ...EX.tier.slice(2)]);
+  expectBlock(p, 'tier', [T0, '1. 단계 산출물이 비가역 목록에 닿는다 → 중대(critical) — 비가역: 릴리스·태그 발행 (`release-publish`)', ...EX.tier.slice(2)]);
   expectBlock(p, 'premise', [premLine('2026-09-11'), COST_ASSUMED, '- 비가역: 릴리스·태그 발행 → 이 목록에 닿는 단계는 중대']);
 });
 test('[변형] ② 가 other 만 → tier "그 외: <문장> (`other`)" · premise "그 외: <문장>" · approval before:other = 「그 외 비가역」 직전 승인', () => {
@@ -129,7 +129,7 @@ test('[변형] ② 가 other 만 → tier "그 외: <문장> (`other`)" · premi
     Object.assign(A.irreversible, { value: [], other: '데이터 삭제', options_incomplete: true });
     A.approval.value = ['before:other', 'ladder'];
   });
-  expectBlock(p, 'tier', [T0, '1. 단계 산출물이 비가역 목록에 닿는다 → 중대 — 비가역: 그 외: 데이터 삭제 (`other`)', ...EX.tier.slice(2)]);
+  expectBlock(p, 'tier', [T0, '1. 단계 산출물이 비가역 목록에 닿는다 → 중대(critical) — 비가역: 그 외: 데이터 삭제 (`other`)', ...EX.tier.slice(2)]);
   expectBlock(p, 'premise', [premLine('2026-09-11'), COST_ASSUMED, '- 비가역: 그 외: 데이터 삭제 → 이 목록에 닿는 단계는 중대']);
   expectBlock(p, 'approval', ['- 「그 외 비가역」 직전 승인 (`before:other`)', LADDER, NO_AUTO]);
 });
@@ -180,7 +180,7 @@ test('[해시 밖] why·recommended·default·declared 항목 at·premise 항목
     A.completion.at = A.approval.at = A.assets.at = '2026-01-01T00:00:00Z';
     A.cost.at = '2026-09-11T20:00:00Z';
     q.at = '2030-01-01T00:00:00Z';
-    q.scan = { runtime: { claude: '9.9.9', codex: '9.9.9', agy: '9.9.9' }, signals: [], at: '2030-01-01T00:00:00Z' };
+    q.scan = { runtime: { agy: '9.9.9', claude: '9.9.9', codex: '9.9.9', gemini: '9.9.9' }, signals: [], at: '2030-01-01T00:00:00Z' };
     q.mode = 'extend';
   });
   assert.equal(renderOk(s3setup({ profile: p })).stdout, a);

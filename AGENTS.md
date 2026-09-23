@@ -4,7 +4,7 @@
 
 ## 하네스: repo-maintainer (이 레포 유지보수)
 
-<!-- harness-profile:premise sha256=85779d33247617c8d48e9545216a23d2295ee47cd953528e3cdc158bc513e08d -->
+<!-- harness-profile:premise sha256=43d4c1f66676b471c0e603b5f56aca8331c26ebc3883056f79370f449663d4e5 -->
 **전제:** 프로파일 `.claude/skills/repo-maintainer/harness-profile.json` (2026-09-22 · 팩토리 1.8.0)
 - ⚠ 가정(무응답): 완료 기준 = 테스트 게이트 통과 · CI green · 산출물 경로 존재
 - ⚠ 가정(무응답): 비가역 = 릴리스·태그 발행 · 모름 — 비가역으로 취급

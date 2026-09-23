@@ -14,8 +14,8 @@ function patched({ bump, relabel }) {
   return copiedTree({
     patch: ({ script, doc }) => {
       if (bump) {
-        replaceOnce(script, 'catalog_version: 1,', 'catalog_version: 2,');
-        replaceOnce(doc, '"catalog_version": 1,', '"catalog_version": 2,');
+        replaceOnce(script, 'catalog_version: 2,', 'catalog_version: 3,');
+        replaceOnce(doc, '"catalog_version": 2,', '"catalog_version": 3,');
       }
       if (relabel) {
         replaceOnce(script, 'label: "테스트 게이트 통과"', 'label: "테스트 게이트 통과(개정)"');
@@ -27,20 +27,20 @@ function patched({ bump, relabel }) {
 const ALL_STALE = { completion: 'stale', tier: 'stale', approval: 'stale', assets: 'stale', 'premise.claude': 'stale', 'premise.agents': 'stale' };
 function wiredFx() { const fx = s3setup(); wire(fx, expectedBlocks(exampleProfile())); return fx; }
 
-test('[catalog_version] 라벨+catalog_version 2 판 render → 5블록 해시 = catalog_version 2 오라클 · completion 첫 줄만 새 라벨', () => {
+test('[catalog_version] 라벨+catalog_version 3 판 render → 5블록 해시 = catalog_version 3 오라클 · completion 첫 줄만 새 라벨', () => {
   const script = patched({ bump: true, relabel: true });
   const fx = s3setup();
   const orig = byId(parseRender(rcIs(render(fx), 0, 'render(원본)').stdout));
   const b = byId(parseRender(rcIs(render(fx, [], { script }), 0, 'render(패치)').stdout));
   const p = exampleProfile();
   for (const id of BLOCKS) {
-    assert.equal(b[id].hash, blockHash(id, p, { catalogVersion: 2 }), `${id} 해시(catalog_version 2)`);
+    assert.equal(b[id].hash, blockHash(id, p, { catalogVersion: 3 }), `${id} 해시(catalog_version 2)`);
     assert.notEqual(b[id].hash, orig[id].hash, `${id} 해시가 원본과 달라야 한다`);
   }
   assert.deepEqual(b.completion.inner, ['- 테스트 게이트 통과(개정) (`tests-pass`)', EX.completion[1]]);
   for (const id of ['tier', 'approval', 'assets', 'premise']) assert.deepEqual(b[id].inner, EX[id], `${id} 내용 불변`);
 });
-test('[catalog_version] 옛 블록(catalog_version 1)을 라벨+버전 바꾼 판으로 verify → 전부 stale(drift 아님) · rc=1', () => {
+test('[catalog_version] 옛 블록(catalog_version 2)을 라벨+버전 바꾼 판으로 verify → 전부 stale(drift 아님) · rc=1', () => {
   const fx = wiredFx();
   expectVerify(verify(fx), {}, '대조군(원본 스크립트 ok)');
   expectVerify(verify(fx, [], { script: patched({ bump: true, relabel: true }) }), ALL_STALE, '패치 판');

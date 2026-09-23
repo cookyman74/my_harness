@@ -5,9 +5,10 @@
   "at": "2026-01-01T00:00:00Z",
   "scan": {
     "runtime": {
+      "agy": "1.2.0",
       "claude": "2.1.267",
       "codex": "0.153.4",
-      "agy": "1.2.0"
+      "gemini": "absent"
     },
     "signals": [
       "changelog",
@@ -102,6 +103,25 @@
           "lint-skill"
         ]
       }
+    },
+    "egress": {
+      "value": [
+        "allow-listed"
+      ],
+      "source": "assumed",
+      "at": "2026-01-07T00:00:00Z",
+      "default": [
+        "allow-listed"
+      ],
+      "recommended": [],
+      "why": null,
+      "options_incomplete": false,
+      "other": null,
+      "scanned": [
+        "agy",
+        "claude",
+        "codex"
+      ]
     }
   }
 }

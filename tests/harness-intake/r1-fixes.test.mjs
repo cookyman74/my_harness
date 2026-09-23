@@ -204,7 +204,7 @@ test('§6-1 ⓔ 경계 — 홈 밖의 이름만 `marketplaces` 인 디렉토리�
 // ─────────────────────────────────────────────────────────────────────────────
 // 래퍼 스텁 = process.execPath 로 원본 harness-intake.mjs 를 부르고 stdout 만 변형(rc·stderr 는 그대로).
 // 고정값은 "빈 프로젝트의 정답"(가장 기만적인 스텁) — t9 의 FIXED 와 같은 값.
-const EMPTY_VALUE = { RUNTIME: 'claude=absent codex=absent agy=absent', PROFILE: 'absent' };
+const EMPTY_VALUE = { RUNTIME: 'agy=absent claude=absent codex=absent gemini=absent', PROFILE: 'absent' };
 const fixedValue = (k) => EMPTY_VALUE[k] ?? 'none';
 const COMPUTED = LINE_KEYS.filter((k) => k !== 'AGENTS_BUILTIN');
 
@@ -294,7 +294,7 @@ before(() => {
 const D = path.delimiter;
 const rtWith = (PATH) => lineValue(
   scanOk({ root: cwdDir, home: homeDir, cwd: cwdDir, extraEnv: { PATH } }).stdout, 'RUNTIME');
-const ABSENT = 'claude=absent codex=absent agy=absent';
+const ABSENT = 'agy=absent claude=absent codex=absent gemini=absent';
 
 test(`§6-3 PATH="${D}"(빈 항목만) → claude=absent`, () => {
   assert.equal(rtWith(D), ABSENT, 'absent 아님');
@@ -313,15 +313,15 @@ test(`§6-3 PATH="${'.' + path.sep + 'bin'}"(상대) → claude=absent`, () => {
 });
 
 test('§6-3 비절대 항목은 건너뛰고 뒤의 절대 항목에서 찾는다(". ; <abs>/bin" → 8.8.8)', () => {
-  assert.equal(rtWith(['.', path.join(cwdDir, 'bin')].join(D)), 'claude=8.8.8 codex=absent agy=absent', '비절대 항목을 건너뛰지 않았다');
+  assert.equal(rtWith(['.', path.join(cwdDir, 'bin')].join(D)), 'agy=absent claude=8.8.8 codex=absent gemini=absent', '비절대 항목을 건너뛰지 않았다');
 });
 
 test('§6-3 대조 — 같은 cwd 디렉토리를 절대경로로 주면 버전이 나온다(7.7.7)', () => {
-  assert.equal(rtWith(cwdDir), 'claude=7.7.7 codex=absent agy=absent');
+  assert.equal(rtWith(cwdDir), 'agy=absent claude=7.7.7 codex=absent gemini=absent');
 });
 
 test('§6-3 대조 — cwd/bin 을 절대경로로 주면 버전이 나온다(8.8.8)', () => {
-  assert.equal(rtWith(path.join(cwdDir, 'bin')), 'claude=8.8.8 codex=absent agy=absent');
+  assert.equal(rtWith(path.join(cwdDir, 'bin')), 'agy=absent claude=8.8.8 codex=absent gemini=absent');
 });
 
 

@@ -17,9 +17,9 @@ import path from 'node:path';
 import os from 'node:os';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { REPO, INTAKE, mkTmp, runNode, requireFile } from './helpers.mjs';
+import { REPO, INTAKE, SCRIPTS, mkTmp, makeEnv, runNode, requireFile, fakeTool } from './helpers.mjs';
 
-export { REPO, INTAKE, runNode, requireFile };
+export { REPO, INTAKE, mkTmp, makeEnv, runNode, requireFile, fakeTool };
 
 /** 정본 데이터 파일(§2-1 — 이 경로가 계약이다). */
 export const CANON_PROFILES = path.join(REPO, 'skills', 'myharness', 'references', 'model-profiles.json');
@@ -114,6 +114,10 @@ export function makeTree({ orch = 'orch1', mutate = null } = {}) {
   const data = path.join(tmp, REL_DATA);
   fs.mkdirSync(path.dirname(script), { recursive: true });
   fs.copyFileSync(INTAKE, script);
+  // **형제 스크립트도 함께 둔다** — 배포 형태가 그렇다(MANAGED_RELS 가 둘을 같은 scripts/ 로 보낸다).
+  // `egress` 는 후보 도구 목록을 check-review-tools.sh 에서 **파싱**하므로(세 번째 구현을 만들지 않으려고),
+  // 이 파일이 없는 트리에서는 rc=2 가 나고 **rc=2 를 기대하는 단정들이 엉뚱한 이유로 통과**한다.
+  fs.copyFileSync(path.join(SCRIPTS, 'check-review-tools.sh'), path.join(path.dirname(script), 'check-review-tools.sh'));
   writeProfiles(data, mutate);
   const root = path.join(tmp, 'root');
   fs.mkdirSync(root, { recursive: true });
@@ -506,3 +510,142 @@ export const needsApprovalBody = (before, after) =>
   `fallbackModel before="${before}" after="${after}" — --approve 로 다시 실행`;
 /** 백업 파일명(§3 표) — ISO 에서 `-`·`:` 를 제거한다. windows 잡에서도 생성돼야 한다. */
 export const backupName = (iso) => `settings.json.bak-${iso.replace(/[-:]/g, '')}`;
+
+// ═════════════════ S3(v1.8.3) — 인터뷰 ⑥ `egress` · `egress` 서브커맨드 ═════════════════
+// 계약 단일 출처: _workspace/repo-maintainer/v183-S3/00_orchestrator_spec.md §2~§6
+//   · docs/v1.8.3/todo/S3-interview-egress.md A절(테스트 ID별 단정의 정본)
+//   · docs/v1.8.3/design/model-aware-harness-design.md §3-5·§3-5-1·§6-1·§6-2·§6-4·§6-4-1·§6-5.
+// **새 헬퍼 파일을 만들지 않고 여기에 더한다**(S3 명세 §0-4) — S1·S2 가 쌓은 임시 트리를 그대로 쓴다.
+
+/** `egress` stdout 5줄의 키와 **순서**(§3-5). */
+export const EGRESS_KEYS = ['EGRESS', 'ALLOWED_TOOLS', 'REVIEWERS_ALLOWED', 'REVIEW_MODEL_CODEX', 'REVIEW_MODEL_AGY'];
+/** ⑥ 선택지 키(§6-1) — 순서는 카탈로그 순서. */
+export const EGRESS_MODES = ['runtime-only', 'allow-listed', 'any'];
+/** ⑥ 기본값(§6-1 `default_why`). */
+export const EGRESS_DEFAULT = 'allow-listed';
+export const GRADES = ['light', 'standard', 'critical'];
+/** `runtimeValues()` 후보 4종 = `check-review-tools.sh:66` 후보 집합(§6-2) · 코드포인트 정렬. */
+export const RUNTIME_TOOLS = ['agy', 'claude', 'codex', 'gemini'];
+/** stderr note 접두 — **`egress` 소유**다(런처 경고는 `WARN:` · 섞으면 `_note` 파서가 잘못 문다 · §3-5). */
+export const NOTE_PREFIX = 'note: ';
+export const NOTE_NO_SNAPSHOT = 'note: egress 는 assumed(구 프로파일 · 스냅샷 없음 → 현재 스캔)';
+export const NOTE_DEFAULTED = 'note: egress 는 assumed(무응답 기본값 · 사람이 승인한 적 없다)';
+
+/** 임시 트리 안의 HOME(스캔 폴백 경로에서 PATH 를 통제하려면 env 를 명시해야 한다). */
+export function treeHome(tree) {
+  const h = path.join(tree.tmp, 'home');
+  fs.mkdirSync(h, { recursive: true });
+  return h;
+}
+
+/** 트리의 스크립트로 `egress` 실행. `pathDirs` 를 주면 그 PATH 로만 돈다(스캔 폴백 통제). */
+export function egress(tree, { orch = tree.orch, root = tree.root, runner = 'claude', grade,
+  pathDirs = [], extra = [], script = tree.script } = {}) {
+  const args = ['egress'];
+  if (orch !== undefined && orch !== null) args.push('--orchestrator', orch);
+  if (runner !== undefined && runner !== null) args.push('--runner', runner);
+  if (root !== undefined && root !== null) args.push('--root', root);
+  if (grade !== undefined && grade !== null) args.push('--grade', grade);
+  return runNode(script, [...args, ...extra], { env: makeEnv({ home: treeHome(tree), pathDirs }) });
+}
+
+/** 같은 트리에서 정본 `answer` 실행(PATH 통제 — `scanned` 는 그 시점 PATH 가 정한다). */
+export function answerIn(tree, args, { pathDirs = [], orch = tree.orch, root = tree.root, script = tree.script } = {}) {
+  return runNode(script, ['answer', '--orchestrator', orch, '--root', root, ...args],
+    { env: makeEnv({ home: treeHome(tree), pathDirs }) });
+}
+
+/**
+ * stderr note 한 줄을 뽑는다(§3-5): 접두 `note: ` 고정 · **줄바꿈 없음**(= stderr 는 0줄 또는 정확히 1줄).
+ * note 가 없으면 null. stdout 5줄 계약과 무관하게 독립이다.
+ */
+export function egressNote(r, what = '') {
+  if (r.stderr === '') return null;
+  assert.ok(r.stderr.endsWith('\n'), `${what} stderr 가 개행으로 끝나지 않는다 — ${JSON.stringify(r.stderr)}`);
+  const ls = r.stderr.slice(0, -1).split('\n');
+  assert.equal(ls.length, 1, `${what} stderr 가 정확히 한 줄이 아니다(note 는 줄바꿈 없음) — ${JSON.stringify(r.stderr)}`);
+  assert.ok(ls[0].startsWith(NOTE_PREFIX),
+    `${what} stderr 줄이 "${NOTE_PREFIX}" 로 시작하지 않는다(런처 경고 접두 WARN: 과 섞이면 안 된다) — ${JSON.stringify(ls[0])}`);
+  return ls[0];
+}
+
+/**
+ * `egress` stdout 계약(§3-5): 정확히 5줄 · 이 순서 · 끝 개행 1개 · 그 외 출력 없음. rc=0 단정 포함.
+ * stderr 는 **비어 있어도 note 한 줄이어도 된다** — 그 판정은 호출자가 `o.note` 로 한다.
+ */
+export function parseEgress(r, what = '') {
+  assert.equal(r.rc, 0, `${what} rc 가 0 이 아니다 — ${show(r)}`);
+  const s = r.stdout;
+  assert.ok(s.endsWith('\n'), `${what} stdout 이 개행으로 끝나지 않는다 — ${JSON.stringify(s)}`);
+  const parts = s.split('\n');
+  assert.equal(parts.pop(), '', `${what} 마지막 개행 뒤에 출력이 더 있다 — ${JSON.stringify(s)}`);
+  assert.equal(parts.length, EGRESS_KEYS.length, `${what} stdout 이 정확히 5줄이 아니다(§3-5) — ${JSON.stringify(s)}`);
+  const out = { stdout: s };
+  parts.forEach((line, i) => {
+    const k = EGRESS_KEYS[i];
+    assert.ok(line.startsWith(k + ': '), `${what} ${i + 1}번째 줄이 "${k}: " 로 시작하지 않는다 — ${JSON.stringify(line)}`);
+    out[k] = line.slice(k.length + 2);
+  });
+  out.note = egressNote(r, what);
+  return out;
+}
+
+/**
+ * **프로바이더 단위** 허용 계산의 독립 구현(§3-5-1) — 테스트가 기대값을 손 계산하지 않고 이 오라클로 만든다.
+ * `any` → `tools` 키 전부 / `runtime-only` → 러너 프로바이더의 도구 / `allow-listed` → 러너 + `scanned` 도구들의 프로바이더.
+ */
+export function expectAllowed(mp, mode, runner, scanned = []) {
+  const provs = new Set();
+  if (mode !== 'any') {
+    provs.add(mp.runtime_provider[runner]);
+    if (mode === 'allow-listed') for (const t of scanned) provs.add(mp.tools[t]);
+  }
+  const all = Object.keys(mp.tools);
+  const allowed = (mode === 'any' ? all : all.filter((t) => provs.has(mp.tools[t]))).sort(cmpCp);
+  const reviewers = allowed.filter((t) => t !== runner);
+  return { allowed: allowed.join(' '), reviewers: reviewers.length ? reviewers.join(' ') : 'none' };
+}
+
+// ── 인터뷰 프로파일(트리 안) 읽기·부분 변형 ──
+export const profileFile = (tree, orch = tree.orch) => path.join(tree.root, '.claude', 'skills', orch, 'harness-profile.json');
+export const readProf = (tree, orch) => JSON.parse(fs.readFileSync(profileFile(tree, orch), 'utf8'));
+/** 프로파일을 읽어 mut 로 고쳐 다시 쓴다(픽스처는 결함 하나씩 — 손상·부재 경계용). */
+export function patchProf(tree, mut, orch) {
+  const p = readProf(tree, orch);
+  mut(p);
+  fs.writeFileSync(profileFile(tree, orch), JSON.stringify(p, null, 2) + '\n');
+  return p;
+}
+/** 참조 문서 7절 항목 키 순서(+ `scanned` 는 맨 뒤 — `assets` 선례). */
+export const ITEM_KEY_ORDER = ['value', 'source', 'at', 'default', 'recommended', 'why', 'options_incomplete', 'other', 'scanned'];
+/** ⑥ 항목 한 벌(§6-1 저장 형태). 손상 픽스처는 `scanned` 에 아무 값이나 넣어 만든다. */
+export function egressItem({ value = [EGRESS_DEFAULT], source = 'declared', at = '2026-09-22T00:00:00Z',
+  scanned = [], other = null } = {}) {
+  return {
+    value, source, at, default: [EGRESS_DEFAULT], recommended: [], why: null,
+    options_incomplete: other !== null, other, scanned,
+  };
+}
+export const setEgress = (tree, over, orch) => patchProf(tree, (p) => { p.answers.egress = egressItem(over); }, orch);
+/** ⑥ 을 지워 **구 프로파일**(catalog_version 1 시절)을 만든다 — 부재는 손상이 아니다(§6-4). */
+export const dropEgress = (tree, orch) => patchProf(tree, (p) => { delete p.answers.egress; }, orch);
+
+/**
+ * 인자·옵션 가드의 rc=2 단정. `expectRc2` 와 달리 **"모르는 옵션"** 까지 막는다 —
+ * `--only` 처럼 **신설 옵션**을 테스트할 때 미구현(등록 안 됨)이 가드 통과로 세지는 것을 막는다(S3 명세 §0-3).
+ */
+export function expectRc2Arg(r, what = '') {
+  assert.equal(r.rc, 2, `${what} rc 가 2 가 아니다 — ${show(r)}`);
+  assert.ok(!/모르는 옵션|모르는 서브커맨드/.test(r.stderr),
+    `${what} — 옵션·서브커맨드가 등록되지 않았다(가드가 아니라 미구현으로 rc=2 가 났다) — ${show(r)}`);
+  assert.ok(r.stderr.trim() !== '', `${what} 진단이 stderr 에 없다 — ${show(r)}`);
+}
+
+/** `check-review-tools.sh:66` 의 후보 도구 목록을 셸에서 직접 읽는다(두 집합이 갈라지는 것을 기계로 막는다 · T-E4). */
+export function shellReviewCandidates() {
+  const f = path.join(REPO, 'skills', 'myharness', 'scripts', 'check-review-tools.sh');
+  requireFile(f);
+  const m = fs.readFileSync(f, 'utf8').match(/^for t in ([a-z ]+); do$/m);
+  assert.ok(m, `check-review-tools.sh 에서 "for t in …; do" 후보 줄을 찾지 못했다: ${f}`);
+  return m[1].trim().split(/\s+/).slice().sort(cmpCp);
+}

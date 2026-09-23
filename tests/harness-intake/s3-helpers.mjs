@@ -12,7 +12,8 @@ import { DOC, docCatalog } from './s2-helpers.mjs';
 export { WIN, INTAKE, REPO, readJson, writeJson };
 export const S3FIX = path.join(FIX, 's3');
 export const BLOCKS = ['completion', 'tier', 'approval', 'assets', 'premise'];
-export const ITEMS = ['completion', 'irreversible', 'cost', 'approval', 'assets'];
+// v1.8.3 S3 — 카탈로그가 6항목이 됐다(⑥ egress 는 **블록을 만들지 않지만** premise 의 assumed 집합·premiseDate 계산에는 들어간다).
+export const ITEMS = ['completion', 'irreversible', 'cost', 'approval', 'assets', 'egress'];
 export const PROFILE_REL = '.claude/skills/orch1/harness-profile.json';
 export const CATALOG_VERSION = docCatalog().catalog_version;
 // 날짜 = at 문자열의 날짜 부분(10-2·10-4). 로컬 시간대로 바꾸면 23:30Z 가 다음 날이 된다 — KST 로 고정해 그 결함을 드러낸다.
@@ -37,9 +38,15 @@ export function hf(id, a) {
   if (id === 'assets') o.scanned = a.scanned;
   return o;
 }
+/**
+ * 프로파일에 **실재하는** 항목만 센다(v1.8.3 S3).
+ * ⑥ 이 없는 구 프로파일에서는 그것이 옛 스크립트(catalog_version 1)가 만든 블록의 입력과 같다 —
+ * 현행 구현이 메모리에서 채우는 ⑥ 은 `render` 출력으로 관측하지, 이 오라클로 미리 계산하지 않는다(T-I2a 는 구 블록을 배선한다).
+ */
+const present = (prof) => ITEMS.filter((k) => prof.answers[k] !== undefined);
 /** premise 날짜 = (irreversible + source:assumed 항목)의 항목별 at 중 최신값의 날짜 부분(10-2). */
 export function premiseDate(prof) {
-  const ks = ITEMS.filter((k) => k === 'irreversible' || prof.answers[k].source === 'assumed');
+  const ks = present(prof).filter((k) => k === 'irreversible' || prof.answers[k].source === 'assumed');
   return ks.map((k) => prof.answers[k].at).sort().at(-1).slice(0, 10);
 }
 /** 10-3 블록별 해시 입력 객체. */
@@ -53,7 +60,7 @@ export function hashInput(id, prof, { catalogVersion = CATALOG_VERSION, profileR
     case 'assets': return { ...base, assets: hf('assets', A.assets) };
     case 'premise': {
       const assumed = {};
-      for (const k of ITEMS) if (A[k].source === 'assumed') assumed[k] = hf(k, A[k]);
+      for (const k of present(prof)) if (A[k].source === 'assumed') assumed[k] = hf(k, A[k]);
       return { ...base, irreversible: hf('irreversible', A.irreversible), assumed, date: premiseDate(prof), factory_version: prof.factory_version, profile: profileRel };
     }
     default: throw new Error(`모르는 블록 ${id}`);
@@ -86,7 +93,7 @@ export function docExample() {
 export const EX = docExample();
 export const exampleProfile = () => readJson(path.join(S3FIX, 'profiles', 'example.json'));
 /** 예시 프로파일의 verify 2·3번째 줄(손 계산 — 10-4 · 항목 at 날짜 부분). */
-export const EX_DECLARED = 'DECLARED: completion(2026-09-08) irreversible(2026-09-10) approval(2026-09-09) assets(2026-09-07)';
+export const EX_DECLARED = 'DECLARED: completion(2026-09-08) irreversible(2026-09-10) approval(2026-09-09) assets(2026-09-07) egress(2026-09-12)';
 export const EX_ASSUMED = 'ASSUMED: cost(2026-09-11)';
 export const premLine = (date, ver = '1.7.5') => '**전제:** 프로파일 `.claude/skills/orch1/harness-profile.json` (' + date + ' · 팩토리 ' + ver + ')';
 

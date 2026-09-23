@@ -272,7 +272,7 @@ PRD §6-1 의 3층을 이 릴리스의 구현 경계로 내린다.
 | `stale_after_days` | 정수 ≥1 · 기본 90. 감사 #13 이 `confirmed_at` + N일 < 현재면 warn(MA8) |
 | `session_fallback` | **최상위에 하나**(R9) — Claude Code `fallbackModel` 은 세션 키 하나이고 서브에이전트가 상속하므로 티어별 폴백은 런타임이 표현하지 못한다. **다른 제품군 alias 로 잇는다**(`opus → sonnet → haiku` · `fable` 은 옵트인 시 맨 앞에 붙인다 — §2-2 `deep` 기본 근거) — 한 제품군이 사라져도 실행이 다음 군으로 넘어간다(MA7 4항). Phase 5 가 `,` 로 직렬화해 `settings.json` 에 쓴다 |
 | `runtime_provider` | 런타임 CLI → 프로바이더. `egress` 의 `runtime-only` 허용 집합이 여기서 나온다 |
-| `tools` | **도구명 → 프로바이더**(R5). `check-review-tools.sh:66` 후보 4종 **전부** 있어야 한다 — 없는 도구명이 나오면 rc=2(§9 T-E4) |
+| `tools` | **도구명 → 프로바이더**(R5). `check-review-tools.sh:66` 후보와 **정확히 같은 집합**이어야 한다 — 빠져도 rc=2, **넘쳐도 rc=2**(§9 T-E4 · S3 R3). 넘치는 쪽을 막는 이유: `any` 는 그 이름을 그대로 허용 목록에 담고 `allow-listed` 도 같은 프로바이더면 담는다 — **반출 경계를 정하는 파일에서 "늘어난 것" 이 무신호로 통과하면 데이터 한 줄로 경계가 넓어진다** |
 | `providers.<id>.effort_field` / `effort_vocab` / `effort_forbidden` | MA2·MA3. **하한 클램프가 아니라 금지값 목록**이다 — 클램프는 Astra `none`·Gemini `MINIMAL` 을 통과시킨다(PRD §3 제약 4) |
 | `providers.<id>.params` | **MA4 의 제거 대상**(재검토 R24-1). 그 프로바이더 어댑터가 **기본으로 싣는 파라미터** 객체(키 코드포인트 정렬 · 기본 `{}`). `assemble` 은 **이 객체 위에** `effort_field` 를 얹고 그다음 `drop` 을 적용한다 — **뺄 것이 없으면 "뺐다" 를 검증할 수 없다**(§3-4) |
 | `providers.<id>.drop` | MA4. `params`(+`effort_field` 키)에서 **실제로 제거할** 키 목록. **`params` 에도 `effort_field` 에도 없는 키가 들어 있으면 rc=2**(오타가 조용히 무효가 되는 것을 막는다) · **`effort_field` 키를 `drop` 에 넣어도 rc=2**(추론 강도를 제거하는 것은 MA2 위반) |
@@ -477,7 +477,7 @@ REVIEW_MODEL_AGY: none
 | 선례 | `assets.scanned`(`checkedAnswers:1235-1239` 검증 · `hashFields:936-940`). **모양만 다르다** — `assets` 는 `{agents:[],skills:[]}` 두 축이고 ⑥ 은 축이 하나라 **평평한 배열**이다 |
 | 누가 읽나 | **`egress` 서브커맨드만.** 스냅샷이 **있으면** 그 자리에서 재스캔하지 않는다 — 스냅샷이 스냅샷인 이유다(§6-2 「스냅샷 한계」와 정합). **없으면(구 프로파일) 그때만 현재 스캔으로 대체**한다(R11-A · 아래 표) |
 | **사람이 보는 경로(시나리오 B-3)** | R30 에서 `{tools}` 라벨 치환을 뺀 뒤 **허용 도구 목록이 사람 눈에 닿는 지점이 0** 이었다(`SOURCES:`·`ASSUMED:`·`degraded` 어디에도 없고 ⑥ 은 블록도 안 만든다 — 실측). → **`answer` 가 ⑥ 을 기록할 때 stdout 에 한 줄 추가: `SCANNED: egress=<도구 공백구분\|none>`**(무프로브 · 내부 재스캔이 이미 가진 값이라 새 실행 비용 0 · `PROFILE:`·`SOURCES:` 와 같은 `KEY: value` 규약) |
-| 검증 | `normalizeAnswers` 가 `assets.scanned` 와 같은 강도로 본다 — 문자열 배열이 아니거나 제어문자가 있으면 **rc=2**(손상) |
+| 검증 | `normalizeAnswers` 가 `assets.scanned` 와 같은 강도로 본다 — 문자열 배열이 아니거나 제어문자가 있으면 **rc=2**(손상). **여기에 더해 정렬·중복·소속도 본다(S3 R1 codex MED).** `assets.scanned` 는 이름이 임의(에이전트·스킬)라 소속을 볼 수 없지만 **⑥ 은 닫힌 집합**(`RUNTIME_TOOLS`)이라 검증이 가능하다. 특히 **모르는 이름은 허용 계산에서 조용히 무시돼 목록을 좁힌다** — 오타 하나로 리뷰어가 사라지는데 아무 신호가 없다. `drop` 오타를 rc=2 로 막는 것과 같은 계열이라 **rc=2** 로 막는다 |
 | **해시 필드인가** | **아니다.** 참조 문서 8절의 원칙은 "**렌더 내용에 들어가는 값은 전부 해시 입력에 넣는다**" 이고, `assets.scanned` 가 해시 필드인 이유는 `assets` **블록이 그 이름들을 렌더하기** 때문이다. ⑥ 은 **블록을 만들지 않으므로**(§6-5) 렌더에 들어가는 값이 없다 → 넣지 않는다. `hashFields:936-940` 의 `if (id === "assets")` 조건은 **그대로 둔다**(코드 변경 0) |
 | 해시에서 빼는 두 번째 이유 | 넣으면 **리뷰어를 하나 설치·삭제하는 것만으로** 전 블록이 `stale` 이 되고, ⑥ 이 `assumed` 일 때는 `premiseSig:943-949` 를 타고 **`factory_version` 갱신까지** 유발한다 — 답이 바뀌지 않았는데 결선이 흔들린다 |
 

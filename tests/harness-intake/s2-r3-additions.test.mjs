@@ -10,7 +10,7 @@ import { cleanup, mkTmp, makeEnv, runNode, writeJson, SCRIPTS } from './helpers.
 import { REPO, s2setup, answer, questions, ok, rcIs, FULL, NOW1, NOW2, profPath, placeProfile, baseProfile, readJson, S2FIX } from './s2-helpers.mjs';
 
 after(cleanup);
-const EXT_SET = 'irreversible=release-publish,unknown;assets=reuse'; // ④ before:release-publish 는 새 ② 에도 유효 → ④ 재답 불필요
+const EXT_SET = 'irreversible=release-publish,unknown;assets=reuse;egress=allow-listed'; // ④ before:release-publish 는 새 ② 에도 유효 → ④ 재답 불필요
 const EXT = (set, more = []) => ['--orchestrator', 'orch1', '--now', NOW2, '--mode', 'extend', '--set', set, ...more];
 const withBase = () => { const f = s2setup(); placeProfile(f); return f; };
 const BASE_BYTES = fs.readFileSync(path.join(S2FIX, 'profiles', 'base.json'));

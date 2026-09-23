@@ -74,7 +74,7 @@ Phase 0(컨텍스트 확인) → Phase 1(작업 분류 → 실행 경로) → Ph
 
 ## 완료 기준
 
-<!-- harness-profile:completion sha256=5f0d717b4b0afffbab15bf79fcc131f3572995faafd11d63e3916e162febac89 -->
+<!-- harness-profile:completion sha256=23f7e1255013b7cf513685a447f9c31df55d0cd23df56343868cbbb22bfc6bbf -->
 - 테스트 게이트 통과 (`tests-pass`)
 - CI green (`ci-green`)
 - 산출물 경로 존재 (`artifacts-present`)
@@ -82,18 +82,18 @@ Phase 0(컨텍스트 확인) → Phase 1(작업 분류 → 실행 경로) → Ph
 
 ## 리스크 등급
 
-<!-- harness-profile:tier sha256=8e3f741daf58c348c483e0d0fd36e03bec05df49b75e88f93695b66546e042b0 -->
+<!-- harness-profile:tier sha256=0a7935bbc626bac316285afb2979c87fd89ad62b883708f6fdbb83eb6f170583 -->
 단계 등급은 아래를 위에서부터 적용해 처음 맞는 것으로 정한다.
-1. 단계 산출물이 비가역 목록에 닿는다 → 중대 — 비가역: 릴리스·태그 발행 (`release-publish`) · 모름 — 비가역으로 취급 (`unknown`)
-2. 계약 변경·다도메인(SKILL.md 5-6 표) → 중대
-3. 다파일·기능 추가 → 표준
-4. 그 밖 → 경량
-하한: 실패 비용 = 오류 우선 → 코드·설계 단계는 최소 표준
+1. 단계 산출물이 비가역 목록에 닿는다 → 중대(critical) — 비가역: 릴리스·태그 발행 (`release-publish`) · 모름 — 비가역으로 취급 (`unknown`)
+2. 계약 변경·다도메인(SKILL.md 5-6 표) → 중대(critical)
+3. 다파일·기능 추가 → 표준(standard)
+4. 그 밖 → 경량(light)
+하한: 실패 비용 = 오류 우선 → 코드·설계 단계는 최소 표준(standard)
 <!-- /harness-profile:tier -->
 
 ## 승인 관문
 
-<!-- harness-profile:approval sha256=7752156e37c590f139e50add326e11a7066e20d568e15c23faf86053fe8b6434 -->
+<!-- harness-profile:approval sha256=9ae22cc01c683ed9a83ca8ca2a652403ec936ff760bf406dd21721e72833a8cb -->
 - 「릴리스·태그 발행」 직전 승인 (`before:release-publish`)
 - 「모름 — 비가역으로 취급」 직전 승인 (`before:unknown`)
 - 중대 단계 승인 사다리(PRD→계획서→실행) (`ladder`)
@@ -102,7 +102,7 @@ Phase 0(컨텍스트 확인) → Phase 1(작업 분류 → 실행 경로) → Ph
 
 ## 기존 자산
 
-<!-- harness-profile:assets sha256=93104c84fcc4a356b9b82d97f4107a0ac6ca7631cbb6e5187aa3204528c96160 -->
+<!-- harness-profile:assets sha256=9bafc027cf33364cfa55e0bc9a76a3b0e1efc64368fbef74f4c30295eb6fe12c -->
 - 정책: 재사용 우선 — 에이전트 6·스킬 6 (`reuse`)
 - 스캔된 에이전트(6): doc-syncer, harness-ui-planner, release-manager, repo-qa, skill-maintainer, stabilizer
 - 스캔된 스킬(6): doc-sync, external-review-loop, my-harness, release-flow, repo-maintainer, skill-authoring

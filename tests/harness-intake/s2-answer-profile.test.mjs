@@ -13,9 +13,9 @@ import {
 after(cleanup);
 
 const A = (more = [], now = NOW1) => ['--orchestrator', 'orch1', '--now', now, ...more];
-const RT_FAKE = { claude: '2.1.267', codex: '0.153.4', agy: '1.2.0' }; // S1 가짜 bin(scan.expected RUNTIME 줄)
+const RT_FAKE = { agy: '1.2.0', claude: '2.1.267', codex: '0.153.4', gemini: 'absent' }; // S1 가짜 bin(scan.expected RUNTIME 줄)
 const SIG_REPO_LIKE = ['changelog', 'ci', 'plugin-manifest', 'tests'];
-const ITEMS = ['completion', 'irreversible', 'cost', 'approval', 'assets'];
+const ITEMS = ['completion', 'irreversible', 'cost', 'approval', 'assets', 'egress']; // v1.8.3 S3 — ⑥ egress 추가
 const ITEM_KEYS = ['value', 'source', 'at', 'default', 'recommended', 'why', 'options_incomplete', 'other'];
 const SCANNED_REPO_LIKE = { agents: ['reviewer', 'writer'], skills: ['lint-skill'] };
 const bytes = (fx) => fs.readFileSync(profPath(fx));
@@ -24,7 +24,7 @@ const OLD = baseProfile(); // s2/profiles/base.json — factory_version 0.0.1 ·
 function checkItem(p, id, { value, source, at, def, other = null }) {
   const a = p.answers[id];
   assert.ok(a, `answers.${id} 없음`);
-  assert.deepEqual(Object.keys(a), id === 'assets' ? [...ITEM_KEYS, 'scanned'] : ITEM_KEYS, `${id} 키 순서(참조 문서 7절 예시)`);
+  assert.deepEqual(Object.keys(a), (id === 'assets' || id === 'egress') ? [...ITEM_KEYS, 'scanned'] : ITEM_KEYS, `${id} 키 순서(참조 문서 7절 예시)`);
   assert.deepEqual(a.value, value, `${id}.value`);
   assert.equal(a.source, source, `${id}.source`);
   if (at !== undefined) assert.equal(a.at, at, `${id}.at`);
@@ -36,11 +36,12 @@ const ats = (p) => Object.fromEntries(ITEMS.map((k) => [k, p.answers[k].at]));
 const oldAts = () => ats(OLD);
 
 // ───── 구조 · 값 ─────
-test('완전 선언(--set) → 프로파일 전체(손 계산) · stdout = PROFILE·SOURCES 두 줄', () => {
+test('완전 선언(--set) → 프로파일 전체(손 계산) · stdout = PROFILE·SOURCES·SCANNED 세 줄', () => {
   const fx = s2setup();
   const { r, prof } = answerOk(fx, A(['--set', FULL]));
   assert.equal(r.stdout, 'PROFILE: .claude/skills/orch1/harness-profile.json\n'
-    + 'SOURCES: completion=declared irreversible=declared cost=declared approval=declared assets=declared\n');
+    + 'SOURCES: completion=declared irreversible=declared cost=declared approval=declared assets=declared egress=declared\n'
+    + 'SCANNED: egress=agy claude codex\n');
   assert.deepEqual(Object.keys(prof), ['schema', 'factory_version', 'mode', 'at', 'scan', 'answers']);
   assert.equal(prof.schema, 'harness-profile/1');
   assert.equal(prof.factory_version, FACTORY_VERSION);
@@ -54,7 +55,9 @@ test('완전 선언(--set) → 프로파일 전체(손 계산) · stdout = PROFI
   checkItem(prof, 'cost', { value: ['error-worse'], source: 'declared', at: NOW1, def: ['error-worse'] });
   checkItem(prof, 'approval', { value: ['before:release-publish', 'ladder'], source: 'declared', at: NOW1, def: ['before:release-publish', 'ladder'] });
   checkItem(prof, 'assets', { value: ['reuse'], source: 'declared', at: NOW1, def: ['reuse'] });
+  checkItem(prof, 'egress', { value: ['allow-listed'], source: 'declared', at: NOW1, def: ['allow-listed'] });
   assert.deepEqual(prof.answers.assets.scanned, SCANNED_REPO_LIKE);
+  assert.deepEqual(prof.answers.egress.scanned, ['agy', 'claude', 'codex'], '⑥ scanned = 그 시점 present 도구(코드포인트 정렬 · gemini 는 absent)');
   for (const k of ITEMS) {
     assert.deepEqual(prof.answers[k].recommended, [], `${k}.recommended 미지정 = [](6절)`);
     assert.equal(prof.answers[k].why, null, `${k}.why 미지정 = null(6절)`);
@@ -65,20 +68,21 @@ test('완전 선언(--set) → 프로파일 전체(손 계산) · stdout = PROFI
 test('--defaults 만(입력 출처 없음) → 전 항목 assumed · 값 = 3절 기본값(repo-like 손 계산)', () => {
   const fx = s2setup();
   const { r, prof } = answerOk(fx, A(['--defaults']));
-  assert.equal(lineValue(r.stdout, 'SOURCES'), 'completion=assumed irreversible=assumed cost=assumed approval=assumed assets=assumed');
+  assert.equal(lineValue(r.stdout, 'SOURCES'), 'completion=assumed irreversible=assumed cost=assumed approval=assumed assets=assumed egress=assumed');
   checkItem(prof, 'completion', { value: ['tests-pass', 'ci-green', 'artifacts-present'], source: 'assumed', at: NOW1 });
   checkItem(prof, 'irreversible', { value: ['release-publish', 'unknown'], source: 'assumed', at: NOW1 });
   checkItem(prof, 'cost', { value: ['error-worse'], source: 'assumed', at: NOW1 });
   checkItem(prof, 'approval', { value: ['before:release-publish', 'before:unknown', 'ladder'], source: 'assumed', at: NOW1,
     def: ['before:release-publish', 'before:unknown', 'ladder'] });
   checkItem(prof, 'assets', { value: ['reuse'], source: 'assumed', at: NOW1 });
+  checkItem(prof, 'egress', { value: ['allow-listed'], source: 'assumed', at: NOW1 });
   for (const k of ITEMS) assert.deepEqual(prof.answers[k].value, prof.answers[k].default, `${k}: assumed 값 = default`);
 });
 
 test('일부 --set + --defaults → 준 항목 declared · 나머지 assumed · ② none 이면 ④ 기본 = ["ladder"]', () => {
   const fx = s2setup();
   const { r, prof } = answerOk(fx, A(['--set', 'irreversible=none', '--defaults']));
-  assert.equal(lineValue(r.stdout, 'SOURCES'), 'completion=assumed irreversible=declared cost=assumed approval=assumed assets=assumed');
+  assert.equal(lineValue(r.stdout, 'SOURCES'), 'completion=assumed irreversible=declared cost=assumed approval=assumed assets=assumed egress=assumed');
   checkItem(prof, 'irreversible', { value: ['none'], source: 'declared', def: ['release-publish', 'unknown'] });
   checkItem(prof, 'approval', { value: ['ladder'], source: 'assumed', def: ['ladder'] });
 });
@@ -96,7 +100,7 @@ test('empty 픽스처 --defaults → 신호 0 에서도 비지 않는 기본 · 
 test('value 는 카탈로그 순서(입력 순서 무관) · ④ 는 before:*(② 순서) → ladder → autonomous', () => {
   const fx = s2setup();
   const { prof } = answerOk(fx, A(['--set',
-    'completion=ci-green,tests-pass;irreversible=unknown,release-publish;cost=balanced;approval=autonomous,before:unknown,ladder,before:release-publish;assets=ignore']));
+    'completion=ci-green,tests-pass;irreversible=unknown,release-publish;cost=balanced;approval=autonomous,before:unknown,ladder,before:release-publish;assets=ignore;egress=any']));
   assert.deepEqual(prof.answers.completion.value, ['tests-pass', 'ci-green']);
   assert.deepEqual(prof.answers.irreversible.value, ['release-publish', 'unknown']);
   assert.deepEqual(prof.answers.approval.value, ['before:release-publish', 'before:unknown', 'ladder', 'autonomous']);
@@ -118,7 +122,7 @@ test('② other:<문장> + --defaults → ④ 기본에 before:other(비가역 �
 
 test('② other:<문장> → ④ 에 before:other 를 답할 수 있다(rc=0)', () => {
   const fx = s2setup();
-  const { prof } = answerOk(fx, A(['--set', 'completion=tests-pass;irreversible=release-publish,other:DNS;cost=error-worse;approval=before:release-publish,before:other,ladder;assets=reuse']));
+  const { prof } = answerOk(fx, A(['--set', 'completion=tests-pass;irreversible=release-publish,other:DNS;cost=error-worse;approval=before:release-publish,before:other,ladder;assets=reuse;egress=allow-listed']));
   assert.deepEqual(prof.answers.approval.value, ['before:release-publish', 'before:other', 'ladder']);
   assert.deepEqual(prof.answers.approval.default, ['before:release-publish', 'before:other', 'ladder']);
 });
@@ -126,7 +130,7 @@ test('② other:<문장> → ④ 에 before:other 를 답할 수 있다(rc=0)', 
 test('토큰·항목 앞뒤 공백 무시 → 공백 없는 입력과 바이트 동일', () => {
   const a = s2setup(); ok(answer(a, A(['--set', FULL])));
   const b = s2setup();
-  ok(answer(b, A(['--set', ' completion = tests-pass , ci-green ; irreversible=release-publish ;cost= error-worse;approval=before:release-publish , ladder;assets=reuse '])));
+  ok(answer(b, A(['--set', ' completion = tests-pass , ci-green ; irreversible=release-publish ;cost= error-worse;approval=before:release-publish , ladder;assets=reuse ; egress = allow-listed '])));
   assert.ok(bytes(a).equals(bytes(b)));
 });
 
@@ -155,14 +159,14 @@ test('--now 저장 형식 = UTC 초 단위 YYYY-MM-DDTHH:MM:SSZ(오프셋 환산
   assert.equal(prof.scan.at, '2026-09-11T01:20:30Z');
 });
 
-test('scan.runtime 은 RUNTIME 조회 결과 — 빈 PATH 면 셋 다 absent(S1 토큰 · 명세 질문 Q8)', () => {
+test('scan.runtime 은 RUNTIME 조회 결과 — 빈 PATH 면 넷 다 absent(S1 토큰 · 명세 질문 Q8)', () => {
   const fx = s2setup();
   const { prof } = answerOk(fx, A(['--set', FULL]), { pathDirs: [] });
-  assert.deepEqual(prof.scan.runtime, { claude: 'absent', codex: 'absent', agy: 'absent' });
+  assert.deepEqual(prof.scan.runtime, { agy: 'absent', claude: 'absent', codex: 'absent', gemini: 'absent' });
 });
 
 // ───── at 규칙(7절) — 기존 프로파일 = s2/profiles/base.json ─────
-const SAME_AS_BASE = ['--set', 'completion=tests-pass,ci-green;irreversible=release-publish;approval=before:release-publish,ladder;assets=reuse', '--defaults']; // cost 는 assumed 로 유지
+const SAME_AS_BASE = ['--set', 'completion=tests-pass,ci-green;irreversible=release-publish;approval=before:release-publish,ladder;assets=reuse', '--defaults']; // cost·egress 는 assumed 로 유지
 
 test('[at] 같은 값 재기록(--now 만 다름) → 항목별 at·scan.at·factory_version 불변 · 최상위 at 만 갱신', () => {
   const fx = s2setup(); placeProfile(fx);
@@ -190,7 +194,7 @@ test('[at] 값이 바뀐 항목만 갱신(completion) · premise 밖 변경이�
 
 test('[at] assumed→declared 같은 값 확정(cost) → cost.at 갱신 · assumed 집합이 바뀌어 factory_version = 현재', () => {
   const fx = s2setup(); placeProfile(fx);
-  const { prof } = answerOk(fx, A(['--set', 'completion=tests-pass,ci-green;irreversible=release-publish;cost=error-worse;approval=before:release-publish,ladder;assets=reuse'], NOW2));
+  const { prof } = answerOk(fx, A(['--set', 'completion=tests-pass,ci-green;irreversible=release-publish;cost=error-worse;approval=before:release-publish,ladder;assets=reuse', '--defaults'], NOW2));
   assert.equal(prof.answers.cost.source, 'declared');
   assert.deepEqual(prof.answers.cost.value, ['error-worse']);
   assert.deepEqual(ats(prof), { ...oldAts(), cost: NOW2 });
@@ -226,7 +230,10 @@ test('[scan.at] runtime 이 바뀌면 갱신(빈 PATH → absent)', () => {
   const fx = s2setup(); placeProfile(fx);
   const { prof } = answerOk(fx, A(SAME_AS_BASE, NOW2), { pathDirs: [] });
   assert.equal(prof.scan.at, NOW2);
-  assert.deepEqual(ats(prof), oldAts(), '스캔 변경은 항목별 at 과 무관');
+  // v1.8.3 S3 — ⑥ 은 예외다: `atFields` 가 `scanned` 를 보므로 **허용 스냅샷이 바뀌면 at 을 갱신**한다(설계서 §6-1 R28·R29).
+  // 나머지 다섯은 여전히 스캔과 무관하다(⑤ assets 는 scanned 가 해시 필드지만 이 픽스처에선 정의 수가 그대로다).
+  assert.deepEqual(ats(prof), { ...oldAts(), egress: NOW2 }, '스캔 변경은 ⑥ 밖 항목별 at 과 무관');
+  assert.deepEqual(prof.answers.egress.scanned, [], '빈 PATH → 허용 스냅샷이 빈다');
 });
 
 // ───── --from-file · --from-env ─────
@@ -250,7 +257,7 @@ test('--from-file: UTF-8 BOM · 끝 개행 1개 · CRLF 의 CR 제거 후 동일
 test('--from-env + --defaults(비대화 경로) → env 항목 declared · 나머지 assumed', () => {
   const fx = s2setup();
   const { r } = answerOk(fx, A(['--from-env', '--defaults']), { extra: { HARNESS_INTAKE_ANSWERS: 'cost=balanced;assets=ignore' } });
-  assert.equal(lineValue(r.stdout, 'SOURCES'), 'completion=assumed irreversible=assumed cost=declared approval=assumed assets=declared');
+  assert.equal(lineValue(r.stdout, 'SOURCES'), 'completion=assumed irreversible=assumed cost=declared approval=assumed assets=declared egress=assumed');
 });
 
 // ───── 쓰기 ─────
@@ -314,37 +321,38 @@ test('prev 경로가 심링크 → rc=2 · 심링크 대상·기존 프로파일
 });
 
 // ───── extend ─────
-test('extend(프로파일 있음) → ①③④ 를 그대로 옮기고(at 보존) ②⑤ 만 갱신 · mode "extend"', () => {
+test('extend(프로파일 있음) → ①③④ 를 그대로 옮기고(at 보존) ②⑤⑥ 만 갱신 · mode "extend"', () => {
   const fx = s2setup(); placeProfile(fx);
-  const { r, prof } = answerOk(fx, A(['--mode', 'extend', '--set', 'irreversible=release-publish,unknown;assets=reference-only'], NOW2));
-  assert.equal(lineValue(r.stdout, 'SOURCES'), 'completion=declared irreversible=declared cost=assumed approval=declared assets=declared');
+  const { r, prof } = answerOk(fx, A(['--mode', 'extend', '--set', 'irreversible=release-publish,unknown;assets=reference-only;egress=any'], NOW2));
+  assert.equal(lineValue(r.stdout, 'SOURCES'), 'completion=declared irreversible=declared cost=assumed approval=declared assets=declared egress=declared');
   assert.equal(prof.mode, 'extend');
   for (const k of ['completion', 'cost', 'approval']) assert.deepEqual(prof.answers[k], OLD.answers[k], `${k} 는 그대로(carried)`);
   checkItem(prof, 'irreversible', { value: ['release-publish', 'unknown'], source: 'declared', at: NOW2 });
   checkItem(prof, 'assets', { value: ['reference-only'], source: 'declared', at: NOW2 });
+  checkItem(prof, 'egress', { value: ['any'], source: 'declared', at: NOW2 });
   assert.equal(prof.factory_version, FACTORY_VERSION, '② 가 바뀌었으니 premise 변경');
 });
 
 test('extend 입력에 completion(①) → rc=2 (대조: ②⑤ 만이면 rc=0)', () => {
   const c = s2setup(); placeProfile(c);
-  ok(answer(c, A(['--mode', 'extend', '--set', 'irreversible=release-publish;assets=reuse'])), '대조군');
+  ok(answer(c, A(['--mode', 'extend', '--set', 'irreversible=release-publish;assets=reuse;egress=allow-listed'])), '대조군');
   const fx = s2setup(); placeProfile(fx);
-  rcIs(answer(fx, A(['--mode', 'extend', '--set', 'irreversible=release-publish;assets=reuse;completion=tests-pass'])), 2);
+  rcIs(answer(fx, A(['--mode', 'extend', '--set', 'irreversible=release-publish;assets=reuse;egress=allow-listed;completion=tests-pass'])), 2);
   assert.ok(bytes(fx).equals(fs.readFileSync(path.join(S2FIX, 'profiles', 'base.json'))));
 });
 
 test('extend 입력에 cost(③) → rc=2', () => {
   const fx = s2setup(); placeProfile(fx);
-  ok(answer(s2setupWith(), A(['--mode', 'extend', '--set', 'irreversible=release-publish;assets=reuse'])), '대조군');
-  rcIs(answer(fx, A(['--mode', 'extend', '--set', 'irreversible=release-publish;assets=reuse;cost=balanced'])), 2);
+  ok(answer(s2setupWith(), A(['--mode', 'extend', '--set', 'irreversible=release-publish;assets=reuse;egress=allow-listed'])), '대조군');
+  rcIs(answer(fx, A(['--mode', 'extend', '--set', 'irreversible=release-publish;assets=reuse;egress=allow-listed;cost=balanced'])), 2);
 });
 function s2setupWith() { const f = s2setup(); placeProfile(f); return f; }
 
 test('extend: 새 ② 가 기존 ④ before:<키> 를 무효화하고 입력에 approval 없음 → rc=1 · approval 을 주면 rc=0', () => {
   const fx = s2setup(); placeProfile(fx);
-  rcIs(answer(fx, A(['--mode', 'extend', '--set', 'irreversible=unknown;assets=reuse'])), 1);
+  rcIs(answer(fx, A(['--mode', 'extend', '--set', 'irreversible=unknown;assets=reuse;egress=allow-listed'])), 1);
   assert.ok(bytes(fx).equals(fs.readFileSync(path.join(S2FIX, 'profiles', 'base.json'))), 'rc=1 인데 프로파일이 바뀌었다');
-  const { prof } = answerOk(fx, A(['--mode', 'extend', '--set', 'irreversible=unknown;assets=reuse;approval=before:unknown,ladder'], NOW2));
+  const { prof } = answerOk(fx, A(['--mode', 'extend', '--set', 'irreversible=unknown;assets=reuse;egress=allow-listed;approval=before:unknown,ladder'], NOW2));
   checkItem(prof, 'approval', { value: ['before:unknown', 'ladder'], source: 'declared', at: NOW2 });
 });
 
@@ -358,14 +366,14 @@ test('extend(프로파일 없음) → new 처럼 처리(①③ 입력 허용) + 
 });
 
 // ───── scan 의 PROFILE: 줄(명세 §2-5) ─────
-test('answer 뒤 scan PROFILE: = .claude/skills/orch1/harness-profile.json declared=5 assumed=0 scanned=0', () => {
+test('answer 뒤 scan PROFILE: = .claude/skills/orch1/harness-profile.json declared=6 assumed=0 scanned=0', () => {
   const fx = s2setup(); ok(answer(fx, A(['--set', FULL])));
   assert.equal(lineValue(scanOk({ root: fx.root, home: fx.home, pathDirs: [fx.bin] }).stdout, 'PROFILE'),
-    '.claude/skills/orch1/harness-profile.json declared=5 assumed=0 scanned=0');
+    '.claude/skills/orch1/harness-profile.json declared=6 assumed=0 scanned=0');
 });
 
-test('answer(일부 + --defaults) 뒤 scan PROFILE: declared=1 assumed=4 scanned=0', () => {
+test('answer(일부 + --defaults) 뒤 scan PROFILE: declared=1 assumed=5 scanned=0', () => {
   const fx = s2setup(); ok(answer(fx, A(['--set', 'cost=balanced', '--defaults'])));
   assert.equal(lineValue(scanOk({ root: fx.root, home: fx.home, pathDirs: [fx.bin] }).stdout, 'PROFILE'),
-    '.claude/skills/orch1/harness-profile.json declared=1 assumed=4 scanned=0');
+    '.claude/skills/orch1/harness-profile.json declared=1 assumed=5 scanned=0');
 });

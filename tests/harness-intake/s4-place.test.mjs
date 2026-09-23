@@ -637,12 +637,14 @@ test('roster: role·run·tier_override 값 위반 → rc=1', () => {
   }
 });
 
-test('roster: 프로파일 ③ 답이 카탈로그 밖이면 rc=1(§2-4)', () => {
+// v1.8.3 S3 — **rc=1 → rc=2 로 바뀌었다.** 프로파일은 기계가 쓰는 파일이고 카탈로그 밖 값은 손으로 고쳤다는 뜻이라
+// 손상(rc=2)으로 통일했다 — 같은 파일을 `render`·`verify` 가 이미 rc=2 로 판정한다(오케스트레이터 정정 9).
+test('roster: 프로파일 ③ 답이 카탈로그 밖이면 rc=2(손상 — render·verify 와 같은 판정)', () => {
   const tree = tr([ra('v2-judge', '산출물 검증')]);
   const prof = JSON.parse(fs.readFileSync(tree.profile, 'utf8'));
   prof.answers.cost.value = ['bogus-cost'];
   fs.writeFileSync(tree.profile, JSON.stringify(prof, null, 2) + '\n');
-  expectRc1(place(tree, {}), '③ 답이 카탈로그 밖');
+  expectRc2(place(tree, {}), '③ 답이 카탈로그 밖');
 });
 
 test('데이터 판정: 데이터 파일 결함(effort_forbidden·behavior·local) → rc=2', () => {

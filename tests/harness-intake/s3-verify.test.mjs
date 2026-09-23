@@ -140,18 +140,18 @@ test('[출력] 가정 항목 없음 → "ASSUMED: none" · DECLARED 에 cost 포
   const r = verify(fx);
   notImpl(r);
   const ls = r.stdout.split('\n');
-  assert.equal(ls[1], 'DECLARED: completion(2026-09-08) irreversible(2026-09-10) cost(2026-09-11) approval(2026-09-09) assets(2026-09-07)', show(r));
+  assert.equal(ls[1], 'DECLARED: completion(2026-09-08) irreversible(2026-09-10) cost(2026-09-11) approval(2026-09-09) assets(2026-09-07) egress(2026-09-12)', show(r));
   assert.equal(ls[2], 'ASSUMED: none', show(r));
   assert.equal(r.rc, 1, 'cost 의 source 가 바뀌어 tier·premise 가 stale');
 });
-test('[출력] 선언 항목 없음 → "DECLARED: none" · ASSUMED 5항목', () => {
+test('[출력] 선언 항목 없음 → "DECLARED: none" · ASSUMED 6항목', () => {
   const fx = wiredFx();
   putProfile(fx, P((A) => { for (const k of Object.keys(A)) A[k].source = 'assumed'; }));
   const r = verify(fx);
   notImpl(r);
   const ls = r.stdout.split('\n');
   assert.equal(ls[1], 'DECLARED: none', show(r));
-  assert.equal(ls[2], 'ASSUMED: completion(2026-09-08) irreversible(2026-09-10) cost(2026-09-11) approval(2026-09-09) assets(2026-09-07)', show(r));
+  assert.equal(ls[2], 'ASSUMED: completion(2026-09-08) irreversible(2026-09-10) cost(2026-09-11) approval(2026-09-09) assets(2026-09-07) egress(2026-09-12)', show(r));
 });
 
 // ───── rc=2 ─────
@@ -186,7 +186,7 @@ test('[e2e] repo-like + 대상 템플릿: answer --defaults → render → 삽�
   wire(fx, Object.fromEntries(BLOCKS.map((id) => [id, blocks[id].text])));
   const ls = expectVerify(verify(fx), {}, 'e2e');
   assert.equal(ls[1], 'DECLARED: none');
-  assert.equal(ls[2], 'ASSUMED: completion(2026-09-11) irreversible(2026-09-11) cost(2026-09-11) approval(2026-09-11) assets(2026-09-11)');
+  assert.equal(ls[2], 'ASSUMED: completion(2026-09-11) irreversible(2026-09-11) cost(2026-09-11) approval(2026-09-11) assets(2026-09-11) egress(2026-09-11)');
 
   const saved = readT(fx, 'skill');
   editT(fx, 'skill', (s) => s.replace(blocks.approval.text, ''));
@@ -196,7 +196,7 @@ test('[e2e] repo-like + 대상 템플릿: answer --defaults → render → 삽�
   ok(answer(fx, ['--orchestrator', 'orch1', '--now', NOW2, '--set', 'completion=tests-pass', '--defaults']));
   const ls2 = expectVerify(verify(fx), { completion: 'stale', 'premise.claude': 'stale', 'premise.agents': 'stale' }, '답 변경 후 재렌더 안 함');
   assert.equal(ls2[1], 'DECLARED: completion(2026-09-12)');
-  assert.equal(ls2[2], 'ASSUMED: irreversible(2026-09-11) cost(2026-09-11) approval(2026-09-11) assets(2026-09-11)');
+  assert.equal(ls2[2], 'ASSUMED: irreversible(2026-09-11) cost(2026-09-11) approval(2026-09-11) assets(2026-09-11) egress(2026-09-11)');
 });
 
 // ───── 추가 계약(참조 문서 10-4 보강 · 2026-09-12) ─────

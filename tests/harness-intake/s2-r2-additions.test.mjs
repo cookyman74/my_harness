@@ -93,7 +93,7 @@ test('[회귀] ② other: 만 → value [] · other 문장 · ④ 에 before:oth
   const q = parseQ(questions(s2setup(), ['--mode', 'new', '--after', 'irreversible=other:DNS 레코드 변경']));
   assert.deepEqual(q[0].options[0], beforeO('other'));
   const fx = s2setup();
-  ok(answer(fx, S('completion=tests-pass;irreversible=other:DNS 레코드 변경;cost=error-worse;approval=before:other,ladder;assets=reuse')));
+  ok(answer(fx, S('completion=tests-pass;irreversible=other:DNS 레코드 변경;cost=error-worse;approval=before:other,ladder;assets=reuse;egress=allow-listed')));
   const p = readJson(profPath(fx));
   assert.deepEqual(p.answers.irreversible.value, []);
   assert.equal(p.answers.irreversible.other, 'DNS 레코드 변경');
