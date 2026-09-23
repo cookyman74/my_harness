@@ -141,7 +141,9 @@ agy(성능 리뷰어)는 동일 틀 + "성능/속도·안정성 중심으로" �
 # Step 1 에서 프롬프트 2종을 _workspace/reviews/ 에 먼저 써 둔 뒤:
 #   {단계ID}_prompt_general.md (일반/정합성 리뷰어)  ·  {단계ID}_prompt_perf.md (성능 리뷰어)
 # 이 한 줄을 Bash(run_in_background: true) 로 실행한다. {러너}=생성 시 claude|codex 치환.
-bash "{스킬scripts}/run-review.sh" "{단계ID}" "{러너}"   # 경로에 공백이 있어도 안전하도록 인용
+# {등급-기계키}는 생성 시 치환이 아니라 **호출할 때 채운다** — `## 리스크 등급` 블록 규칙으로 단계마다 판정한
+# 기계 키(light|standard|critical)다. 표시 어휘(경량/표준/중대)를 넣으면 런처가 status: failed 로 멈춘다.
+REVIEW_GRADE={등급-기계키} HARNESS_ORCHESTRATOR={오케스트레이터} bash "{스킬scripts}/run-review.sh" "{단계ID}" "{러너}"   # 경로에 공백이 있어도 안전하도록 인용
 ```
 
 > ⚠️ **한 단계에 한 번만 띄운다.** 엔진별로 나눠 두 번 띄우면 **두 인스턴스가 같은 산출물 파일에
@@ -150,14 +152,16 @@ bash "{스킬scripts}/run-review.sh" "{단계ID}" "{러너}"   # 경로에 공�
 > 인스턴스를 거부하지만, 애초에 한 번만 호출하는 것이 규약이다.
 > (락이 죽어 남았으면 `rm -rf _workspace/reviews/{단계ID}.lock`)
 
-**환경 변수(선택)**
+**환경 변수(필수 2 · 선택 5)**
 
 | 변수 | 뜻 | 언제 |
 |------|-----|------|
+| `REVIEW_GRADE` | **필수** — 이 단계의 리스크 등급 기계 키(`light`\|`standard`\|`critical`) | 없거나 어휘 밖이면 `status: failed`(기본 등급으로 조용히 진행하지 않는다) |
+| `HARNESS_ORCHESTRATOR` | **필수** — 어느 하네스의 반출 정책·모델 정책인가(**정책값이 아니라 신원**) | 없으면 `status: failed`. 런처가 이 이름으로 해석기·프로파일을 찾는다 |
 | `REVIEW_TIMEOUT` | 리뷰어 1회 실행 상한(초, 기본 600) | 프롬프트가 크면 기본값에 걸려 **판정 없이 죽는다**(실측: codex 3라운드 연속 `rc=124`) |
 | `REVIEWERS_OVERRIDE` | 자동 탐지를 무시하고 리뷰어 지정(공백 구분) | 한 엔진만 재실행·쿼터 장애 시 나머지만. **`degraded` 에 기록된다** |
-| `CODEX_MODEL`·`CODEX_REASONING` | codex 모델·추론 강도 | 사용량 절약 시 작은 모델 + 높은 추론 |
-| `AGY_MODEL` | agy 모델(**Gemini 계열만**) | 미설정이면 agy 설정 모델을 쓰고 **"엔진 다양성 미검증"이 `degraded` 에 남는다** |
+| `CODEX_MODEL`·`CODEX_REASONING` | codex 모델·추론 강도 — **`CODEX_MODEL` 은 프로파일이 이긴다**(설정해도 무시되고 경고가 남는다) | 사용량 절약은 `CODEX_REASONING` 으로. 모델은 프로파일 `review_tiers` 를 고친다 |
+| `AGY_MODEL` | agy 모델(**Gemini 계열만**) — **프로파일이 이긴다**(설정해도 무시되고 경고가 남는다) | 프로파일 `review_tiers` 가 `none` 이면 agy 설정 모델을 쓰고 **"엔진 다양성 미검증"이 `degraded` 에 남는다** |
 | `AGY_PRINT_TIMEOUT` | agy 자체 응답 대기(기본 300s) | 읽을 파일이 많은 프롬프트 |
 
 > ⚠️ **러너와 같은 엔진을 리뷰어로 쓰면 자기검증이다.** 스크립트는 막지 않지만
@@ -178,17 +182,17 @@ bash "{스킬scripts}/run-review.sh" "{단계ID}" "{러너}"   # 경로에 공�
 
 > **왜 rc/출력 파일을 리뷰어별로 나누는가:** 단일 status JSON에 여러 리뷰어가 동시 write하면 macOS엔 `flock`이 없어 **JSON 경합으로 깨진다**. 종료 시 스크립트가 rc들을 **순차 취합**(동시쓰기 없음)해 상태를 도출한다.
 - **상태 스키마(통일):** `{"status": running|completed|partial|failed|no-reviewers, "reviewers": "...", "degraded": "" | "<축소 사유>", "results": {"codex":"ok|fail", "agy":"ok|fail"}}`. `partial`=일부 성공(예: codex ok·agy 타임아웃) — `completed`로 뭉뚱그려 부분실패를 숨기지 않는다. Step 3은 이 status + 리뷰어별 출력 *내용*으로 판단.
-- **리스크 등급별 축소 정책(req):** 축소를 일률적으로 "기록만 하고 진행"으로 두면 **중대 변경에서 fail-open**이 된다(중대는 SKILL.md가 단계마다 외부리뷰+승인 사다리를 요구하는데, 리뷰어 1종 상태가 그 요구를 만족하지 못한 채 통과). 등급별로 분기한다 — **경량/표준**: `degraded` 기록 후 진행 가능. **중대**: 그대로 진행 금지. ① 리뷰어 복구(PATH/설치) 후 재실행, ② 복구 불가면 **사용자에게 축소 사유를 보고하고 명시적 승인(override)을 받아야** 다음 단계로 간다. 승인받았으면 그 사실도 `degraded`와 함께 결과서에 남긴다.
+- **리스크 등급별 축소 정책(req):** 축소를 일률적으로 "기록만 하고 진행"으로 두면 **중대 변경에서 fail-open**이 된다(중대는 SKILL.md가 단계마다 외부리뷰+승인 사다리를 요구하는데, 리뷰어 1종 상태가 그 요구를 만족하지 못한 채 통과). 등급별로 분기한다 — **경량/표준**: `degraded` 기록 후 진행 가능. **중대**: 그대로 진행 금지. ① 리뷰어 복구(PATH/설치) 후 재실행, ② 복구 불가면 **사용자에게 축소 사유를 보고하고 명시적 승인(override)을 받아야** 다음 단계로 간다. 승인받았으면 그 사실도 `degraded`와 함께 결과서에 남긴다. ③ **축소 사유가 `egress` 면 ①②가 둘 다 틀린 조치다** — 설치해도 허용 목록 밖이고 override 는 `die_launcher` 로 막힌다. 올바른 조치는 **`answer --mode extend --only egress` 로 ⑥ 을 다시 답해 허용 목록을 넓히는 것**이다.
 - **축소 리뷰 표기 의무(req):** `degraded`가 비어있지 않으면 그 라운드는 **교차검증이 성립하지 않은 리뷰**다. `degraded`에는 실행 전 사유(리뷰어 부재·PATH 밖 설치)뿐 아니라 **실행 중 실패**(타임아웃·인증·크래시 → `status: partial`)도 취합 단계에서 합류한다 — 붙었다가 죽은 것과 처음부터 없던 것은 결과가 같다. 결과서·커밋메시지·CHANGELOG에 **"양 엔진 수렴"·"codex+agy"류 표기를 쓰지 말 것** — 실제 실행된 리뷰어와 축소 사유를 그대로 적는다(예: "외부리뷰 agy 단독 — codex PATH 밖 설치로 제외"). `degraded`가 `PATH 밖 설치`를 포함하면 리뷰 재실행 전에 그 도구를 PATH에 올리거나 현재 런타임에 설치한다(자동 PATH 주입은 하지 않는다 — 임의 경로 실행은 공급망 리스크). **`no-high 2연속` 같은 수렴 판정은 degraded 라운드를 카운트에 넣지 않는다.**
-- **상황별 모델 선택(req):** 오케스트레이터가 단계 리스크등급(경량/표준/중대)에 맞춰 `AGY_MODEL`·`CODEX_MODEL`을 설정한다. **경량/표준** → 경량·저비용(`AGY_MODEL="Gemini 3.5 Flash (High)"`, codex 기본) — 초대형 산출물·단순 검토·비용 절감. **중대** → 고성능(`AGY_MODEL="Gemini 3.1 Pro (High)"`, `CODEX_MODEL`=고추론 모델) — 정확도 우선. 미설정 시 기본(Gemini 3.1 Pro High / codex 기본). 가용 모델은 `agy models`·`codex --help`로 확인.
-  - ⚠️ **엔진 다양성 가드:** `AGY_MODEL`은 **Gemini 계열만**. agy는 Claude/GPT-OSS 모델도 실행 가능하나, agy를 Claude로 돌리면 claude 러너와 같은 엔진 = 자기검증(엔진 다양성 붕괴). 모델은 *엔진 내* 선택일 뿐 — 엔진(codex≠claude≠agy_gemini)은 러너 제외 규칙(§독립성)이 고정.
+- **상황별 모델 선택(req):** 오케스트레이터는 **등급을 `REVIEW_GRADE` 로, 하네스 이름을 `HARNESS_ORCHESTRATOR` 로 넘기기만 한다**(위 정본 런처 줄이 그 자리다). 반출 정책 해석·리뷰어 모델 선택은 **`run-review.sh` 가 한 번** 한다 — 문서·오케스트레이터에 모델명을 적지 않는다. **모델명은 프로파일 `review_tiers` 에만 둔다.**
+  - ⚠️ **엔진 다양성 가드:** `AGY_MODEL`은 **Gemini 계열만**. agy는 다른 엔진의 모델도 실행 가능하나, agy를 Claude로 돌리면 claude 러너와 같은 엔진 = 자기검증(엔진 다양성 붕괴). 모델은 *엔진 내* 선택일 뿐 — 엔진(codex≠claude≠agy_gemini)은 러너 제외 규칙(§독립성)이 고정.
 - **agy 파일접근 배선(req — 지우지 말 것):** agy는 `--sandbox`라 리뷰 대상이 워크스페이스 밖이면 파일 read가 권한 프롬프트를 띄운다. `-p`(비대화)+`< /dev/null`(TTY 없음)이면 그 프롬프트에 응답 못 해 **무한 hang**(→ speculative fallback 또는 timeout kill, exit 124/144). 따라서 **`--add-dir "$REPO_ROOT"`(리뷰 대상 repo를 워크스페이스에 추가; `git rev-parse --show-toplevel`로 하위 디렉토리 실행서도 루트 보장) + `--dangerously-skip-permissions`(도구권한 자동승인)** 가 필수. 실증: 이 둘 없으면 repo 상대경로 파일(예 `_workspace/…`) 접근이 hang, 있으면 실제 file:line 근거로 정상 판정+종료(exit 0). codex는 `codex exec`가 자체 read-only 파일접근이라 무영향(대조군).
   - ⚠️ **보안 잔여위험(agy read-only 플래그 부재):** agy엔 도구제한/read-only 플래그가 없어 `--dangerously-skip-permissions`가 write/명령까지 자동승인한다(`--sandbox`는 터미널 제한만, 워크스페이스 write는 안 막음). 가드 = ① `--sandbox` ② 프롬프트가 "리뷰만"으로 스코프 ③ **외부 리뷰는 clean checkout/worktree에서 실행 권장**(오동작 write의 blast radius 최소화). agy에 `--allowed-tools` 류 생기면 read-only로 좁힐 것.
   - `--print-timeout 300s`(180s는 대형 리뷰+고추론 모델에 부족, 외곽 gtimeout 600s 안).
 - **타임아웃 무방비 주의:** `timeout`/`gtimeout` 없으면 `run-review.sh` 의 `run_with_timeout` 이 그대로 실행(무타임아웃)이라 `codex`·`claude`는 상한이 없다(agy만 자체 `--print-timeout` 300s). hang 시 `wait` 무한 블로킹 → **GNU coreutils(`gtimeout`) 설치 권장**. 자체 `sleep…&kill` 워치독은 오탐 kill 위험이라 미채택 — 대신 launch 모드라 오케스트레이터가 과대 경과 시 중단/계속을 판정할 수 있다.
 - 타임아웃·실패(`_{tool}.rc`≠0 또는 출력 빔) 시 **오케스트레이터가 1회 수동 재실행** → 재실패 시 도구 누락 명시 후 단일 출처로 진행(**루프 차단 금지**). Step 3은 파일 유무가 아니라 rc+내용으로 판단.
-- 모델은 `agy models`로 확인(Gemini 3.1 Pro / 3.5 Flash 등). 가용 모델명으로 치환.
-- **자원·비용:** 리뷰어 2종 병렬 = 토큰 2배·로컬 자원 경합. 초대형 산출물이면 순차 실행 또는 성능 리뷰어를 경량 모델(`Gemini 3.5 Flash`)로.
+- 가용 모델은 `agy models`·`codex --help` 로 확인하고 **프로파일 `review_tiers` 를 고친다**(문서에 모델명을 적지 않는다).
+- **자원·비용:** 리뷰어 2종 병렬 = 토큰 2배·로컬 자원 경합. 초대형 산출물이면 순차 실행 또는 성능 리뷰어를 **경량 등급**(`REVIEW_GRADE=light`)으로.
 - **도구 부재 폴백:** `REVIEWERS: none`이면 통일 스키마 상태파일만 남기고 외부 리뷰 생략 — 결과서 명시·내부 QA만. 일반 리뷰어 1종만 살아도 단일 출처로 진행하되 **`degraded`에 사유가 실리므로 위 "축소 리뷰 표기 의무"를 따른다**(진행은 하되 교차검증으로 기록 금지).
 - **`SHADOWED` 확인(req):** `check-review-tools.sh`는 도구가 *설치돼 있으나 현재 PATH 밖*이면 `SHADOWED:` 줄로 보고한다(예: nvm의 다른 node 버전 전역 설치). `command -v` 실패를 "미설치"로만 처리하면 리뷰어가 조용히 한 축 빠진 채 루프가 정상 완료된다 — 실측된 회귀다. 오케스트레이터는 `SHADOWED`가 `none`이 아니면 사용자에게 보고하고 복구(PATH 추가/재설치)를 먼저 제안한다.
 

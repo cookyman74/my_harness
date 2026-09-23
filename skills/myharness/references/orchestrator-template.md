@@ -67,10 +67,11 @@ orchestrates: [{agent-1}, {agent-2}]   # 구성 자기평가 연결 계약(오�
 
 1. 팀원 spawn (단일 메시지에서 N명 병렬 호출):
    ```
-   Agent(subagent_type: "{teammate-1}", model: "opus", prompt: "{역할 설명 및 작업 지시}")
-   Agent(subagent_type: "{teammate-2}", model: "opus", prompt: "{역할 설명 및 작업 지시}")
+   Agent(subagent_type: "{teammate-1}", model: "{teammate-1 정의 파일의 model}", prompt: "{역할 설명 및 작업 지시}")
+   Agent(subagent_type: "{teammate-2}", model: "{teammate-2 정의 파일의 model}", prompt: "{역할 설명 및 작업 지시}")
    ...
    ```
+   > `model` 값은 `.claude/agents/{name}.md` 의 `model:` 을 그대로 옮긴다. 정의가 전체 ID·`inherit` 면 이 파라미터를 뺀다.
    > 팀원 이름은 각 subagent 정의(`.claude/agents/{name}.md`)에서 온다. 같은 정의를 서브 에이전트로도 팀원으로도 재사용. `team_name`은 더 이상 쓰지 않는다(받아도 무시됨).
 
 2. 작업 등록:
@@ -220,10 +221,10 @@ orchestrates: [{agent-1}, {agent-2}]   # 구성 자기평가 연결 계약(필�
 ### Phase 2: 병렬 실행
 단일 메시지에서 N개 Agent 도구를 동시 호출:
 
-| 에이전트 | 입력 | 출력 | model | run_in_background |
+| 에이전트 | 입력 | 출력 | tier / model | run_in_background |
 |---------|------|------|-------|-------------------|
-| {agent-1} | {소스} | `_workspace/{phase}_{agent}_{artifact}.md` | opus | true |
-| {agent-2} | {소스} | `_workspace/{phase}_{agent}_{artifact}.md` | opus | true |
+| {agent-1} | {소스} | `_workspace/{phase}_{agent}_{artifact}.md` | {tier} / {정의 파일 model} | true |
+| {agent-2} | {소스} | `_workspace/{phase}_{agent}_{artifact}.md` | {tier} / {정의 파일 model} | true |
 
 ### Phase 3: 통합
 1. 각 에이전트의 반환값 수집

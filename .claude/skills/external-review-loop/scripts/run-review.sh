@@ -12,7 +12,9 @@
 # 셰뱅으로 bash 를 고정하면 이 부류의 이식성 결함이 구조적으로 사라진다.
 #
 # 사용: bash run-review.sh <stage_id> [runner]     # runner ∈ claude|codex (기본 claude)
-#   env: AGY_MODEL / CODEX_MODEL (리스크 등급별 모델 — 상세는 SKILL.md "상황별 모델")
+#   env(필수): REVIEW_GRADE=light|standard|critical · HARNESS_ORCHESTRATOR=<하네스 이름>
+#              — 없거나 어휘 밖이면 status: failed. 리뷰어 모델은 **프로파일 review_tiers** 가 소유한다
+#                (AGY_MODEL·CODEX_MODEL 을 줘도 무시되고 WARN 만 남는다 · v1.8.3 S4).
 # 출력: _workspace/reviews/{stage}_{tool}.md · _{tool}.rc · _review_status.json
 # 종료코드: 0 (상태는 status JSON 으로만 전달 — set -e 파이프라인이 파싱 전 죽지 않게)
 set -uo pipefail
@@ -57,7 +59,7 @@ D=_workspace/reviews
 AGY_MODEL="${AGY_MODEL:-}"   # v1.8.3 부터 프로파일 review_tiers 가 소유한다(구간 A 가 덮어쓴다). 값은 `agy models` 로 확인한 실재 이름이어야 한다
 CODEX_MODEL="${CODEX_MODEL:-}"                     # 비우면 codex 기본. 중대 시 고추론 모델명 지정.
 # 추론 강도(codex 전용). 작은 모델을 쓸 때 high 로 올려 판정 품질을 보전한다.
-#   예: CODEX_MODEL="gpt-5.4-mini" CODEX_REASONING=high  ← 사용량 절약 + 고추론
+#   값은 run-review.sh 가 부른 egress 의 REVIEW_MODEL_CODEX: 줄에서 온다(REVIEW_GRADE 필수). CODEX_REASONING 은 별개 노브.
 CODEX_REASONING="${CODEX_REASONING:-}"
 # 리뷰 대상 루트 — 하위 디렉토리서 실행돼도 repo 루트 보장(agy --add-dir용). git 밖이면 pwd 폴백.
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"

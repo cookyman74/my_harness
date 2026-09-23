@@ -37,11 +37,20 @@
 4. **승인 관문** — USER-MODIFIED/UNKNOWN diff를 사용자에게 제시. 자율 마커(`_workspace/.autonomous`) 시 자동 통과(단 사용자 수정 파일은 기본 보류 — 명시 승인만 적용).
 5. **apply** — `bash <이 스킬의 디렉토리>/scripts/harness-update.sh apply <skill_dir> <factory_dir> [--approve rel1,rel2]`. UPDATABLE/NEW=자동, USER-MODIFIED=`--approve` 든 것만. 적용 후 manifest 자동 갱신(새 기준선).
 6. **결선 재렌더** — `apply` 로 `scripts/harness-intake.mjs` 가 갱신됐으면 `node <skill_dir>/scripts/harness-intake.mjs verify --orchestrator <오케스트레이터>` 를 돌린다. 팩토리가 문항 라벨을 고치면 `catalog_version` 이 올라 **답이 그대로여도 전 블록이 `stale`** 이 된다(라벨 변경을 `drift` 로 오분류하지 않으려는 설계). 처리:
-   - `stale` 만 있으면 → `render --orchestrator <오케스트레이터> --block <id>` 로 해당 블록을 교체하고 재 `verify` 가 `ok` 인지 확인. 답은 건드리지 않는다.
+   - `stale` 만 있으면 → **교체 전에 기존 블록 내용을 보관**(`<파일>.bak-<압축시각>` 또는 보고에 diff)하고 `render --orchestrator <오케스트레이터> --block <id>` 로 교체한 뒤 **교체 전후 diff 를 사용자에게 보인다**. 재 `verify` 가 `ok` 인지 확인. 답은 건드리지 않는다.
+     - **왜 보관하는가:** 같은 손수정 블록이 `catalog_version` 2 에서는 `drift`(보호됨 · 아래 항)였다가 3 에서는 **`stale`** 로 분류된다 — "stale 만 있으면 교체" 를 그대로 돌리면 **손수정이 diff 없이 사라진다**.
    - `missing`·`drift`(·`malformed`·`duplicate`·`misplaced`)가 있으면 → **자동으로 고치지 않고 사용자에게 보고**한다. `drift` 는 사람이 블록을 손으로 고친 흔적이라 덮어쓰면 그 의도가 조용히 사라진다.
    - 이 단계를 빼면 라벨 한 줄을 바꾸는 팩토리 릴리스가 **모든 생성 하네스를 Phase 0 결선 확인에서 멈추게** 한다.
+6-1. **`apply` 후 1회 수동 작업 2종**(자동 전파 대상이 아니다)
+   - **⑥ 반출 정책 답하기** — `answer --mode extend --only egress`. 미답이어도 일상 실행은 무마찰이지만 **중대 등급 게이트를 쓰면 사실상 필수**다(`degraded` 에 `egress assumed` 가 실려 수렴 카운트를 막는다).
+   - **런처 줄 갱신** — `plan` 이 `LAUNCHER: needs-update` 를 내면 `<root>/.claude/skills/external-review-loop/SKILL.md` 의 호출 줄에 `REVIEW_GRADE=`·`HARNESS_ORCHESTRATOR=` 를 붙인다. **고치기 전까지 그 하네스의 외부리뷰는 전부 `failed`** 다(사용자 소유 파일이라 도구가 자동 편집하지 않는다).
+   - 되돌리기: `apply` 는 직전 기준선을 `.harness-manifest.prev.json` **1세대**만 남긴다 — 그보다 앞으로는 못 돌아간다(정본 복구 경로는 git 이다).
 7. **에이전트 본문 주입 라인 갱신** — 정본 주입 형식이 바뀐 경우만, 에이전트 `## 작업 원칙`의 `> ... dev-rules.md 준수` 한 줄을 새 형식으로 교체(본문 나머지 보존). 형식 불변이면 생략.
-8. **external-review-loop 스킬** — 갱신 필요 시 Phase 4-6 재실행으로 재생성(SKILL 본문+scripts 복사).
+8. **external-review-loop 스킬** — **스크립트 4종은 이제 `harness-update.sh` 가 담당한다**(v1.8.3 S5 · 관리 대상이 디렉토리 종류로 갈렸다).
+   그 스킬 디렉토리를 대상으로 `plan|apply` 를 **따로 한 번 더** 돌린다 — 오케스트레이터 스킬에 돌린 실행은 런처를 건드리지 않는다.
+   **SKILL 본문**(런처 호출 줄 포함)은 여전히 사용자 소유라 자동 갱신 대상이 아니다 — `LAUNCHER: needs-update` 가 뜨면 그 줄만 손으로 1회 고치고, 본문 전체를 바꿔야 할 때만 Phase 4-6 재생성.
+   - **듀얼 런타임이면 실행이 4회다:** `.claude/skills/{오케스트레이터}` · `.claude/skills/external-review-loop` · `.agents/skills/{오케스트레이터}` · `.agents/skills/external-review-loop`.
+     한 곳이라도 빠뜨리면 그 런타임에 **죽은 사본**(옛 스크립트)이 남고, 새 런처가 부르는 `egress` 를 구 해석기가 몰라 그 하네스의 외부리뷰가 전부 `failed` 가 된다.
 9. **듀얼 런타임 동기** — `.claude/`↔`.agents/` 양쪽에 동일 적용(Phase 7-6). `premise` 블록은 `CLAUDE.md`·`AGENTS.md` 양쪽에 같이 있어야 한다.
 10. **검증** — 갱신된 references 실경로 참조 무결성·`bash -n` 스크립트·트리거 재확인(Phase 6).
 

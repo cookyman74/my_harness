@@ -31,6 +31,7 @@
 
 - 실측 명령: `grep -rn 'opus\|sonnet\|haiku\|Gemini 3\|gpt-' skills/myharness/` → **17줄**(PRD §1-1 의 "17줄·21회"와 일치).
 - **이 레포 에이전트 6개 전부 `model: opus`**(`.claude/agents/{doc-syncer,harness-ui-planner,release-manager,repo-qa,skill-maintainer,stabilizer}.md` frontmatter 실측). 실물 frontmatter 키는 `name`·`description`·`model`·`skills`(5개)·`behaviors`(1개)뿐 — **`effort:` 를 쓰는 정의는 0개다.**
+- **`probeVersion` 마감 시작점(S5 실측 정정).** 마감(5000ms)은 원래 `spawn()` **앞**에서 걸려 fork/exec 대기와 스케줄 지연까지 예산에 먹었다 — 그래서 **아무것도 하지 않는 테스트 스텁**이 스위트 부하만으로 마감에 걸려 `unknown` 이 됐다(실측 5085·5170·5071ms · S0·S1·S2 에서도 같은 증상). 걸리면 그 값이 런타임 스냅샷과 **⑥ 의 `scanned`** 로 들어가 **설치된 도구가 허용 목록에서 빠진다**(S3 이 MED 로 고친 실패형과 같다). → 마감은 **`child.on("spawn")` 뒤**부터 잰다(자식의 실행 시간을 재는 것이 마감의 뜻이다). 상한값 5000ms 과 "자식을 기다리지 않는다" 계약은 그대로다.
 - `run-review.sh` 는 `AGY_MODEL`·`CODEX_MODEL` 을 **해석하지 않고 CLI 인자로 그대로 넘긴다**: `:280` `codex exec ${CODEX_MODEL:+-m "$CODEX_MODEL"}` · `:290` `agy -p … ${AGY_MODEL:+--model "$AGY_MODEL"}`. 검사는 `:260-261` 의 엔진 다양성 가드(`AGY_MODEL` 에 `claude`/`gpt` 문자열이 있으면 `die_launcher`) 하나뿐이다. **→ 라벨(`deep`·`경량`)을 그대로 env 에 실으면 CLI 에 라벨이 전달돼 실패한다**(R11 이월의 근거).
 
 ### 0-2. 리뷰어 탐지·선택 경로
@@ -974,7 +975,7 @@ REVIEWERS="$_kept"                                               # 비면 :205 �
 | 대상 판정 | `<skill_dir>` 의 **basename 이 `external-review-loop` 면 review 셋, 아니면 orch 셋**. 근거: 그 디렉토리 이름은 `SKILL.md:202` 가 **하드코딩**한다(생성 규약) — 유도 규칙이 아니라 정본 상수다 |
 | 듀얼 런타임 | 실행이 **4회**가 된다(`.claude`·`.agents` × 오케스트레이터·external-review-loop). `harness-update.md` 절차에 그 목록을 적는다 |
 | 회귀 | `tests/test-harness-update.sh` 가 현재 단일 목록을 전제로 돈다 → **케이스 2종 추가**(orch 디렉토리에 런처가 NEW 로 오지 않는다 · review 디렉토리에 해석기가 NEW 로 오지 않는다) |
-| **동반 갱신 제약(시나리오 B-4)** | **해석기(`harness-intake.mjs`)와 런처(`run-review.sh`)는 같이 적용하거나 같이 보류한다.** 하나가 USER-MODIFIED 로 보류되고 다른 하나만 자동 적용되면 **새 런처가 `egress` 를 부르는데 구 해석기는 그 서브커맨드를 모른다**(rc=2) → **전 리뷰 `failed`** 이고 env 우회는 설계가 의도적으로 제거했다. `plan` 출력에 **`PAIR: harness-intake.mjs+run-review.sh = hold(<사유>)`** 를 적고 `apply` 가 둘 다 건너뛴다 |
+| **동반 갱신 제약(시나리오 B-4)** | **해석기(`harness-intake.mjs`)와 런처(`run-review.sh`)는 같이 적용하거나 같이 보류한다.** 하나가 USER-MODIFIED 로 보류되고 다른 하나만 자동 적용되면 **새 런처가 `egress` 를 부르는데 구 해석기는 그 서브커맨드를 모른다**(rc=2) → **전 리뷰 `failed`** 이고 env 우회는 설계가 의도적으로 제거했다. `plan` 출력에 **`PAIR: harness-intake.mjs+run-review.sh = hold(<사유>)`** 를 적고 `apply` 가 둘 다 건너뛴다. **S5 실측 보완:** 분리(§6-3) 뒤 두 파일은 **다른 스킬 디렉토리**에 살아 한 번의 `plan` 이 둘을 보지 못한다 → **형제 디렉토리를 찾아 짝을 판정한다**(`external-review-loop` 면 `scripts/harness-intake.mjs` 를 가진 형제, 그 밖이면 `…/external-review-loop`). 짝의 상태는 **그 디렉토리의 manifest** 로 판정한다. 같은 디렉토리에 둘 다 있는 구 하네스는 그 안에서 판정한다. 짝을 못 찾으면 `na` |
 | S 단계 | **S5**(정본 배선과 같은 커밋) · 테스트 **T-U3**(디렉토리 분리) · **T-U4**(동반 갱신 제약) |
 
 **기존 하네스의 런처 줄은 `apply` 로 오지 않는다 — `LAUNCHER:` 점검을 신설한다(재검토 A-H4).**
@@ -1210,10 +1211,11 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fall
 
 | 무엇 | 결정 | 근거 |
 |---|---|---|
-| 배달 위치 | **오케스트레이터 스킬 `references/model-profiles.json`**(스킬 안 · 별도 `references/` 배달이 아니다) | 해석기가 `SELF`(`harness-intake.mjs:31`) 기준 `../references/model-profiles.json` 을 읽는다(§2-1) — 해석기가 `scripts/` 에 있으니 **같은 스킬의 `references/` 가 유일하게 맞는 자리**다. 게다가 `MANAGED_RELS` 의 rel 이 **정확히 그 경로**라 나중 `apply` 가 **같은 파일**을 갱신한다(생성·갱신 경로 일치) |
+| 배달 위치 | **오케스트레이터 스킬 `references/model-profiles.json`**(스킬 안 · 별도 `references/` 배달이 아니다) · **그리고 `scripts/check-review-tools.sh`**(S5 실측 정정 — 아래 행) | 해석기가 `SELF`(`harness-intake.mjs:31`) 기준 `../references/model-profiles.json` 을 읽는다(§2-1) — 해석기가 `scripts/` 에 있으니 **같은 스킬의 `references/` 가 유일하게 맞는 자리**다. 게다가 `MANAGED_RELS` 의 rel 이 **정확히 그 경로**라 나중 `apply` 가 **같은 파일**을 갱신한다(생성·갱신 경로 일치) |
 | 듀얼 런타임 | `.agents/skills/{오케스트레이터}/references/` 에도 복사 | 기존 번들 규약과 같다(`SKILL.md:225` 가 `scripts/` 에 대해 이미 그렇게 적는다) |
 | 줄 예산 | **+0** — `:225` 의 ② 항목 문장에 파일 하나를 더하는 편집이다 | |
 | 테스트 | **T-E11**(§9-1) — 생성 트리 픽스처에서 `egress`·`place --verify` 가 **rc=0** · 데이터 파일을 지우면 **rc=2**(`verify` 는 여전히 rc=0 이라는 것도 함께 단정해 "결선만 초록" 위장을 고정) | |
+| **정정(S5 실측)** | **구멍은 파일 하나가 아니라 둘이다.** 데이터 파일을 번들에 넣어도 갓 만든 하네스의 `egress` 는 여전히 rc=2 다 — `harness-intake.mjs:reviewToolCandidates()` 가 **`check-review-tools.sh` 를 `SELF` 형제로** 읽기 때문이다(후보 4종의 단일 출처 규약 · §8-1 과 같은 이유). 정본은 그 파일을 `external-review-loop/scripts/` 로만 복사했다. **→ Phase 5 번들 문장과 `MANAGED_RELS_ORCH` 에 함께 넣는다**(ORCH 셋이 9 → **10**). 양쪽 셋에 있는 것은 중복이 아니다 — 해석기가 읽는 사본과 런처의 런타임 폴백은 **다른 용도**다 | 실측: `후보 도구 목록을 읽지 못했다: …/scripts/check-review-tools.sh (ENOENT)` → rc=2 |
 
 - **`SKILL.md` 줄 예산(재계산 · 2026-09-16 `wc -l`/`sed -n` 실측).** 현재 **494/500**(감사 #1 이 `≤500` 을 FAIL 로 강제 — `run-policy-audit.sh:17-19`).
 
@@ -1224,7 +1226,7 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs settings --set-fall
 | 추가 | **Phase 5 `settings --set-fallback` 호출 + 비대화 기록 의무**(§7-4 · R24-2 ②③ — 한 줄에 합친다) | +1 |
 | 추가 | 5-6 게이트 env(`REVIEW_GRADE`·`HARNESS_ORCHESTRATOR`) | +1 |
 | 추가 | 6-7 `place --verify` 동반 호출 | +1 |
-| 추가 | 7-5 Step 1 감사 **4항**(R35 재계수 — ① `place --verify` 호출 ② `LAUNCHER:` 점검(C-11) ③ 듀얼 본문 동일성(B-11) ④ `fallbackModel`↔`CLAUDE.md` 표식 짝. "`PLACED:` 가 `UNTIERED:` 를 대체한다" 는 설계 근거이지 정본 줄이 아니다) | **+4** |
+| 추가 | 7-5 Step 1 감사 **4항**(R35 재계수 — ① `place --verify` 호출 ② `LAUNCHER:` 점검(C-11) ③ 듀얼 본문 동일성(B-11) ④ `fallbackModel`↔`CLAUDE.md` 표식 짝. "`PLACED:` 가 `UNTIERED:` 를 대체한다" 는 설계 근거이지 정본 줄이 아니다) | **+4** → **실제 +2**(S5 실측 — 네 항목을 두 줄에 담았다: ①②③ 한 줄 · ④ 한 줄. **항목 집합은 같고 줄만 줄었다** · S5 R10 codex LOW) |
 | 추가 | **Phase 3-0 에 재사용 행 `placed:false` 되돌리기 1단계**(§11-3 C-1 — 안 하면 손대지 않은 정의가 전원 `mismatch`) | **+1** |
 | 추가 | 체크리스트 1항(결선/배치 대조) | +1 |
 | *(치환)* | `:125`·`:468` 등 §7-1 12줄 | 0(줄 수 불변) |

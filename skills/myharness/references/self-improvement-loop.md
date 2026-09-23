@@ -69,7 +69,7 @@
 ## 10. 비용 통제 (벤치가 배보다 배꼽 되지 않게)
 - **Tiered:** `smoke`(1~2 케이스) 통과 시에만 `full`(holdout 전체).
 - **baseline 캐싱:** without/champion 결과는 skill/assertion/model 불변 동안 영구 캐싱(매번 재실행 금지).
-- **cheap-judge:** 측정·감지는 경량 모델(Haiku/Sonnet), 최종 승인 판단만 opus. (SKILL.md 모델 라우팅 준용)
+- **cheap-judge:** 측정·감지는 `light`, 최종 승인 판단만 `deep`. 실제 모델은 프로파일이 정한다(SKILL.md 모델 배치 준용).
 
 ## 11. rollback (artifact 수준 폐쇄)
 - 점수만 되돌리면 안 됨. **rollback manifest**: adopted diff·artifact hashes·이전 파일 경로·baseline snapshot·eval case snapshot·command·expected score.

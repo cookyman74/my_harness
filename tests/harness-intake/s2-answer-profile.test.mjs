@@ -137,7 +137,13 @@ test('토큰·항목 앞뒤 공백 무시 → 공백 없는 입력과 바이트 
 test('--set 반복 == 한 --set 의 ; 결합(바이트 동일)', () => {
   const a = s2setup(); ok(answer(a, A(['--set', FULL])));
   const b = s2setup(); ok(answer(b, A(FULL.split(';').flatMap((p) => ['--set', p]))));
-  assert.ok(bytes(a).equals(bytes(b)));
+  // 실패하면 **관측값**을 남긴다 — 이 단정은 전체 스위트 부하에서만 간헐 실패한 적이 있고(v1.8.3 S5),
+  // "바이트가 다르다" 만으로는 무엇이 달랐는지 알 수 없어 원인을 엉뚱한 곳에서 찾게 된다.
+  if (!bytes(a).equals(bytes(b))) {
+    const [x, y] = [bytes(a).toString('utf8').split('\n'), bytes(b).toString('utf8').split('\n')];
+    const diff = x.map((l, i) => (l === y[i] ? null : `  ${i + 1}\n    a: ${l}\n    b: ${y[i]}`)).filter(Boolean);
+    assert.fail(`프로파일 바이트가 다르다(줄 ${diff.length}곳):\n${diff.join('\n')}`);
+  }
 });
 
 test('--recommended → recommended · --why → why 로 저장(해당 항목만)', () => {

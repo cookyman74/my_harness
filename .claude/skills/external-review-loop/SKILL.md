@@ -146,7 +146,8 @@ agy(성능 리뷰어)는 동일 틀 + "성능/속도·안정성 중심으로" �
 # Step 1 에서 프롬프트 2종을 _workspace/reviews/ 에 먼저 써 둔 뒤:
 #   {단계ID}_prompt_general.md (일반/정합성 리뷰어)  ·  {단계ID}_prompt_perf.md (성능 리뷰어)
 # 이 한 줄을 Bash(run_in_background: true) 로 실행한다. {러너}=생성 시 claude|codex 치환.
-bash "{스킬scripts}/run-review.sh" "{단계ID}" "{러너}"   # 경로에 공백이 있어도 안전하도록 인용
+# {등급-기계키}는 생성 시 치환이 아니라 **호출할 때 채운다**(light|standard|critical · 표시 어휘를 넣으면 멈춘다).
+REVIEW_GRADE={등급-기계키} HARNESS_ORCHESTRATOR=repo-maintainer bash "{스킬scripts}/run-review.sh" "{단계ID}" "{러너}"   # 경로에 공백이 있어도 안전하도록 인용
 ```
 
 > ⚠️ **한 단계에 한 번만 띄운다.** 엔진별로 나눠 두 번 띄우면 **두 인스턴스가 같은 산출물 파일에

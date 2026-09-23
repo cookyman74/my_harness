@@ -10,7 +10,8 @@
 
 - 정본: `skills/myharness/references/model-profiles.json`
 - 이 문서: `skills/myharness/references/model-profiles.md`(설명 전용 · 파서가 읽지 않는다)
-- 두 파일 모두 생성 하네스에 번들된다. 하네스가 실제로 읽는 최상위 키는 `tools` · `runtime_provider` · `review_tiers` 셋뿐이고, 나머지는 팩토리 실행에서만 읽힌다.
+- **번들 대상은 `.json` 하나다**(설계서 §1-1) — 이 `.md` 는 **팩토리에서만 읽는 설명서**라 생성 하네스로 가지 않고 `MANAGED_RELS` 에도 없다.
+  생성 하네스가 실제로 읽는 최상위 키는 `tools` · `runtime_provider` · `review_tiers` 셋뿐이고, 나머지는 팩토리 실행에서만 읽힌다.
 
 ## 2. 필드 이름 — 아래 블록이 문서 쪽 단일 출처다
 

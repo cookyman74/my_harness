@@ -425,11 +425,19 @@ function probeVersion(file, re) {
     }
     // unix 만: 새 프로세스 그룹의 리더로 띄워 마감 시 손자까지 그룹 kill 한다. windows 는 detached 금지(새 콘솔이 뜬다) — taskkill /T.
     if (!WIN) opts.detached = true;
-    timer = setTimeout(() => { finish("unknown"); killChild(child); }, DEADLINE_MS);
+    // ⚠ 마감은 **자식이 실제로 뜬 뒤**부터 잰다. 전에는 spawn() **앞**에서 걸어 fork/exec 대기와 스케줄 지연까지
+    //   예산에 먹었고, 그래서 **아무것도 하지 않는 테스트 스텁**이 스위트 부하만으로 마감에 걸렸다
+    //   (v1.8.3 S5 실측: 5085·5170·5071ms — 전부 마감값 근처 · 결과는 `unknown`). 걸리면 조용히 `unknown` 이 되고
+    //   그 값이 런타임 스냅샷과 ⑥ 의 `scanned` 로 들어가 **설치된 도구가 허용 목록에서 빠진다**(S3 MED 와 같은 실패형).
+    //   자식이 뜨지 않는 경우는 아래 spawn 예외와 error 이벤트가 따로 잡는다.
+    const arm = () => { if (!done && timer === null) timer = setTimeout(() => { finish("unknown"); killChild(child); }, DEADLINE_MS); };
     try {
       // execFile 이 아니라 spawn — execFile 은 옵션을 화이트리스트로만 spawn 에 넘겨 `detached` 를 버린다
       // (node 20.17·24.18 실측: execFile+detached 자식의 pgid = 부모 pgid → 그룹 kill 이 ESRCH 로 빗나가 손자가 남았다).
       child = spawn(cmd, args, opts);
+      child.on("spawn", arm);
+      // 'spawn' 이벤트가 오지 않는 런타임·경로가 있으면 마감이 영영 안 걸린다 — 다음 틱에 보강한다(이중 무장은 arm 이 막는다).
+      setImmediate(arm);
     } catch (e) {
       diag(`--version 실행 실패: ${file} (${e.code || e.message})`);
       return finish("unknown");
