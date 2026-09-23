@@ -162,7 +162,45 @@ R5·R6 에서 codex 가 연속으로 판정을 미뤘다. 원인은 이 변경�
 | `test-harness-update.sh` · `test-selftest-review-tools.sh` | 전부 PASS |
 | `run-policy-audit.sh` | **PASS (fail 0, warn 0)** — #11 이 `check-review-tools.sh` 를 격리 PATH 로 돌린다(탐지기를 안 건드렸음이 여기서 드러난다) |
 | 회귀 드라이런 | `status=completed` · `die_launcher` 없음 · `degraded` 예상과 일치(§6) |
-| 2-OS | push 뒤 `factory-ci` 두 잡으로 확인(새 스텝 포함) |
+| 2-OS | **linux success · windows success**(run 35859541610 · 커밋 `7ccae56`) — linux **46/0/건너뜀 0** · windows **44/0/건너뜀 2**. 첫 push 는 windows 만 6건 실패했다(§9) |
+
+## 9. 2-OS 게이트가 세 번째로 결함을 잡았다 — 이번엔 **테스트가 windows 에서 처음 돌았다**
+
+S4 는 `run-review launcher contract` 스텝을 **신설**했다. 즉 이 스위트 46건이 windows 에서 도는 것은 이번이 처음이고,
+첫 push(`740e2b6`)에서 **linux green · windows 6건 실패**가 나왔다. 셋으로 갈렸다.
+
+### 9-1. 런처의 실제 결함 — 락이 windows 에서 무력했다 (C·G·O·V 4건 · 원인 하나)
+
+`pid_alive(){ ps -p "$1" -o pid= >/dev/null 2>&1; }` — Git Bash(MSYS)의 `ps` 는 이 조합에 **rc≠0** 을 준다.
+그래서 **모든 락이 "죽은 락"으로 판정**돼 회수됐다: 살아있는 락을 뚫고 실행하고(C), 타 사용자 PID 를 죽은 것으로 보고(G),
+**점유 중인 다른 실행의 상태 파일을 덮었다**(O·V — R22·R31 이 HIGH 로 막아 둔 바로 그 행동이 한 OS 에서 되살아나 있었다).
+
+고친 방식이 중요하다 — **자기 PID 로 능력을 실측한다**. 자기 PID 는 반드시 살아 있으므로 거기서 rc≠0 이 나오면
+"그 PID 가 죽었다" 가 아니라 **"이 조합을 쓸 수 없다"** 는 관측이다(OS 이름을 묻지 않는다).
+못 쓰면 `kill -0`, 그래도 아니면 `ps` 목록에서 PID 를 찾는다(EPERM 보정). POSIX 경로는 코드도 결과도 불변(macOS 46/46 · 건너뜀 0).
+
+### 9-2. 전제가 그 OS 에 없는 것 — **건너뛰되 통과로 세지 않는다** (2건)
+
+- `G st-i` 는 "타 사용자의 **살아있는** PID(pid 1)" 를 전제로 EPERM 오판을 본다. Git Bash 에는 그런 PID 가 없다.
+- `N` 은 "`chmod 555` 가 쓰기를 **막는다**" 를 전제로 상태 기록 실패를 본다. NTFS/Git Bash 는 막지 못한다.
+
+둘 다 **전제를 실측**해(임시 디렉토리에 실제로 써 본다) 없으면 `⏭ SKIP` 줄을 찍고 **건너뜀 카운터**로 센다.
+합계 줄이 `통과 44 · 실패 0 · 건너뜀 2` 로 나오므로 **녹색이 건너뛴 사실을 감추지 못한다** —
+그냥 통과로 세면 그게 공허한 테스트다(교훈 2 재발).
+
+### 9-3. 테스트 자신의 이식성 결함 — `/` 로 시작하는 인자 (T-E2 1건)
+
+마지막 1건은 런처가 아니라 **테스트가 틀렸다**. `js` 헬퍼에 넘긴 단정식 `/egress/.test(…)` 는 첫 글자가 `/` 라
+Git Bash 가 **POSIX 경로로 오인해 Windows 경로로 변환**한다(`C:/Program Files/Git/egress/.test(…)`) → `Function` 이 던져
+단정이 **항상 거짓**이 된다. 같은 파일에서 `indexOf` 로 쓴 T-E3·T-E5 단정은 windows 에서도 통과했다.
+
+**어떻게 알았나 — 실패 메시지에 관측값을 싣게 고쳐서 CI 왕복 한 번으로 특정했다.** 진단 출력이 보여 준 상태 JSON 은
+`"degraded":"리뷰어 0종; egress: codex 제외(허용 밖); egress: agy 제외(허용 밖); egress: runtime-only — 반출 허용 리뷰어 0; …"` —
+**17b·17c 는 windows 에서도 정확히 동작하고 있었다.** 단정만 깨져 있었다. 실패 메시지가 사실을 말하지 않으면 원인을 엉뚱한 곳에서 찾는다.
+
+**이월(S5 이후):** ① 새 CI 스텝은 **그 스위트가 그 OS 에서 처음 도는 것**이다 — 신설 스텝의 첫 red 는 "구현이 틀렸다" 가 아니라
+"전제·이식성·구현" 셋 중 무엇인지부터 가른다. ② 셸에서 프로그램 인자를 만들 때 **`/` 로 시작하지 않는다**(MSYS 경로 변환).
+③ 단정 실패 메시지에 **관측값**을 싣는다 — OS 하나에서만 나는 실패는 재현 환경이 없어 로그가 유일한 증거다.
 
 ---
 
@@ -172,4 +210,5 @@ R5·R6 에서 codex 가 연속으로 판정을 미뤘다. 원인은 이 변경�
 - **windows `python3`: 측정하지 않았고 의존을 제거했다**(테스트 12곳 `node -e`). CI 스텝 `run-review launcher contract` 는 **두 잡 모두** `Review-tools selftest regression` 뒤(linux **:78** · windows **:120**)에 넣었다 — **S6 의 probe opt-in guard 스텝이 같은 자리에 붙는다**.
 - **구간 A·B 삽입 후 실제 줄 번호** — 구간 A `:178~:300`(끝 줄 = assumed note → `DEG`), 구간 B `:311~:328`, `no-reviewers` 분기 `:352~` 부근. S5 의 치환표 16·17(`run-review.sh:57`·`:60`)은 **삽입 지점보다 앞**이라 영향이 없다.
 - **팩토리 자체 리뷰의 `degraded` 문자열**(§6)을 그대로 남긴다 — S5 의 `no-high 2연속` 수렴 판정이 이 값에 걸린다. **`egress assumed` 가 없으므로 교착이 아니다.**
+- **CI 스텝을 새로 넣을 때는 2-OS 를 먼저 본다** — S6 의 `probe opt-in guard` 도 같은 자리에 붙고, 같은 첫-red 를 겪는다(§9).
 - **S5 로 넘기는 것** — `MANAGED_RELS` 12→13 · 감사 **#13**(+ S1 이월 `tiers.*.effort ∈ effort_vocab` · S2 이월 `regression_catch_rate` 엔진명 과소측정) · `SKILL.md` 치환·번들 · **C-7**(⑥ 해소 강도 한 문장) · 릴리스 노트가 `catalog_version` 2 재렌더를 알린다.

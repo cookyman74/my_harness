@@ -67,7 +67,7 @@
 - [x] `node --test tests/harness-intake/*.test.mjs` green(S1~S3 분 회귀) · `bash tests/test-harness-update.sh` · `bash tests/test-selftest-review-tools.sh` PASS — ✔ 2026-09-23 · 미커밋 · 근거: **665/665** · `test-harness-update.sh` rc=0 · `test-selftest-review-tools.sh` rc=0 통과 10
 - [x] `bash skills/myharness/scripts/run-policy-audit.sh` **fail 0**(#11 이 `check-review-tools.sh` 를 격리 PATH 로 돌린다 — 탐지기를 건드리지 않았음이 여기서 드러난다) — ✔ 2026-09-23 · 미커밋 · 근거: **PASS (fail 0, warn 0)** — #11 이 `check-review-tools.sh` 를 격리 PATH 로 돌린다(탐지기를 건드리지 않았음이 여기서 드러난다)
 - [x] **회귀 드라이런** — 팩토리 자신의 외부리뷰 1회를 `REVIEW_GRADE=standard HARNESS_ORCHESTRATOR=repo-maintainer` 로 돌려 `die_launcher` 없이 리뷰어까지 도달하고 `degraded` 내용이 예상과 같은지 — ✔ 2026-09-23 · 미커밋 · 근거: 팩토리 자체 리뷰 1회를 `REVIEW_GRADE=standard HARNESS_ORCHESTRATOR=repo-maintainer` 로 실행 → **`status=completed` · 리뷰어 도달 · `die_launcher` 없음**. `degraded` = `리뷰어 강제 지정: codex(자동 탐지=codex agy); 리뷰어 1종(교차검증 불가); PATH 밖 설치 감지: gemini=…` — **`egress assumed` 가 없다**(S3 에서 ⑥ 을 `declared` 로 답해 둔 결과 · §11-2 교착 해소 확인). 추가로 프로파일을 `runtime-only` 로 바꿔 `REVIEWERS_OVERRIDE=codex` 를 주면 **`ERROR: egress 위반: codex` · `status: failed`**(원복 확인)
-- [ ] push(**사용자 승인**) → `factory-ci` **linux·windows green**(windows `python3` 실측 포함 · green 은 마지막 수정이 들어간 커밋에서 측정한 것만 인정 — R-3)
+- [x] push(**사용자 승인**) → `factory-ci` **linux·windows green**(windows `python3` 실측 포함 · green 은 마지막 수정이 들어간 커밋에서 측정한 것만 인정 — R-3) — ✔ 2026-09-23 · `7ccae56` · 근거: **run 35859541610 — linux success · windows success**(`gh run view --json jobs`). 첫 push(`740e2b6`)는 **windows 만 6건 실패**했다 — 이 스위트가 windows 에서 도는 것이 처음이었다. ① 근본 원인 하나가 넷을 깼다(C·G·O·V): Git Bash 의 `ps -p <pid> -o pid=` 가 rc≠0 이라 `pid_alive` 가 항상 거짓 → **모든 락이 죽은 락으로 회수**되고 타 실행 상태 파일까지 덮었다 → 자기 PID 로 능력을 **실측**하고 폴백(`e41b7e4`). ② 전제가 그 OS 에 없는 2건은 실측 가드로 `⏭ SKIP`(타 사용자 생존 PID · chmod 555 강제) — **통과로 세지 않는다**. ③ 남은 T-E2 1건은 **런처 결함이 아니라 테스트의 이식성 결함**이었다 — 단정식 `/egress/.test(…)` 의 첫 `/` 를 MSYS 가 경로로 변환(`7ccae56`). 최종: linux **46/0/0** · windows **44/0/건너뜀 2** · `python3` 실측은 불필요(의존 제거)
 
 ## 외부리뷰 (단계 완료 전 필수 · [R-4](00-index.md#r-4-외부리뷰-절차-단계-공통))
 
@@ -76,7 +76,7 @@
 - [x] 라운드 반복 → 수렴(00-index R-3 임계) — ✔ 2026-09-23 · 미커밋 · 근거: **R1**(agy 런타임 실패가 데이터 결함을 드러냄) → **R2**(codex MED · agy HIGH) → **R3**(codex HIGH **기각** · agy 3건) → **R4**(agy 가 내 테스트 결함 적발) → **R5·R6 양 엔진 0 · 2연속** → 종료 조건 충족
 - [x] `verdicts.json` → 측정 꼬리 발행 — ✔ 2026-09-23 · 미커밋 · 근거: `rounds` 6 · 확인 7 · 부분 1 · **기각 2** · `alignment 0.75` · `rejected_rate 0.20` · **`regression_catch_rate` 1.67**(재리뷰가 R1 보다 많이 잡았다) · `warnings` 없음
 - [x] 결과서 `docs/v1.8.3/working_history/S4-shell-wiring.md` + `## 다음 단계 참조` + `bash skills/myharness/scripts/check-artifacts.sh --file <결과서>` 끝줄 `ARTIFACTS: ok` — ✔ 2026-09-23 · 미커밋 · 근거: 결과서 작성(선검증·구현·설계서 결함 3건·테스트·python3 제거·드라이런·외부리뷰 10건 판정·공허한 테스트·샌드박스 제약·게이트·다음 단계 참조) · `check-artifacts.sh` 끝줄 **`ARTIFACTS: ok`**
-- [ ] 변경 이력 · 상태 뱃지 · 00-index 표 · 커밋
+- [x] 변경 이력 · 상태 뱃지 · 00-index 표 · 커밋 — ✔ 2026-09-23 · `docs/harness-history.md` 전문 행 + `CLAUDE.md` 한 줄 요약(5건 유지 · 가장 오래된 1건 삭제) · 이 문서와 `00-index.md` S4 행 **`✅ 완료`** · 커밋 3개(`740e2b6` 본체 · `e41b7e4` windows 락 이식성 · `7ccae56` MSYS 인자) · push 완료
 
 ---
 
