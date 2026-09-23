@@ -133,6 +133,7 @@ harness-intake: 후보 도구 목록을 읽지 못했다: …/.claude/skills/orc
 | `bash tests/test-run-review.sh` | **46/46** |
 | `run-policy-audit.sh` | **PASS (fail 0, warn 0)** — #13 포함 13항목 |
 | `SKILL.md` 줄 수 | **496/500**(여유 4) |
+| 2-OS | **linux success · windows success**(run 35934034366 · 커밋 `feaeb16`) — linux 46/0/건너뜀 0 · windows 44/0/건너뜀 2(S4 가 세운 전제 실측 SKIP 2건) |
 | 회귀 드라이런 | 생성 트리 `egress` rc=0 · `place` 티어 산출 · 분리 `plan` 양쪽 · `PAIR:` hold/ok · `LAUNCHER:` ok/needs-update 전 경로 |
 
 ---

@@ -110,7 +110,7 @@
 - [x] `bash tests/test-harness-update.sh` PASS — **기존 케이스 회귀 0** + 신규(T-U1·T-U2·T-U3·T-U4) — ✔ 2026-09-24 · 미커밋 · 근거: **PASS** · 기존 케이스 회귀 0(T12 는 추출식 확장) · 신규 **11케이스**(T-U1·T-U2·T-U2b·T-U2c·T-U3·T-U4·T-U4b·T-U4c·T-U4d·T-U4e·T-U5)
 - [x] `node --test tests/harness-intake/*.test.mjs` · `bash tests/test-run-review.sh` · `bash tests/test-selftest-review-tools.sh` 전 회귀 PASS — ✔ 2026-09-24 · 미커밋 · 근거: node **727/727**(665 → +62) · `test-run-review.sh` **46/46** · `test-selftest-review-tools.sh` **10/10** · `selftest-harness-intake.mjs` PASS
 - [x] **회귀 드라이런** — ① `harness-update.sh manifest` → `plan` 을 **오케스트레이터 스킬·`external-review-loop` 스킬 양쪽**에 돌려 분리·`PAIR:`·`LAUNCHER:` 출력 확인 ② **하네스 생성 드라이런** — 갓 만든 트리에서 `place --verify`·`egress`·6-7 `verify` 가 전부 통과(데이터 파일 배달 확인) — ✔ 2026-09-24 · 미커밋 · 근거: ① `manifest`→`plan` 을 **양쪽 스킬**에 돌려 분리·`PAIR:`·`LAUNCHER:` 전 경로 확인(hold/ok/na · needs-update/ok · 구 하네스 합집합 · 신규 설치) ② **하네스 생성 드라이런** — 번들 문장대로만 배달한 트리에서 `egress` rc=0 · `place` 티어 산출 · 데이터 파일/후보 목록을 빼면 rc=2
-- [ ] **외부리뷰 no-high 2연속**(설계서 §11 S5 완료 판정) · push(**사용자 승인**) → `factory-ci` 2-OS green
+- [x] **외부리뷰 no-high 2연속**(설계서 §11 S5 완료 판정) · push(**사용자 승인**) → `factory-ci` 2-OS green — ✔ 2026-09-24 · `feaeb16` · 근거: **R18·R19 양 엔진 신규 HIGH 0 · 2연속**(동결 트리 `6eb8e98` 동일 · `degraded` 빈 라운드) · push 후 **factory-ci run 35934034366 — linux success · windows success**
 
 ## 외부리뷰 (단계 완료 전 필수 · [R-4](00-index.md#r-4-외부리뷰-절차-단계-공통))
 
@@ -119,7 +119,7 @@
 - [x] 라운드 반복 → 수렴(00-index R-3 임계 · `no-high 2연속`) — ✔ 2026-09-24 · 미커밋 · 근거: **R1~R19** · **R18·R19 양 엔진 신규 HIGH 0 · 2연속**(둘 다 `degraded` 빈 라운드 · 동결 트리 `6eb8e98` 동일). `REVIEWERS_OVERRIDE` 라운드는 `degraded` 가 비지 않아 **카운트에서 제외**되므로 수렴 라운드는 override 없이·`SHADOWED` 없이 돌렸다
 - [x] `verdicts.json` → 측정 꼬리 발행 — ✔ 2026-09-24 · 미커밋 · 근거: `rounds` 19 · **확인 23 · 부분 2 · 기각 7 · 이월 1** · `alignment 0.75` · `rejected_rate 0.212` · **`regression_catch_rate` 3.0** · `diff_lines` 2012 · `warnings` 없음. **`source` 태깅을 정본(`external-review-loop.md:222`)대로** 고쳐 재산출했다(내가 처음에 엔진명으로 적어 0 이 나왔고, 그 증상이 S2 이월과 같아 스크립트를 고칠 뻔했다)
 - [x] 결과서 `docs/v1.8.3/working_history/S5-canon-wiring.md` + `## 다음 단계 참조` + `check-artifacts.sh` 끝줄 `ARTIFACTS: ok` — ✔ 2026-09-24 · 미커밋 · 근거: 결과서 작성(선검증 표 · 구현 · **설계서 결함 5건** · 계약 테스트 · 외부리뷰 19라운드 · 수렴 후 편집 · 게이트 · 다음 단계 참조) · `check-artifacts.sh` 끝줄 **`ARTIFACTS: ok`**
-- [ ] 변경 이력 · 상태 뱃지 · 00-index 표 · 커밋
+- [x] 변경 이력 · 상태 뱃지 · 00-index 표 · 커밋 — ✔ 2026-09-24 · `docs/harness-history.md` 전문 행 + `CLAUDE.md` 한 줄 요약(5건 유지) · 이 문서와 `00-index.md` S5 행 **`✅ 완료`** · 다음 단계 문구 `S0~S5 완료 → S6 조건부` · 커밋 **`feaeb16`**(27파일) · push 완료
 
 ---
 
