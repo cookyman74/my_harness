@@ -4,6 +4,7 @@
 > BASE `b3e0b4d`(S2 마감) · 브랜치 `feat/model-aware-harness-v183` · 동결 트리 **R1 `1b823ab`** → **R4·R5 `a33c18b`**
 > 하네스: `repo-maintainer` — 오케스트레이터(계약 확정·구현·판정·드라이런) · **테스트 작성자(repo-qa — 적색 작성 + 연쇄 녹색화 2라운드)**
 > 상태: **완료 — 외부리뷰 수렴**(2026-09-22 · R1·R3 MED 각 1 반영 → R4·R5 양 엔진 신규 결함 0 · 2연속)
+> 커밋 **9dc7cbb** · push `b3e0b4d..9dc7cbb` · **2-OS green**
 > 선행 결과서: [S2](S2-place-settings.md) 「다음 단계 참조」
 
 ---
@@ -138,7 +139,7 @@ T-P2 가 "생성 하네스는 `tools`·`runtime_provider`·`review_tiers` 만 �
 | 셸 회귀 3종 | 전부 PASS(이 단계는 셸을 건드리지 않았다) |
 | 골든 | `scan.expected` 4쌍 · `s2-doc-catalog` 통과(상수 ↔ 문서 deepEqual) |
 | 드라이런 | 전 경로 계약대로(§4) |
-| 2-OS | push 뒤 `factory-ci` 두 잡으로 확인 |
+| 2-OS | **PASS** — `factory-ci` run `35800327386` · **windows success · linux success** |
 
 ---
 
