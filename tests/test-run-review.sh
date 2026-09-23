@@ -14,7 +14,9 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d 2>/dev/null)"; [ -d "$TMP" ] || { echo "SKIP: mktemp"; exit 2; }
 trap 'rm -rf "$TMP"' EXIT
-pass=0; failed=0; ok(){ echo "  ✓ $1"; pass=$((pass+1)); }; no(){ echo "  ✗ FAIL: $1"; failed=$((failed+1)); }
+pass=0; failed=0; skipped=0; ok(){ echo "  ✓ $1"; pass=$((pass+1)); }; no(){ echo "  ✗ FAIL: $1"; failed=$((failed+1)); }
+# 전제가 그 OS 에 없는 케이스만 건너뛴다 — **통과로 세지 않고** 줄로 남긴다(건너뛴 줄이 보이지 않으면 녹색이 거짓말을 한다).
+skip(){ echo "  ⏭ SKIP: $1"; skipped=$((skipped+1)); }
 mkdir -p "$TMP/w/scripts" "$TMP/w/_workspace/reviews" "$TMP/bin" "$TMP/bin2" "$TMP/nb" "$TMP/rec" "$TMP/home"
 cp "$ROOT/skills/myharness/scripts/run-review.sh" "$ROOT/skills/myharness/scripts/check-review-tools.sh" "$TMP/w/scripts/"
 printf '#!/usr/bin/env bash\ncat >/dev/null; echo "새 결함 없음"\n' > "$TMP/bin/codex"; chmod +x "$TMP/bin/codex"
@@ -91,8 +93,13 @@ S=st-h; mkp $S; mkdir -p "$D/${S}.lock"; printf 'pid=1\nhost=other-host\nstarted
 OUT="$(run $S claude 2>&1)"; rc=$?; [ "$rc" != 0 ] && ok "타 호스트 신선 락 거부(생존 판정 불가)" || no "타 호스트 락을 회수"
 rm -rf "$D/${S}.lock"; mkdir -p "$D/${S}.lock"; printf 'pid=1\nhost=other-host\nstarted=%s\n' "$(( $(date +%s) - 999999 ))" > "$D/${S}.lock/owner"
 run $S claude >/dev/null 2>&1; rc=$?; [ "$rc" = 0 ] && ok "타 호스트 만료 락 회수" || no "만료 락에 영구 차단(rc=$rc)"
-S=st-i; mkp $S; mkdir -p "$D/${S}.lock"; printf 'pid=1\nhost=%s\nstarted=%s\n' "$(hostname)" "$(date +%s)" > "$D/${S}.lock/owner"   # 타 사용자 PID(root) 생존
-OUT="$(run $S claude 2>&1)"; rc=$?; [ "$rc" != 0 ] && ok "타 사용자 생존 PID 거부(ps -p, kill -0 EPERM 오판 없음)" || no "EPERM 을 죽은 것으로 오판해 회수"
+# 전제: **PID 1 이 살아 있고 우리 것이 아니다**(EPERM). Git Bash 에는 그런 PID 가 없다 — 전제를 실측하고 없으면 건너뛴다.
+if ps -p 1 -o pid= >/dev/null 2>&1 || kill -0 1 2>/dev/null; then
+  S=st-i; mkp $S; mkdir -p "$D/${S}.lock"; printf 'pid=1\nhost=%s\nstarted=%s\n' "$(hostname)" "$(date +%s)" > "$D/${S}.lock/owner"   # 타 사용자 PID(root) 생존
+  OUT="$(run $S claude 2>&1)"; rc=$?; [ "$rc" != 0 ] && ok "타 사용자 생존 PID 거부(ps -p, kill -0 EPERM 오판 없음)" || no "EPERM 을 죽은 것으로 오판해 회수"
+else
+  skip "타 사용자 생존 PID(pid 1) 가 이 OS 에 없다 — EPERM 오판 케이스의 전제 미성립"
+fi
 
 echo "== H. 깨진/미기록 owner 는 점유 중으로 본다 — TTL 전엔 거부, 후엔 회수(R19) =="
 S=st-j; mkp $S; mkdir -p "$D/${S}.lock"; printf 'pid=abc\n' > "$D/${S}.lock/owner"          # 파싱 불능(신선)
@@ -136,9 +143,16 @@ OUT="$( cd "$TMP/w" && PATH="$TMP/bin:$PATH" REVIEWERS_OVERRIDE=codex REVIEW_LOC
 [ "$rc" != 0 ] && ok "TTL=abc → 기본값 적용·타 호스트 신선 락 거부" || no "비숫자 TTL 로 락 회수(동시 실행)"
 
 echo "== N. 상태 파일을 쓸 수 없으면 exit 0 으로 성공을 위장하지 않는다(R22) =="
+# 전제: **chmod 555 가 쓰기를 실제로 막는다**. Git Bash/NTFS 에서는 막지 못하므로 전제를 실측하고 없으면 건너뛴다.
+mkdir -p "$TMP/ro"; chmod 555 "$TMP/ro" 2>/dev/null
+if : > "$TMP/ro/probe" 2>/dev/null; then rm -f "$TMP/ro/probe"; chmod 755 "$TMP/ro" 2>/dev/null
+  skip "chmod 555 가 쓰기를 막지 못하는 파일시스템 — '상태 기록 불가' 전제 미성립"
+else
+chmod 755 "$TMP/ro" 2>/dev/null
 S=st-s; mkp $S; chmod 555 "$D"
 OUT="$(run $S claude 2>&1)"; rc=$?; chmod 755 "$D"
 [ "$rc" != 0 ] && [ ! -f "$D/${S}_review_status.json" ] && ok "상태 기록 불가 → 비0 종료·stale 없음(rc=$rc)" || no "기록 실패인데 rc=$rc / 상태파일 $( [ -f "$D/${S}_review_status.json" ] && echo 존재 || echo 없음 )"
+fi
 
 echo "== O. 살아있는 소유자의 락에 막히면 그 실행의 상태 파일을 건드리지 않는다(R22) =="
 S=st-t; mkp $S; sleep 30 & LP=$!; mkdir -p "$D/${S}.lock"; printf 'pid=%s\nhost=%s\nstarted=%s\n' "$LP" "$(hostname)" "$(date +%s)" > "$D/${S}.lock/owner"
@@ -246,7 +260,7 @@ N64="$(printf 'a%.0s' $(seq 1 64))"; mkskill "$N64"; mkprof "$N64" any     # 경
 
 echo "== W. T-E2 — runtime-only 는 리뷰어를 0 으로 만들고 그 사유가 degraded 에 남는다 =="
 S=s-e2; mkp $S; recclear
-runx HARNESS_ORCHESTRATOR=ro-only REVIEW_GRADE=standard -- $S claude >/dev/null 2>&1
+runx HARNESS_ORCHESTRATOR=ro-only REVIEW_GRADE=standard -- $S claude >/dev/null 2>"$TMP/e2.err"
 b=""
 js "$D/${S}_review_status.json" 'd.status==="no-reviewers"' || b="$b status;"
 js "$D/${S}_review_status.json" '/egress/.test(String(d.degraded||""))' || b="$b degraded에-egress-사유-없음;"
@@ -254,7 +268,8 @@ ranrev && b="$b 리뷰어가-실행됨;"
 S=s-e2b; mkp $S; recclear                                        # 대조군: 같은 트리·같은 스텁에서 any 프로파일은 리뷰어까지 간다
 runx HARNESS_ORCHESTRATOR="$ORCH" REVIEW_GRADE=standard -- $S claude >/dev/null 2>&1
 js "$D/${S}_review_status.json" 'd.status==="completed"' || b="$b 대조군(any)이-completed가-아님;"
-[ -z "$b" ] && ok "T-E2 runtime-only → no-reviewers + degraded 에 egress 사유(대조군 any 는 completed)" || no "T-E2: $b"
+[ -z "$b" ] && ok "T-E2 runtime-only → no-reviewers + degraded 에 egress 사유(대조군 any 는 completed)" \
+  || { no "T-E2: $b"; echo "    관측 status: $(cat "$D/s-e2_review_status.json" 2>/dev/null | tr -d '\n' | cut -c1-400)"; echo "    관측 stderr: $(tr '\n' '|' < "$TMP/e2.err" | cut -c1-400)"; }
 
 echo "== X. T-E3 — 허용 0 인데 override 로 들어온 리뷰어는 조용히 줄이지 않고 멈춘다 =="
 S=s-e3; mkp $S; recclear
@@ -546,4 +561,4 @@ for v in "$ORCH" "$N64"; do                        # 대조군: 정상 이름과
 done
 [ -z "$b" ] && ok "T-R5 이름 가드 9값×2로케일 → die_launcher·해석기 미실행(대조군 2×2 통과)" || no "T-R5: $b"
 
-echo; echo "통과 $pass · 실패 $failed"; [ "$failed" -eq 0 ]
+echo; echo "통과 $pass · 실패 $failed · 건너뜀 $skipped"; [ "$failed" -eq 0 ]

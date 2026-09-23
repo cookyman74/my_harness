@@ -115,7 +115,16 @@ HOST="$(hostname 2>/dev/null || echo unknown)"
 write_owner(){ printf 'pid=%s\nhost=%s\nstarted=%s\n' "$$" "$HOST" "$(date +%s)" > "$LOCK/owner.tmp.$$" && mv "$LOCK/owner.tmp.$$" "$LOCK/owner"; }
 # 소유자 생존 판정: `kill -0` 은 타 사용자 PID 에 EPERM(rc 1)을 줘 **살아있는 락을 죽은 것으로 오판**한다(agy R18).
 # `ps -p` 는 소유자와 무관하게 존재 여부만 답한다(실측: root pid 1 → rc 0).
-pid_alive(){ ps -p "$1" -o pid= >/dev/null 2>&1; }
+# ⚠ **그 조합이 모든 OS 에 있는 것은 아니다(2-OS CI 실측 · S4).** Git Bash(MSYS)의 `ps` 는 `-p … -o pid=` 에
+#   rc≠0 을 줘 **모든 락이 "죽은 락"으로 판정**됐다 — 살아있는 락을 뚫고 실행하고, 그 실행의 상태 파일까지 덮었다
+#   (계약 C·G·O·V 가 windows 잡에서만 실패). 그래서 **자기 PID 로 능력을 실측한다** — 자기 PID 는 반드시 살아
+#   있으므로 여기서 rc≠0 이면 "그 PID 가 죽었다" 가 아니라 **그 조합을 쓸 수 없다**는 뜻이다(추론이 아니라 관측).
+PS_P_OK=0; ps -p "$$" -o pid= >/dev/null 2>&1 && PS_P_OK=1
+pid_alive(){
+  [ "$PS_P_OK" = 1 ] && { ps -p "$1" -o pid= >/dev/null 2>&1; return $?; }
+  kill -0 "$1" 2>/dev/null && return 0                           # 폴백 ①: 같은 사용자의 프로세스
+  ps 2>/dev/null | awk -v p="$1" '$1==p{f=1} END{exit f?0:1}'    # 폴백 ②: 목록에서 찾는다(EPERM 보정)
+}
 acquire_lock() {
   # owner 기록 실패(디스크·권한·mv)를 무시하면 owner 없는 락으로 진행하고 종료 시 자기 락도 못 지운다(R21 지적).
   mkdir "$LOCK" 2>/dev/null && { write_owner && return 0; echo "ERROR: 락 owner 기록 실패 — 락을 되돌리고 중단" >&2; rm -rf "$LOCK"; return 2; }
