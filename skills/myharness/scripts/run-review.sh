@@ -54,7 +54,7 @@ D=_workspace/reviews
 #  (codex 의 `${CODEX_MODEL:+-m ...}` 와 동일 규약. 모델명이 CLI 버전에 따라 갈리는데 정본이
 #   특정 이름을 박아두면 그 이름이 사라진 환경에서 리뷰어가 통째로 죽는다.)
 #  ⚠ 미설정 시 엔진 다양성은 **agy 쪽 설정에 달린다** — 러너와 같은 계열로 설정돼 있으면 자기검증이 된다.
-AGY_MODEL="${AGY_MODEL:-}"   # 지정 시 Gemini 계열만. 경량 "Gemini 3.5 Flash (High)" / 중대 "Gemini 3.1 Pro (High)"
+AGY_MODEL="${AGY_MODEL:-}"   # v1.8.3 부터 프로파일 review_tiers 가 소유한다(구간 A 가 덮어쓴다). 값은 `agy models` 로 확인한 실재 이름이어야 한다
 CODEX_MODEL="${CODEX_MODEL:-}"                     # 비우면 codex 기본. 중대 시 고추론 모델명 지정.
 # 추론 강도(codex 전용). 작은 모델을 쓸 때 high 로 올려 판정 품질을 보전한다.
 #   예: CODEX_MODEL="gpt-5.4-mini" CODEX_REASONING=high  ← 사용량 절약 + 고추론
@@ -165,7 +165,7 @@ release_lock(){ [ "$(sed -n 's/^pid=//p' "$LOCK/owner" 2>/dev/null)" = "$$" ] &&
 trap 'release_lock; pkill -P $$ 2>/dev/null' EXIT
 # 이전 실행의 `.rc`·리뷰 `.md` 가 남아 있으면 **이번에 돌리지 않은 리뷰어가 성공으로 집계**돼 완전한 리뷰로 위장한다
 # (R17 지적: agy 결과 잔존 + `REVIEWERS_OVERRIDE=codex` 재실행). 락을 잡은 뒤 이 stage 산출물을 비운다(프롬프트는 보존).
-rm -f "$D/${S}_"*.rc "$D/${S}_review_status.json" 2>/dev/null   # 옛 completed 가 남으면 중간에 죽은 새 실행이 성공으로 보인다(R18)
+rm -f "$D/${S}_"*.rc "$D/${S}_review_status.json" "$D/${S}_egress.err" 2>/dev/null   # 옛 completed 가 남으면 중간에 죽은 새 실행이 성공으로 보인다(R18)
 for _t in codex claude agy gemini; do rm -f "$D/${S}_${_t}.md" 2>/dev/null; done
 
 # 도구 탐색 스크립트가 **실패**(rc≠0)한 것은 "리뷰어가 없다"가 아니다 — 아래 no-reviewers 분기보다 **먼저** 잡아야
@@ -174,6 +174,157 @@ for _t in codex claude agy gemini; do rm -f "$D/${S}_${_t}.md" 2>/dev/null; done
 
 
 DEG=""
+
+# ── 구간 A: run-review.sh:176(DEG="") 뒤 · :177 앞 — **락 획득(:153) 이후**여야
+#    die_launcher 가 status: failed 를 남긴다(:99·:100-103). 필터 적용은 구간 B(:185 뒤).
+# 정책 입력이 아닌 env 는 **무시하고 경고**한다(§6-3 결정 표). 접두는 런처 소유 `WARN:` 이다
+# — `note:` 는 egress 가 소유하는 접두라 섞으면 assumed note 파서(_note)가 잘못 문다.
+# `eval` 은 **변수 이름만** 다룬다(목록은 위의 리터럴 두 개뿐이다). `${VAR:-}` 의 **결과는 재스캔되지 않으므로**
+# 값에 `$(…)`·백틱이 들어 있어도 실행되지 않는다 — 실측으로 확인했다(S4 R3 codex HIGH → **기각**).
+for _v in HARNESS_EGRESS_ALLOWED HARNESS_EGRESS_MODE; do
+  eval "_cur=\${$_v:-}"
+  [ -z "$_cur" ] || echo "WARN: $_v 는 무시된다(값 '$_cur') — 반출 정책은 프로파일이 소유한다" >&2
+done
+# 등급은 오케스트레이터가 넘긴다(PRD 5-6 계약). 없거나 어휘 밖이면 **진행하지 않는다**.
+case "${REVIEW_GRADE:-}" in
+  light|standard|critical) ;;
+  *) die_launcher "REVIEW_GRADE 없음/부적합('${REVIEW_GRADE:-}') — 등급 없이는 리뷰어 모델을 정할 수 없다(light|standard|critical)" ;;
+esac
+# stderr 를 stage 별 파일로 받는다 — note 를 degraded 로 옮기려면 로그로 흘려보내면 안 된다(R12-2).
+EGERR="$D/${S}_egress.err"
+# 해석기 위치: 오케스트레이터 스킬의 scripts/(S4 체크리스트가 거기 복사한다). run-review.sh 는
+# external-review-loop 스킬에 복사되므로 **형제가 아니다**(R13-1).
+# 듀얼 런타임에서도 **.claude 쪽 한 곳**만 본다 — 프로파일이 .claude 에만 있기 때문이다
+# (harness-interview.md:220 · profilePaths:864-867). .agents 폴백은 두지 않는다(R19-1).
+[ -n "${HARNESS_ORCHESTRATOR:-}" ] \
+  || die_launcher "HARNESS_ORCHESTRATOR 없음 — 어느 하네스의 반출 정책인지 알 수 없다(정본 런처가 생성 시 박는다)"
+# **경로를 만들기 전에** 이름을 검사한다(R15-1). harness-intake.mjs:653 ORCH_RE
+# `^[a-z0-9][a-z0-9-]{0,63}$` 와 **같은 집합**을 case 글롭 + 길이로 표현한다 — 그쪽 검사(:1483)는
+# **이미 실행된 스크립트 안**이라 경로 탈출을 막지 못한다(그 스크립트를 실행하는 것 자체가 피해다).
+# ⚠ grep 을 쓰지 않는다: **줄 단위**라 `a\n../../outside` 의 첫 줄만 보고 rc=0 을 낸다
+#   (bash 3.2.57 실측 — R17). bash 3.2 의 `[[ =~ ]]` 도 개행과 `.`/`$` 상호작용이 이식성 위험이다.
+#   `case` 는 POSIX **전체 문자열** 대조라 개행·슬래시가 그대로 걸린다. 문자 집합은 **범위가 아니라 명시 열거**를 쓴다(로케일 대조 순서 의존 제거 — 재검토 C D-01).
+# ⚠ 문자 집합은 **범위(`a-z`)가 아니라 명시 열거**다 — `case` 의 대괄호 범위는 **로케일 대조 순서**를
+#   따르므로 glibc + UTF-8 로케일에서 `[a-z]` 가 대문자와 맞을 수 있다(CI ubuntu ↔ 개발 mac 판정이
+#   갈리고 "ORCH_RE 와 같은 집합" 약속이 깨진다). 열거는 로케일과 무관하다.
+LOWER=abcdefghijklmnopqrstuvwxyz0123456789
+case "$HARNESS_ORCHESTRATOR" in
+  ""|*[!abcdefghijklmnopqrstuvwxyz0123456789-]*)
+      die_launcher "HARNESS_ORCHESTRATOR 부적합(허용 문자 밖·빈 값): $(printf '%s' "$HARNESS_ORCHESTRATOR" | tr '\n' '?')" ;;
+  [abcdefghijklmnopqrstuvwxyz0123456789]*)
+      [ "${#HARNESS_ORCHESTRATOR}" -le 64 ] || die_launcher "HARNESS_ORCHESTRATOR 부적합(64자 초과)" ;;
+  *) die_launcher "HARNESS_ORCHESTRATOR 부적합(첫 글자는 [a-z0-9])" ;;
+esac
+INTAKE="$REPO_ROOT/.claude/skills/$HARNESS_ORCHESTRATOR/scripts/harness-intake.mjs"
+[ -f "$INTAKE" ] \
+  || die_launcher "harness-intake.mjs 없음: $INTAKE — 오케스트레이터 스킬(.claude)에 번들되지 않았다(프로파일 계약: harness-interview.md:220)"
+EG="$(node "$INTAKE" egress \
+       --orchestrator "$HARNESS_ORCHESTRATOR" \
+       --runner "$RUNNER" --root "$REPO_ROOT" --grade "$REVIEW_GRADE" 2>"$EGERR")" \
+  || { cat "$EGERR" >&2; die_launcher "egress 미해석 — 해소: 프로파일 없음 -> answer · 손상 -> harness-profile.prev.json 으로 1세대 복구 · 데이터 파일 없음 -> Phase 5 번들 · node 없음 -> 설치. 필터 미적용으로 진행하지 않는다"; }   # 원인별 해소법(C-9·C-20) — 셸 문자열 안에 백틱·강조를 넣지 않는다(백틱은 명령 치환 · R38)
+cat "$EGERR" >&2                                                 # 사람이 보는 로그에도 그대로 남긴다
+
+# ── 계약 줄 검증(R6 MED-2) — rc=0 을 그대로 믿지 않는다 ──────────────────────
+cnt(){ printf '%s\n' "$EG" | grep -c "^$1: " ; }                # 각 줄 정확히 1회
+for _k in EGRESS ALLOWED_TOOLS REVIEWERS_ALLOWED REVIEW_MODEL_CODEX REVIEW_MODEL_AGY; do
+  [ "$(cnt "$_k")" = 1 ] || die_launcher "egress: 계약 줄 손상 — $_k 이 $(cnt "$_k")회"
+done
+EG_MODE="$(printf '%s\n' "$EG" | sed -n 's/^EGRESS: //p')"
+EG_ALLOW="$(printf '%s\n' "$EG" | sed -n 's/^ALLOWED_TOOLS: //p')"        # 보고용(degraded 사유)
+EG_REV="$(printf '%s\n' "$EG" | sed -n 's/^REVIEWERS_ALLOWED: //p')"      # 필터는 이 줄로 한다
+EG_RM_CODEX="$(printf '%s\n' "$EG" | sed -n 's/^REVIEW_MODEL_CODEX: //p')"   # 공백 포함 값 그대로
+EG_RM_AGY="$(printf '%s\n' "$EG" | sed -n 's/^REVIEW_MODEL_AGY: //p')"
+# 빈 값은 "허용 0개" 가 아니라 **손상**이다 — 빈 EG_REV 로는 for 가 한 번도 안 돌아 검증이 통째로 증발한다.
+for _p in "EGRESS:$EG_MODE" "ALLOWED_TOOLS:$EG_ALLOW" "REVIEWERS_ALLOWED:$EG_REV" \
+          "REVIEW_MODEL_CODEX:$EG_RM_CODEX" "REVIEW_MODEL_AGY:$EG_RM_AGY"; do
+  [ -n "${_p#*:}" ] || die_launcher "egress: 계약 줄 손상 — ${_p%%:*} 값이 비었다"
+done
+case "$EG_MODE" in
+  runtime-only|allow-listed|any) ;;
+  *) die_launcher "egress: 계약 줄 손상 — EGRESS 값이 허용값 밖: '$EG_MODE'" ;;
+esac
+[ "$EG_ALLOW" != "none" ] || die_launcher "egress: 계약 줄 손상 — ALLOWED_TOOLS 는 러너 도구를 포함하므로 none 일 수 없다"
+for _t in $EG_ALLOW; do                                          # ALLOWED_TOOLS 는 none 이 될 수 없으므로 항상 돈다
+  case "$_t" in codex|claude|agy|gemini) ;;                      # check-review-tools.sh:66 과 같은 집합
+    *) die_launcher "egress: 계약 줄 손상 — ALLOWED_TOOLS 에 모르는 도구: '$_t'" ;;
+  esac
+done
+if [ "$EG_REV" != "none" ]; then
+  for _t in $EG_REV; do
+    case "$_t" in codex|claude|agy|gemini) ;;                    # 같은 집합
+      *) die_launcher "egress: 계약 줄 손상 — REVIEWERS_ALLOWED 에 모르는 도구: '$_t'" ;;
+    esac
+  done
+fi
+# 두 줄은 **집합**이다 — 중복 토큰은 손상이다(S4 R2 codex MED). 해석기는 항상 uniqSorted 로 쓰므로
+# 중복이 보인다는 것은 구버전·부분 스텁·잘린 출력이라는 뜻이고, 빈 값을 손상으로 보는 것과 같은 이유로 멈춘다.
+# (이중 실행을 일으키지는 않는다 — 리뷰어 디스패치는 루프가 아니라 case 다. 그래도 계약 위반은 계약 위반이다.)
+_dup(){ printf '%s\n' $1 | sort | uniq -d | tr '\n' ' '; }
+for _p in "ALLOWED_TOOLS:$EG_ALLOW" "REVIEWERS_ALLOWED:$EG_REV"; do
+  [ "${_p#*:}" = none ] && continue
+  _d="$(_dup "${_p#*:}")"
+  [ -z "$_d" ] || die_launcher "egress: 계약 줄 손상 — ${_p%%:*} 에 중복 토큰: ${_d% }"
+done
+
+# ── 의미 검증(R8) — 문법이 맞아도 러너와 어긋나면 자기검증이 된다 ─────────────
+case " $EG_ALLOW " in
+  *" $RUNNER "*) ;;                                              # ① 허용 집합은 러너 도구를 포함한다
+  *) die_launcher "egress: 러너 불일치 — ALLOWED_TOOLS('$EG_ALLOW')에 러너($RUNNER)가 없다" ;;
+esac
+case " $EG_REV " in
+  *" $RUNNER "*) die_launcher "egress: 러너 불일치 — REVIEWERS_ALLOWED('$EG_REV')에 러너($RUNNER)가 들어 있다(자기검증)" ;;
+  *) ;;                                                          # ② 리뷰어 후보에는 러너가 없다
+esac
+if [ "$EG_REV" != "none" ]; then                                 # ③ 리뷰어 후보 ⊆ 허용 집합
+  for _t in $EG_REV; do
+    case " $EG_ALLOW " in
+      *" $_t "*) ;;
+      *) die_launcher "egress: 부분집합 위반 — REVIEWERS_ALLOWED('$EG_REV') ⊄ ALLOWED_TOOLS('$EG_ALLOW')" ;;
+    esac
+  done
+fi
+
+case "$RUNNER" in
+  claude|codex) ;;                                               # 오타·미치환 {러너} 차단(시나리오 C-17)
+  *) die_launcher "RUNNER 부적합: '$RUNNER' (claude|codex) — 런처 줄의 {러너} 치환을 확인하라" ;;
+esac
+
+# ── 리뷰어 모델 대입(R10 HIGH ③) — 프로파일이 단일 출처, 기존 env 는 무시+경고 ──
+# 위와 같다 — 이름만 eval 에 들어가고 값은 재스캔되지 않는다(S4 R3 기각 근거).
+for _v in CODEX_MODEL AGY_MODEL; do
+  eval "_cur=\${$_v:-}"
+  [ -z "$_cur" ] || echo "WARN: $_v 는 무시된다(값 '$_cur') — 리뷰어 모델은 프로파일 review_tiers 가 소유한다" >&2   # 접두는 런처 소유 WARN:(R26)
+done
+CODEX_MODEL=""; AGY_MODEL=""                                     # 라벨 가드는 아래에서 새 값에만 건다
+[ "$EG_RM_CODEX" = none ] || CODEX_MODEL="$EG_RM_CODEX"
+[ "$EG_RM_AGY"   = none ] || AGY_MODEL="$EG_RM_AGY"
+for _m in "$CODEX_MODEL" "$AGY_MODEL"; do                        # 라벨이 CLI 인자로 새어 나가는 것 차단(R11)
+  case "$_m" in
+    deep|standard|light|critical|경량|표준|중대)
+      die_launcher "리뷰어 모델에 라벨이 실렸다('$_m') — review_tiers 가 ID 를 내야 한다" ;;
+  esac
+done
+
+# ── assumed note 를 degraded 로(R12-2) — 계약 줄 검증을 통과한 뒤에 싣는다 ──
+#    파서 대상은 **$EGERR(형제 stderr) 하나**다 — 런처 자신의 stderr 는 읽지 않으므로 위 WARN: 들은 섞이지 않는다.
+#    (R26 codex 는 이 경로가 오염된다고 봤으나 실측상 두 스트림은 분리돼 있다 — 그럼에도 접두 소유권을 지켜 WARN: 으로 통일했다.)
+_note="$(sed -n 's/^note: //p' "$EGERR" | tr '\n' ' ')"
+[ -z "$_note" ] || DEG="${DEG:+$DEG; }egress assumed: ${_note% }"
+
+# override 값은 상태 JSON 에 들어간다 — 허용 토큰만 받는다(주입·파손 차단, R18). 검증은 문자열 조립 **전**에.
+# ⚠ **위치가 중요하다(S4 R3 agy).** 이 검증은 원래 `no-reviewers` 분기 **뒤**에 있었는데, S4 의 구간 B 필터가
+#   "전부 걸러지면 조기 종료" 경로를 새로 만들면서 **부적합 토큰이 검증을 건너뛰고 exit 0 으로 나가게** 됐다
+#   (그 값은 이미 DEG 를 거쳐 상태 JSON 에 들어가 있다). 그래서 **조립 전**이라는 원래 의도대로 여기로 옮겼다.
+# override 값은 상태 JSON 에 들어간다 — 허용 토큰만 받는다(주입·파손 차단, R18). 검증은 문자열 조립 **전**에.
+if [ -n "${REVIEWERS_OVERRIDE:-}" ]; then
+  _seen=" "
+  for _tok in $REVIEWERS_OVERRIDE; do
+    case "$_tok" in codex|claude|agy|gemini) ;; *) die_launcher "REVIEWERS_OVERRIDE 부적합 토큰: '$_tok' (허용: codex claude agy gemini)";; esac
+    # 같은 토큰이 두 번이면 같은 출력·rc 파일에 두 프로세스가 동시에 쓴다(R21 지적) — 거부.
+    case "$_seen" in *" $_tok "*) die_launcher "REVIEWERS_OVERRIDE 중복 토큰: '$_tok'";; esac; _seen="$_seen$_tok "
+  done
+fi
+
 # ── 리뷰어 강제 지정(REVIEWERS_OVERRIDE) ──────────────────────────────────────
 # 왜 필요한가: 한 엔진만 재실행하거나, 쿼터·장애로 한 축이 빠졌을 때 나머지만 돌리고 싶다.
 # ⚠ 이게 없던 동안 호출자가 `REVIEWERS_OVERRIDE=codex` 를 넘겨도 **무시**돼, 엔진별로 스크립트를
@@ -183,6 +334,39 @@ if [ -n "${REVIEWERS_OVERRIDE:-}" ]; then
   DEG="${DEG:+$DEG; }리뷰어 강제 지정: ${REVIEWERS_OVERRIDE}(자동 탐지=${REVIEWERS:-none})"
   REVIEWERS=" ${REVIEWERS_OVERRIDE} "
 fi
+
+# ── 구간 B: run-review.sh:185(override 의 fi) 뒤 · :186(자기검증 주석) 앞 ──────
+# override 치환(:184)  **뒤**여야 override 토큰도 같은 필터를 지난다(PRD MA15 ②).
+# ⚠ **`EG_REV = none` 을 특례로 먼저 삼키지 않는다(S4 정정).** 설계서 스니펫은 none 을 별도 분기로 두고
+#   REVIEWERS="" 로 바로 떨어뜨렸는데, 그러면 `runtime-only` + `REVIEWERS_OVERRIDE=agy` 가 **조용히 사라져**
+#   status: no-reviewers 가 된다 — 같은 설계서의 판정표가 요구하는 `die_launcher "egress 위반: <tool>"` 이 성립하지 않는다.
+#   none 은 "허용 집합이 빈 것" 이므로 **아래 루프가 균일하게 처리**한다(어떤 토큰도 매치되지 않아 전부 * 분기로 간다).
+# **탐지기의 센티널을 토큰으로 취급하지 않는다(S4 R2 agy HIGH).** check-review-tools.sh:120 은 리뷰어가 없으면
+# 문자열 `none` 을 낸다(`REVIEWERS: none`). 그대로 루프에 넣으면 ① EG_REV 도 none 일 때 서로 매치돼
+# **"반출 허용 리뷰어 0" 사유가 사라지고**, ② 정책이 any 면 `egress: none 제외(허용 밖)` 라는 **거짓 원장**이 남는다.
+# 문자열 비교로는 부족하다 — override 경로가 `REVIEWERS=" ${REVIEWERS_OVERRIDE} "` 로 **앞뒤 공백을 붙이기** 때문에
+# `[ " none " = "none" ]` 이 거짓이 된다(S4 R3 agy ②). **토큰 단위로** 걷어낸다.
+_src=""
+for _t in $REVIEWERS; do [ "$_t" = none ] || _src="${_src:+$_src }$_t"; done
+REVIEWERS="$_src"
+_kept=""
+for _t in $REVIEWERS; do                                         # 탐지·override 가 준 순서를 보존한다
+  case " $EG_REV " in
+    *" $_t "*) _kept="${_kept:+$_kept }$_t" ;;
+    *) if [ -n "${REVIEWERS_OVERRIDE:-}" ]; then
+         die_launcher "egress 위반: $_t"                         # override 는 조용히 줄이지 않는다
+       else
+         DEG="${DEG:+$DEG; }egress: $_t 제외(허용 밖)"          # 자동 탐지분은 제외 + 기록
+       fi ;;
+  esac
+done
+REVIEWERS="$_kept"                                               # 비면 :205 의 -z 분기 → status: no-reviewers
+[ -n "$REVIEWERS" ] || DEG="${DEG:+$DEG; }egress: $EG_MODE — 반출 허용 리뷰어 0"
+# 이 뒤는 전부 **걸러진 집합**을 본다: 자기검증 감지(:187-189) · n_rev 집계(:190) ·
+# 일반 리뷰어 부재 검사(:191-194) · WARN 출력(:199) · no-reviewers 분기(:205-209).
+# ⚠ 단 :193 은 DEG 를 **대입**하고 :206-207 은 DEG 를 **버린다** — 여기서 쌓은 사유가 사라진다.
+#   둘 다 §7-2 치환표 17b·17c 로 누적·직렬화하도록 고친다(R15-2·R15-3).
+
 # 러너와 같은 엔진을 리뷰어로 쓰면 **자기검증**이다 — 막지는 않되(운영 사정) 원장에 반드시 남긴다.
 case " $REVIEWERS " in
   *" $RUNNER "*) DEG="${DEG:+$DEG; }자기검증: 리뷰어에 러너와 같은 엔진($RUNNER) 포함 — 교차검증 아님" ;;
@@ -190,7 +374,7 @@ esac
 n_rev=0; for _t in $REVIEWERS; do n_rev=$((n_rev+1)); done
 case " $REVIEWERS " in
   *" codex "*|*" claude "*) ;;
-  *) DEG="일반/정합성 리뷰어(codex|claude) 부재 — 성능축만" ;;
+  *) DEG="${DEG:+$DEG; }일반/정합성 리뷰어(codex|claude) 부재 — 성능축만" ;;   # 누적(17b) — 대입이면 egress 사유가 사라진다
 esac
 [ "$n_rev" -le 1 ] && DEG="${DEG:+$DEG; }리뷰어 ${n_rev}종(교차검증 불가)"
 if [ -n "$SHADOWED" ] && [ "$SHADOWED" != "none" ]; then
@@ -203,8 +387,10 @@ fi
 
 # 도구 전무 폴백: 통일 스키마로 상태파일 남기고 종료(Step 3 파서 단일화).
 if [ -z "$REVIEWERS" ] || [ "$REVIEWERS" = "none" ]; then
-  write_status "$(printf '{"status":"no-reviewers","reviewers":"","degraded":"리뷰어 0종%s","results":{}}' \
-    "$([ -n "$SHADOWED" ] && [ "$SHADOWED" != "none" ] && printf ' (PATH 밖 설치: %s)' "$(json_esc "$SHADOWED")")")" || exit 1
+  # 17c — 여기서 DEG 를 버리면 egress 사유(반출 허용 리뷰어 0 · 허용 밖 제외)가 상태 파일에 남지 않는다.
+  # "리뷰어 0종" 만 남으면 **왜** 0종인지가 사라져 수렴 판정이 그 사실을 볼 수 없다.
+  write_status "$(printf '{"status":"no-reviewers","reviewers":"","degraded":"%s","results":{}}' \
+    "$(json_esc "리뷰어 0종$([ -n "$SHADOWED" ] && [ "$SHADOWED" != "none" ] && printf ' (PATH 밖 설치: %s)' "$SHADOWED")${DEG:+; $DEG}")")" || exit 1
   echo "WARN: REVIEWERS none → 외부 리뷰 생략, 내부 QA만." >&2
   exit 0
 fi
@@ -216,16 +402,6 @@ fi
 # 두 리뷰어는 축이 다르다(일반/정합성 = codex|claude, 성능/안정성 = agy). 한 축만 남으면
 # '2종 교차검증'이 아니라 '단일 관점'이다. 축소는 중단 사유가 아니라 **기록 의무** 사유다 —
 # degraded 를 상태파일에 실어 Step 3 판정·결과서까지 전파한다.
-# override 값은 상태 JSON 에 들어간다 — 허용 토큰만 받는다(주입·파손 차단, R18). 검증은 문자열 조립 **전**에.
-if [ -n "${REVIEWERS_OVERRIDE:-}" ]; then
-  _seen=" "
-  for _tok in $REVIEWERS_OVERRIDE; do
-    case "$_tok" in codex|claude|agy|gemini) ;; *) die_launcher "REVIEWERS_OVERRIDE 부적합 토큰: '$_tok' (허용: codex claude agy gemini)";; esac
-    # 같은 토큰이 두 번이면 같은 출력·rc 파일에 두 프로세스가 동시에 쓴다(R21 지적) — 거부.
-    case "$_seen" in *" $_tok "*) die_launcher "REVIEWERS_OVERRIDE 중복 토큰: '$_tok'";; esac; _seen="$_seen$_tok "
-  done
-fi
-
 # 리뷰어 1종 실행 헬퍼: 출력 _{tool}.md + 종료코드 _{tool}.rc(리뷰어별 개별 파일 = 경합 없음).
 #
 # **프롬프트 전달 방식은 CLI 마다 다르다(req — 통일하지 말 것).** 실측 결과:

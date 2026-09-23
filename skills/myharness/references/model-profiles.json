@@ -264,11 +264,11 @@
       "codex": "runtime-default"
     },
     "light": {
-      "agy": "Gemini 3.5 Flash (High)",
+      "agy": "Gemini 3.8 Flash (High)",
       "codex": "runtime-default"
     },
     "standard": {
-      "agy": "Gemini 3.5 Flash (High)",
+      "agy": "Gemini 3.8 Flash (High)",
       "codex": "runtime-default"
     }
   },

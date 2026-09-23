@@ -390,8 +390,12 @@ test('T-E7 --grade 는 review_tiers 값을 줄 하나에 값 하나로 낸다(�
   setEgress(tree, { value: ['any'], source: 'declared', scanned: [] });
   for (const g of ['light', 'standard', 'critical']) {
     const o = parseEgress(egress(tree, { runner: 'claude', grade: g }), `egress --grade ${g}`);
-    assert.equal(o.REVIEW_MODEL_CODEX, mp.review_tiers[g].codex, `review_tiers.${g}.codex 그대로`);
-    assert.equal(o.REVIEW_MODEL_AGY, mp.review_tiers[g].agy, `review_tiers.${g}.agy 그대로(공백 포함)`);
+    // 계약 줄의 어휘는 **모델 ID 또는 `none`** 이다(§3-5). 데이터 파일이 같은 뜻을 `runtime-default` 로 적으면
+    // **해석기가 번역한다** — 안 그러면 셸에 `codex exec -m runtime-default` 라는 없는 모델명이 넘어간다(S4 실측).
+    const asLine = (v) => (v === 'runtime-default' ? 'none' : v);
+    assert.equal(o.REVIEW_MODEL_CODEX, asLine(mp.review_tiers[g].codex), `review_tiers.${g}.codex → 계약 줄 어휘`);
+    assert.equal(o.REVIEW_MODEL_AGY, asLine(mp.review_tiers[g].agy), `review_tiers.${g}.agy 그대로(공백 포함)`);
+    assert.notEqual(o.REVIEW_MODEL_CODEX, 'runtime-default', '데이터 파일 어휘가 계약 줄로 그대로 샜다');
     assert.ok(!['deep', 'standard', 'light', 'critical', '경량', '표준', '중대'].includes(o.REVIEW_MODEL_AGY),
       `등급 라벨이 모델 값으로 새어 나왔다: ${o.REVIEW_MODEL_AGY}`);
   }

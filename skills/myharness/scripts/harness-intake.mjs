@@ -1747,7 +1747,13 @@ async function cmdEgress(o, ctx) {
   if (o.grade !== undefined) {
     const rt = mp.review_tiers;
     if (!isObj(rt) || !isObj(rt[o.grade])) fail2(`review_tiers.${o.grade} 가 없다: ${file}`);
-    const pick = (k) => (typeof rt[o.grade][k] === "string" && rt[o.grade][k] !== "" ? rt[o.grade][k] : "none");
+    // 계약 줄의 어휘는 **모델 ID 또는 `none`** 이다(§3-5). 데이터 파일은 같은 뜻을 `runtime-default` 로 적으므로
+    // **여기서 번역한다** — 그러지 않으면 셸이 데이터 파일 어휘까지 알아야 하고(두 번째로 아는 곳),
+    // 실제로 `codex exec -m runtime-default` 라는 없는 모델명이 리뷰어에게 넘어갔다(S4 실측).
+    const pick = (k) => {
+      const v = rt[o.grade][k];
+      return typeof v === "string" && v !== "" && v !== "runtime-default" ? v : "none";
+    };
     mc = pick("codex"); ma = pick("agy");
   }
 

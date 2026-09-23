@@ -253,8 +253,8 @@ PRD §6-1 의 3층을 이 릴리스의 구현 경계로 내린다.
     }
   },
   "review_tiers": {
-    "light":    { "codex": "runtime-default", "agy": "Gemini 3.5 Flash (High)" },
-    "standard": { "codex": "runtime-default", "agy": "Gemini 3.5 Flash (High)" },
+    "light":    { "codex": "runtime-default", "agy": "Gemini 3.8 Flash (High)" },
+    "standard": { "codex": "runtime-default", "agy": "Gemini 3.8 Flash (High)" },
     "critical": { "codex": "runtime-default", "agy": "Gemini 3.1 Pro (High)" }
   },
   "placement": {
@@ -282,7 +282,9 @@ PRD §6-1 의 3층을 이 릴리스의 구현 경계로 내린다.
 | `tiers.*.pinned_id` | **사람이 명시할 때만** 존재(자동 채움 없음). 있으면 그 티어의 생성 `model:` 이 ID 가 되고 MA8·감사 #13 대상이 된다. **`pinned_id` 가 있으면 같은 티어에 `pinned_confirmed_at`(ISO) 필수** — 없으면 감사 #13 FAIL |
 | `confirmed_at` · `source_url` | MA8 필수. ISO `YYYY-MM-DD` · URL 은 빈 문자열 불가 |
 | `local.{base_url,start_cmd}` | **sLM 확장 슬롯(MA2)** — 이 릴리스는 전부 `null`. 로컬은 OpenAI 호환 API 를 노출하므로(PRD §10-1 실측) 후속에서 값만 채우면 스키마 변경이 없다. **`null` 이 아닌 항목이 있으면 `place` 가 rc=2**(범위 밖을 조용히 쓰지 않는다) |
-| `review_tiers` | 등급(`light`/`standard`/`critical` — v1.7.6 정규 어휘) → 리뷰어별 모델 값. `"runtime-default"` = env 를 설정하지 않는다(`run-review.sh` 의 `${CODEX_MODEL:+…}` 규약과 일치) |
+> **S4 실측 정정(2026-09-23).** 앞선 판의 `light`·`standard` 값 **`Gemini 3.5 Flash (High)` 는 실재하지 않는 모델명**이었다(정본 `run-review.sh:57` 주석에서 온 낡은 이름). S4 가 프로파일 값을 실제로 리뷰어에게 넘기기 시작하자 **agy 가 거부했다** — `invalid model selection … not recognized`. 그 전에는 `AGY_MODEL` 을 프로파일에서 받지 않아 **아무도 이 이름을 쓰지 않았고 주석 안에서 조용히 낡았다**. `agy` 가 낸 목록에 Flash 는 **3.8·3.7·3.6** 뿐이고 3.5 는 없다(`Gemini 3.1 Pro (High)` 는 실재 — critical 값은 옳았다). → `light`·`standard` 를 **`Gemini 3.8 Flash (High)`** 로 고치고 정본 주석에서 낡은 이름을 지웠다. **이 값은 이 설치에서 관측한 것이다** — MA8 의 `confirmed_at` 부패 기구가 다루는 종류이고, 오프라인 테스트로는 고정할 수 없다(§8-3 probe 후보).
+
+| `review_tiers` | 등급(`light`/`standard`/`critical` — v1.7.6 정규 어휘) → 리뷰어별 모델 값. `"runtime-default"` = env 를 설정하지 않는다. **계약 줄의 어휘는 「모델 ID 또는 `none`」이므로(§3-5) `egress` 가 `runtime-default` → `none` 으로 번역한다(S4 정정)** — 그러지 않으면 셸이 데이터 파일 어휘까지 알아야 하고, 실제로 `codex exec -m runtime-default` 라는 없는 모델명이 리뷰어에게 넘어갔다 |
 | `placement` | §4 — 성격 키워드 표·우선순위·경계 행 승강. **팩토리만 읽는다** |
 | `behavior` | **빈 객체 고정**(L3 슬롯). 비어 있지 않으면 `place` 가 rc=2 — MA5 는 ADR-002·MA9 뒤다 |
 
@@ -887,7 +889,7 @@ _note="$(sed -n 's/^note: //p' "$EGERR" | tr '\n' ' ')"
 | **빈 값** | **다섯 줄 모두 값이 비어 있으면 손상**(`KEY: ` 뒤가 없음) | 같음 |
 | `EGRESS:` 값 | `runtime-only` \| `allow-listed` \| `any` | 같음 |
 | `ALLOWED_TOOLS:` 값 | **`none` 일 수 없다 — 항상 도구 1개 이상**(§3-5-1: 어느 모드든 **러너 프로바이더의 도구**가 들어가고 `--runner` 는 `claude`\|`codex` 필수이며 둘 다 `tools` 매핑에 있어야 한다 — T-E4) · **토큰 어휘도 `REVIEWERS_ALLOWED:` 와 같게 본다**(`codex`\|`claude`\|`agy`\|`gemini` — R9 LOW: 어휘를 안 보면 `gpt claude` 처럼 러너만 끼워 넣은 임의 토큰이 통과한다) | 같음 |
-| `REVIEWERS_ALLOWED:` 값 | **`none` 이거나 토큰 1개 이상**, 토큰은 전부 `codex`\|`claude`\|`agy`\|`gemini`(`check-review-tools.sh:66` 과 **같은 집합**) | 같음 |
+| `REVIEWERS_ALLOWED:` 값 | **`none` 이거나 토큰 1개 이상**, 토큰은 전부 `codex`\|`claude`\|`agy`\|`gemini`(`check-review-tools.sh:66` 과 **같은 집합**) · **중복 토큰은 손상이다(S4 R2)** — 두 줄 다 집합이고 해석기는 항상 `uniqSorted` 로 쓰므로, 중복이 보인다는 것은 구버전·부분 스텁·잘린 출력이라는 뜻이다(빈 값을 손상으로 보는 것과 같은 이유) | 같음 |
 | `REVIEW_MODEL_CODEX:` · `REVIEW_MODEL_AGY:` 값 | 비어 있지 않아야 하고(`none` 이 정상값 중 하나), **값이 티어·등급 라벨이면 `die_launcher`**(라벨 유입 가드 — **대입 직후** 새 값에만 건다 · §7-2 T-R1). 모델 ID 자체의 유효성은 검증하지 않는다 — 그건 리뷰어 CLI 가 판정하고 실패는 `degraded`·`partial` 로 잡힌다(`external-review-loop.md:176` 취합 규약) | 같음 |
 
 **의미 검증 둘(R8).** 위 문법 검사는 **손상 출력을 전부 걸러내지 못한다.** 예: `ALLOWED_TOOLS: agy` · `REVIEWERS_ALLOWED: claude` · 러너 `claude` — 네 줄이 다 있고 어휘도 전부 허용값이지만, **러너가 자기 자신을 리뷰**한다. 이 레포의 독립성 원칙(`external-review-loop.md:9` "리뷰어 모델 ≠ 러너 모델 · 러너와 같은 엔진은 같은 맹점을 공유 · **현재 런타임의 러너 엔진을 제외**하고 고른다")이 정면으로 깨지는 상태다.
@@ -911,29 +913,39 @@ _note="$(sed -n 's/^note: //p' "$EGERR" | tr '\n' ' ')"
 - **규칙의 두 구현이 아니라 산출 검증이다.** 계산은 `egress` 서브커맨드 한 곳에서만 하고(§3-5), 셸은 그 **결과가 정의의 필요조건(①②③)을 만족하는지**만 본다 — 정의를 다시 계산하지 않는다.
 - **기존 `run-review.sh:186-189` 의 자기검증 가드와 역할이 다르다.** 그쪽은 **실제 탐지된 `REVIEWERS`** 에 러너가 섞이면 "막지는 않고 `degraded` 에 남긴다"(운영 사정 배려). 여기는 **정책 해석기의 출력이 자기 정의를 위반한 경우**라 운영 사정이 아니라 **손상**이다 → 진행하지 않는다.
 
+> **삽입 순서에 딸린 부작용 하나(S4 R3).** 구간 B 가 "전부 걸러지면 조기 종료" 경로를 새로 만들기 때문에, `run-review.sh` 의 **`REVIEWERS_OVERRIDE` 어휘·중복 검증**(원래 `no-reviewers` 분기 **뒤**에 있었다)이 **건너뛰어진다** — 부적합 토큰이 검증 없이 exit 0 으로 나가고, 그 값은 이미 `DEG` 를 거쳐 상태 JSON 에 들어가 있다. 그 검증은 자기 주석이 말하는 대로 **"문자열 조립 전"**, 즉 **구간 B 보다 앞**으로 옮긴다.
+
 **구간 B — 필터 적용(R14-1).** 구간 A 는 *해석과 검증*까지다. 실제로 `REVIEWERS` 를 줄이는 코드가 없으면 검증만 넣고 필터를 빼도 설계서 위반이 아니다.
 
 ```sh
 # ── 구간 B: run-review.sh:185(override 의 fi) 뒤 · :186(자기검증 주석) 앞 ──────
 # override 치환(:184)  **뒤**여야 override 토큰도 같은 필터를 지난다(PRD MA15 ②).
-if [ "$EG_REV" = none ]; then
-  REVIEWERS=""                                                   # :205 의 -z 분기 → status: no-reviewers
-  DEG="${DEG:+$DEG; }egress: $EG_MODE — 반출 허용 리뷰어 0"
-else
-  _kept=""
-  for _t in $REVIEWERS; do                                       # 탐지·override 가 준 순서를 보존한다
-    case " $EG_REV " in
-      *" $_t "*) _kept="${_kept:+$_kept }$_t" ;;
-      *) if [ -n "${REVIEWERS_OVERRIDE:-}" ]; then
-           die_launcher "egress 위반: $_t"                       # override 는 조용히 줄이지 않는다
-         else
-           DEG="${DEG:+$DEG; }egress: $_t 제외(허용 밖)"        # 자동 탐지분은 제외 + 기록
-         fi ;;
-    esac
-  done
-  REVIEWERS="$_kept"
-  [ -n "$REVIEWERS" ] || DEG="${DEG:+$DEG; }egress: $EG_MODE — 반출 허용 리뷰어 0"
-fi
+# ⚠ **`EG_REV = none` 을 특례로 먼저 삼키지 않는다(S4 정정 — 앞선 판의 결함).** 앞선 스니펫은 none 을 별도 분기로
+#   두고 REVIEWERS="" 로 바로 떨어뜨렸는데, 그러면 `runtime-only` + `REVIEWERS_OVERRIDE=agy` 가 **조용히 사라져**
+#   status: no-reviewers 가 된다 — **바로 아래 판정표가 요구하는 `die_launcher "egress 위반: <tool>"` 이 성립하지 않는다**
+#   (실측: degraded 에 "리뷰어 강제 지정: agy … 반출 허용 리뷰어 0" 만 남고 위반이 기록되지 않았다).
+#   none 은 "허용 집합이 빈 것" 이므로 **루프가 균일하게 처리**한다(어떤 토큰도 매치되지 않아 전부 * 분기로 간다).
+# **탐지기의 센티널을 토큰으로 취급하지 않는다(S4 R2 agy HIGH).** `check-review-tools.sh:120` 은 리뷰어가 없으면
+# 문자열 `none` 을 낸다. 그대로 루프에 넣으면 ① `EG_REV` 도 none 일 때 서로 매치돼 **"반출 허용 리뷰어 0" 사유가 사라지고**
+# ② 정책이 `any` 면 `egress: none 제외(허용 밖)` 라는 **거짓 원장**이 남는다.
+# 문자열 비교로는 부족하다 — override 경로가 `REVIEWERS=" ${REVIEWERS_OVERRIDE} "` 로 **앞뒤 공백을 붙이기** 때문에
+# `[ " none " = "none" ]` 이 거짓이 된다(S4 R3). **토큰 단위로** 걷어낸다.
+_src=""
+for _t in $REVIEWERS; do [ "$_t" = none ] || _src="${_src:+$_src }$_t"; done
+REVIEWERS="$_src"
+_kept=""
+for _t in $REVIEWERS; do                                         # 탐지·override 가 준 순서를 보존한다
+  case " $EG_REV " in
+    *" $_t "*) _kept="${_kept:+$_kept }$_t" ;;
+    *) if [ -n "${REVIEWERS_OVERRIDE:-}" ]; then
+         die_launcher "egress 위반: $_t"                         # override 는 조용히 줄이지 않는다
+       else
+         DEG="${DEG:+$DEG; }egress: $_t 제외(허용 밖)"          # 자동 탐지분은 제외 + 기록
+       fi ;;
+  esac
+done
+REVIEWERS="$_kept"                                               # 비면 :205 의 -z 분기 → status: no-reviewers
+[ -n "$REVIEWERS" ] || DEG="${DEG:+$DEG; }egress: $EG_MODE — 반출 허용 리뷰어 0"
 # 이 뒤는 전부 **걸러진 집합**을 본다: 자기검증 감지(:187-189) · n_rev 집계(:190) ·
 # 일반 리뷰어 부재 검사(:191-194) · WARN 출력(:199) · no-reviewers 분기(:205-209).
 # ⚠ 단 :193 은 DEG 를 **대입**하고 :206-207 은 DEG 를 **버린다** — 여기서 쌓은 사유가 사라진다.
