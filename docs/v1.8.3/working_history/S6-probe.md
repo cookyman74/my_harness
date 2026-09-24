@@ -126,6 +126,7 @@
 | `run-policy-audit.sh` | **PASS (fail 0, warn 0)** |
 | `test-run-review.sh` · `test-harness-update.sh` · `test-selftest-review-tools.sh` | 46/46 · PASS · 10/10 |
 | `node --test tests/harness-intake/*.test.mjs` | **739/739**(동시성 3) — 기본 동시성에서는 이 머신의 **기준 부하 ~6**(10코어)에 `probeVersion` 5000ms 마감이 걸려 간헐 실패한다. **코드 회귀가 아니다:** `harness-intake.mjs` 는 S5 이후 **무변경**이고 실패 파일은 **단독 실행 전건 통과**다 |
+| 2-OS | **linux success · windows success**(run 36006569278 · 커밋 `382b5a4`) — 새 `probe opt-in guard` 스텝 포함 |
 | T-C1 | 구분 **0줄** · 무시 **0줄** · `SKILL.md` 496/500 |
 
 ---

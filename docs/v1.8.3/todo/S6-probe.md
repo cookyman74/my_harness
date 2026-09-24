@@ -54,7 +54,7 @@
 - [x] `bash tests/test-probe-guard.sh` PASS(세 단정) · **probe 미실행 상태에서도 통과**하는지 확인 — ✔ 2026-09-24 · 미커밋 · 근거: **통과 26 · 실패 0** · **probe 미실행 상태에서 통과**(모델 호출 0 · 비용 0) · 변이 **17종 전건 적발**
 - [x] 전 회귀 PASS — `node --test tests/harness-intake/*.test.mjs` · `test-run-review.sh` · `test-harness-update.sh` · `test-selftest-review-tools.sh` — ✔ 2026-09-24 · 미커밋 · 근거: `node --test` **739/739** · `test-run-review.sh` 46/46 · `test-harness-update.sh` PASS · `test-selftest-review-tools.sh` 10/10
 - [x] `bash skills/myharness/scripts/run-policy-audit.sh` fail 0(프로파일을 갱신했으면 **#13 이 그 갱신을 본다**) — ✔ 2026-09-24 · 미커밋 · 근거: **PASS (fail 0, warn 0)** — 프로파일을 바꾸지 않았으므로 #13 의 판정도 그대로다
-- [ ] push(**사용자 승인**) → `factory-ci` 2-OS green(새 `probe opt-in guard` 스텝 포함)
+- [x] push(**사용자 승인**) → `factory-ci` 2-OS green(새 `probe opt-in guard` 스텝 포함) — ✔ 2026-09-24 · `382b5a4` · 근거: **factory-ci run 36006569278 — linux success · windows success**(새 `probe opt-in guard` 스텝 포함 · 두 잡 모두 통과 26·실패 0)
 - [x] 결과서에 **probe 별 예상/실제 비용**과 실측값이 전부 적혀 있다(§11 S6 완료 판정) — ✔ 2026-09-24 · 미커밋 · 근거: §4 비용 표에 예상(승인 시 ~10턴 · 현재 표시 8턴+수동 2)과 **실제 16턴(스크립트 7 + 수동 9)** · **모델에 닿지 않은 시도 4회(비용 0)** · spawn 3회를 적었다
 - [x] probe 결과가 **정본 문구·프로파일을 바꿨다면** 그 변경은 중대 — 별도 stabilizer 게이트(정책감사·외부리뷰·회귀)로 닫았는가 — ✔ 2026-09-24 · 미커밋 · 근거: **프로파일 변경 0** — 죽은 alias 없음 · `confirmed_at` 은 문서 확인일이라 미갱신 · `effort_forbidden` 유지. 정본 문구 변경은 **설계서 §8-3·§9-3·끝 요약**뿐이고 그 변경은 이 단계의 외부리뷰(R1~R22)가 함께 봤다
 
@@ -65,7 +65,7 @@
 - [x] 라운드 반복 → 수렴(00-index R-3 임계) — ✔ 2026-09-24 · 미커밋 · 근거: **R1~R22** · **R21·R22 양 엔진 `새 결함 없음` 2연속**(`degraded` 빈 라운드 · 동결 트리 `2d82820` 동일)
 - [x] `verdicts.json` → 측정 꼬리 발행 — ✔ 2026-09-24 · 미커밋 · 근거: `rounds` 22 · **확인 24 · 부분 2 · 기각 4** · `alignment 0.833` · `rejected_rate 0.133` · `regression_catch_rate 0.8` · `diff_lines` 568 · `warnings` 없음
 - [x] 결과서 `docs/v1.8.3/working_history/S6-probe.md` + `## 다음 단계 참조` + `check-artifacts.sh` 끝줄 `ARTIFACTS: ok` — ✔ 2026-09-24 · 미커밋 · 근거: 결과서 작성(선검증·A절 변이 검증·B절 결정·C절 실측·외부리뷰 22라운드·게이트·다음 단계 참조) · `check-artifacts.sh` 끝줄 **`ARTIFACTS: ok`**
-- [ ] 변경 이력 · 상태 뱃지 · 00-index 표 · 커밋
+- [x] 변경 이력 · 상태 뱃지 · 00-index 표 · 커밋 — ✔ 2026-09-24 · `docs/harness-history.md` 전문 행 + `CLAUDE.md` 한 줄 요약(5건 유지) · 이 문서와 `00-index.md` S6 행 **`✅ 완료`** · 다음 단계 문구 **`S0~S6 전 단계 완료 → 릴리스`** · 커밋 **`382b5a4`**(8파일) · push 완료
 
 ---
 
