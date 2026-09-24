@@ -31,7 +31,14 @@ printf '# external review\nREVIEW_GRADE={등급-기계키} HARNESS_ORCHESTRATOR=
 # 리뷰어 스텁을 **여기서** 만든다 — ⑥ 의 스냅샷(`scanned`)이 이 PATH 를 보고 정해지므로,
 # 기계에 무엇이 깔려 있든 **같은 결과**가 나온다(2-OS CI 실측: 리뷰어 CLI 가 없는 러너에서 허용 0이 됐다).
 BIN="$E/bin"; mkdir -p "$BIN"; printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$NODE" > "$BIN/node"; chmod +x "$BIN/node"
-for t in codex agy; do printf '#!/usr/bin/env bash\ncat >/dev/null 2>&1\necho "새 결함 없음"\n' > "$BIN/$t"; chmod +x "$BIN/$t"; done
+# 가짜 도구는 **unix sh + windows .cmd 한 쌍**으로 만든다(`tests/harness-intake/helpers.mjs` 선례).
+# windows 의 `findTool` 은 **PATHEXT 확장자만** 집는다(의도된 결정 — execFile 이 못 돌리는 sh 스크립트를
+# 집지 않으려고 · harness-intake.mjs:356). 확장자 없는 스텁만 두면 ⑥ 스냅샷이 비어 **windows 에서만** 깨진다
+# (2-OS CI 실측: linux 16/16 · windows 14/2).
+for t in codex agy; do
+  printf '#!/usr/bin/env bash\ncat >/dev/null 2>&1\necho "새 결함 없음"\n' > "$BIN/$t"; chmod +x "$BIN/$t"
+  printf '@echo 새 결함 없음\r\n' > "$BIN/$t.cmd"
+done
 # 모든 해석기 호출은 **이 PATH** 로 돈다(스냅샷·탐지가 개발 기계에 좌우되지 않게).
 IN(){ env PATH="$BIN:/usr/bin:/bin" node "$O/scripts/harness-intake.mjs" "$@"; }
 

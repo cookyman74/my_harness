@@ -166,6 +166,16 @@ roster → `place` → 정의 파일 기록 → **`place --verify` ok** → `set
 로컬의 실제 도구를 숨긴 CI 흉내에서도 **16/16**. `.gitattributes`·`ps -p`·MSYS 인자와 같은 계열의
 교훈이 하나 더 늘었다 — **픽스처가 기계의 설치 상태를 읽으면 같은 커밋이 기계마다 다른 결과를 낸다.**
 
+**그리고 windows 가 한 겹 더 잡았다.** 결정적으로 고친 뒤에도 **linux 16/16 · windows 14/2** 였다 —
+`⑥ 스냅샷이 []`. 원인: windows 의 `findTool` 은 **PATHEXT 확장자만** 집는다(`harness-intake.mjs:356` ·
+execFile 이 못 돌리는 sh 스크립트를 집지 않으려는 **의도된 결정**). 확장자 없는 스텁은 `check-review-tools.sh`
+(`command -v`)에는 보이지만 해석기에는 안 보인다. → 레포의 기존 선례대로(`tests/harness-intake/helpers.mjs`
+`fakeTool`) 스텁을 **unix sh + windows `.cmd` 한 쌍**으로 만들었다.
+
+> **이월(기록):** windows 에서 두 탐지기가 갈릴 수 있다 — `check-review-tools.sh` 는 `command -v`(확장자 없는
+> 셸 스크립트도 본다), 해석기 `findTool` 은 PATHEXT 만 본다. npm 설치 도구는 `.cmd` 심을 만들어 실무에서는
+> 일치하지만, **확장자 없는 심만 있는 windows 환경에서는 리뷰어가 조용히 허용 목록에서 빠질 수 있다.**
+
 CI 두 잡에 `e2e harness wiring` 스텝을 넣었다.
 
 ---
