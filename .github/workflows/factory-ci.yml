@@ -77,6 +77,9 @@ jobs:
         run: bash tests/test-selftest-review-tools.sh
       - name: run-review launcher contract
         run: bash tests/test-run-review.sh
+
+      - name: probe opt-in guard
+        run: bash tests/test-probe-guard.sh
       # 비인용 셸 글롭이어야 한다 — 디렉토리 인자는 node 22·24, 따옴표 글롭은 node 20 에서 rc=1(2026-09-11 실측).
       - name: harness-intake tests
         run: node --test tests/harness-intake/*.test.mjs
@@ -120,6 +123,10 @@ jobs:
       - name: run-review launcher contract
         shell: bash
         run: bash tests/test-run-review.sh
+
+      - name: probe opt-in guard
+        shell: bash
+        run: bash tests/test-probe-guard.sh
       - name: harness-intake tests
         shell: bash
         run: node --test tests/harness-intake/*.test.mjs

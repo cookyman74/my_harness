@@ -29,7 +29,7 @@
 | S3 | [S3-interview-egress.md](S3-interview-egress.md) | MA15 — 인터뷰 ⑥ `egress` · `catalog_version` 2 · `answer --only` · 연쇄 13곳 | 중대 | S2 | 17 | ✅ 완료 |
 | S4 | [S4-shell-wiring.md](S4-shell-wiring.md) | `run-review.sh` 배선(구간 A·B · 이름 가드 · 필터) · 런처 테스트 선행 수리 · CI | 중대 | S3 | 10 | ✅ 완료 |
 | S5 | [S5-canon-wiring.md](S5-canon-wiring.md) | 정본 치환표 17행/22지점 · `SKILL.md` 신설 절 8항목 · `MANAGED_RELS` 분리 · 감사 #13 | 중대 | S4 | 8 | ✅ 완료 |
-| S6 | [S6-probe.md](S6-probe.md) | probe 스크립트 + P1~P5 실행 — **비용 승인 후에만** | 표준 | S5 | 1 | ⬜ 조건부 |
+| S6 | [S6-probe.md](S6-probe.md) | probe 스크립트 + P1~P5 실행 — **비용 승인 후에만** | 표준 | S5 | 1 | ✅ 완료 |
 
 **합계 58** — 설계서 §9-1 전체와 같은 집합이다(미할당 0 · 중복 0). 단계 문서의 테스트 ID 를 늘리거나 줄이면 **설계서 분할표도 같이 고친다**.
 
