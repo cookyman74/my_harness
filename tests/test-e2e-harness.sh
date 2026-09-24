@@ -28,13 +28,20 @@ printf '# external review\nREVIEW_GRADE={등급-기계키} HARNESS_ORCHESTRATOR=
 [ -f "$O/references/model-profiles.json" ] && [ -f "$O/scripts/check-review-tools.sh" ] \
   && ok "번들 2종(데이터 파일·후보 목록)이 오케스트레이터 스킬에 있다" || no "번들 누락"
 
-IN(){ node "$O/scripts/harness-intake.mjs" "$@"; }
+# 리뷰어 스텁을 **여기서** 만든다 — ⑥ 의 스냅샷(`scanned`)이 이 PATH 를 보고 정해지므로,
+# 기계에 무엇이 깔려 있든 **같은 결과**가 나온다(2-OS CI 실측: 리뷰어 CLI 가 없는 러너에서 허용 0이 됐다).
+BIN="$E/bin"; mkdir -p "$BIN"; printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$NODE" > "$BIN/node"; chmod +x "$BIN/node"
+for t in codex agy; do printf '#!/usr/bin/env bash\ncat >/dev/null 2>&1\necho "새 결함 없음"\n' > "$BIN/$t"; chmod +x "$BIN/$t"; done
+# 모든 해석기 호출은 **이 PATH** 로 돈다(스냅샷·탐지가 개발 기계에 좌우되지 않게).
+IN(){ env PATH="$BIN:/usr/bin:/bin" node "$O/scripts/harness-intake.mjs" "$@"; }
 
 step "1. 인터뷰 — answer 로 프로파일(⑥ egress 포함)"
 IN answer --root "$E" --orchestrator "$ORCH" --mode new --defaults --set egress=allow-listed --now 2026-09-24T00:00:00Z >/dev/null 2>&1
 if [ -f "$O/harness-profile.json" ]; then
   eg="$(node -e 'const p=require(process.argv[1]);console.log(p.answers.egress.value.join(",")+"/"+p.answers.egress.source)' "$O/harness-profile.json")"
-  ok "프로파일 생성 · ⑥ = $eg"
+  sc="$(node -e 'const p=require(process.argv[1]);console.log((p.answers.egress.scanned||[]).join(","))' "$O/harness-profile.json")"
+  ok "프로파일 생성 · ⑥ = $eg · scanned=[$sc]"
+  case ",$sc," in *,codex,*) ok "⑥ 스냅샷이 설치된 리뷰어를 담았다(환경 의존 제거)" ;; *) no "스냅샷에 codex 가 없다 — 허용 목록이 비어 게이트가 no-reviewers 가 된다: [$sc]" ;; esac
 else no "프로파일이 생성되지 않았다"; fi
 
 step "2. 결선 — render 로 블록을 넣고 verify 가 전부 ok"
@@ -100,8 +107,6 @@ bk="$(printf '%s' "$s3" | sed -n 's/^BACKUP: //p')"
   || no "승인 후 결과가 계약과 다르다(rc=$s3rc · fallback=$fb2 · backup=$bk)"
 
 step "5. 게이트 — 정본 런처가 egress 를 해석해 리뷰어를 거른다(스텁 · 모델 호출 0)"
-BIN="$E/bin"; mkdir -p "$BIN"; printf '#!/usr/bin/env bash\nexec "%s" "$@"\n' "$NODE" > "$BIN/node"; chmod +x "$BIN/node"
-for t in codex agy; do printf '#!/usr/bin/env bash\ncat >/dev/null 2>&1\necho "새 결함 없음"\n' > "$BIN/$t"; chmod +x "$BIN/$t"; done
 printf '# p\n' > "$E/_workspace/reviews/e2e_prompt_general.md"; printf '# p\n' > "$E/_workspace/reviews/e2e_prompt_perf.md"
 ( cd "$E" && env PATH="$BIN:/usr/bin:/bin" HOME="$E/home" REVIEW_GRADE=standard HARNESS_ORCHESTRATOR="$ORCH" REVIEW_TIMEOUT=60 \
     bash "$L/scripts/run-review.sh" e2e claude ) >/dev/null 2>&1
