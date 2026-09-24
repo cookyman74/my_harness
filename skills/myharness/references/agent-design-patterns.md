@@ -223,6 +223,8 @@ Phase별로 다른 전문가 조합이 필요하면, 이전 팀의 산출물을 
 
 **원칙:** 모든 에이전트는 반드시 `.claude/agents/{name}.md` 파일로 정의한다. 빌트인 타입이라도 에이전트 정의 파일을 생성하여 역할·원칙·프로토콜을 명시한다. 파일로 존재해야 다음 세션에서 재사용 가능하고, 팀 통신 프로토콜이 명시되어야 협업 품질이 보장된다.
 
+**티어 근거 주석:** `place` 의 **`RATIONALE:` 줄을 그대로** `model:` **바로 위**, **frontmatter 안**에 둔다(`# tier=…`). `place --verify` 가 그 줄을 **바이트 비교**하므로 위치·형식이 곧 계약이다 — 본문(`---` 밖)이나 `<!-- -->` 로 두면 **`PLACED: <이름>=mismatch`** 로 Phase 6-7 이 멈춘다.
+
 **모델:** 에이전트의 `model:`·`effort:` 는 **MA7 매핑표**(역할 → 티어)와 **프로파일**(티어 → 값)이 정한다 — 정의 파일이 **단일 출처**다. Agent 도구 호출은 그 정의 파일의 값을 그대로 넘긴다: 정의가 alias 면 `model: "<같은 alias>"` 를 **명시**하고, 정의가 전체 ID(`pinned_id`)거나 `inherit` 면 호출에서 `model` 을 **생략**한다(`Agent` 도구 `model` 은 alias enum 만 받는다).
 
 ## 에이전트 정의 구조
@@ -232,10 +234,10 @@ Phase별로 다른 전문가 조합이 필요하면, 이전 팀의 산출물을 
 name: agent-name
 description: "1-2문장 역할 설명. 트리거 키워드 나열."
 skills: [사용-스킬-1, 사용-스킬-2]   # 구성 자기평가 연결 계약(필수). 미선언=link_unknown·빈배열 []=명시 무연결(orphan). references/harness-scorecard.md
+# tier=<티어> trait=<성격> via=<matched|boundary|ambiguous|override> cost=<③ 답> why=<한 줄>
 model: {place 가 낸 model}           # 정의가 단일 출처 — Agent 호출은 이 값을 그대로 넘긴다(ID·inherit 이면 생략)
 effort: {place 가 낸 effort}         # 프로바이더가 강도를 안 받으면 place 가 이 줄을 내지 않는다
 ---
-<!-- tier=<티어> trait=<성격> via=<matched|boundary|ambiguous|override> cost=<③ 답> why=<한 줄> -->   ← 티어 근거 주석(place --verify 가 바이트 비교)
 
 # Agent Name — 역할 한줄 요약
 
