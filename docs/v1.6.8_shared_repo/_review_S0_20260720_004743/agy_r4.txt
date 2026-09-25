@@ -1,0 +1,24 @@
+**심각도: HIGH**
+**파일:줄**: `harness-ui/src/server/adapters/regstore.ts:251` (및 234)
+**근거**: `readJsonlSafe`에서 64KB 청크(`chunk`) 단위로 읽은 후 `chunk.toString("utf8")`을 직접 호출하여 디코딩합니다. Node.js `StringDecoder`를 사용하지 않았기 때문에, 청크 경계에 UTF-8 멀티바이트 문자(예: 한글)가 걸칠 경우 불완전한 바이트 시퀀스가 강제로 대체 문자(`\ufffd`)로 변환된 뒤 `pending`에 누적됩니다.
+**실패 시나리오**: 입력된 JSONL 라인 내 3바이트 한글 문자가 청크 경계에서 1바이트 / 2바이트로 나뉘어 읽힘 → 정상적인 문자가 깨지고 `\ufffd\ufffd` 형태로 변환되어 데이터가 소리 없이 영구 오염됨(또는 불완전 문자열로 인한 JSON 파싱 에러 유발).
+
+**심각도: MED**
+**파일:줄**: `harness-ui/src/server/adapters/regstore.ts:149`
+**근거**: `objectDepthExceeds`의 BFS 로직은 깊이뿐만 아니라 `--budget <= 0`을 통해 전체 탐색 노드 수(`nodeBudget=200,000`)를 강제로 제한합니다. 그러나 `index.json`의 허용 크기는 최대 16MB(`REG_MAX_INDEX`)입니다. 16MB에 달하는 넓고 얕은 구조의 JSON 데이터는 악의적인 파일이 아니더라도 배열 엔트리 등 원시 값(key/value) 노드 수가 수십만 개를 훌쩍 초과할 수 있어, 정상 파일이 DoS(깊이 폭발)로 오탐되어 거부당하는 현상이 발생합니다.
+**실패 시나리오**: 약 30,000개의 엔트리(각 10여 개 필드)를 지닌 약 5MB 크기의 정상 `index.json` 입력 → 구조 깊이는 얕으나 총 노드 수(300,000개 이상)가 20만 개 예산을 넘겨, 정상 파일임에도 파싱 거부(`json-too-deep` 에러) 반환.
+
+**심각도: MED**
+**파일:줄**: `harness-ui/src/server/adapters/regstore-index.ts:70`
+**근거**: `parseMeta` 함수는 Zod 스키마 검증 실패(`res.success === false`) 시, 개별 필드 복구(`catch()`) 없이 전체 반환값을 `MetaSchema.parse({})`(전체 깡통 기본값)로 완전히 덮어씌웁니다. 관대한 처리를 의도했으나, 단 하나의 오타성 필드나 예상치 못한 null 값이 들어오면 기존의 멀쩡한 정보들까지 전부 함께 날아가 버리는 파괴적 동작을 보입니다.
+**실패 시나리오**: `{"owner": "Alice", "endorse": 15, "discussionUrl": "invalid_url"}` 입력 → `discussionUrl` 필드의 정규식/포맷 검증 실패로 인해 전체 `safeParse`가 `false` 반환 → 유효했던 `owner`("Alice")와 `endorse`(15) 데이터까지 모두 유실되고 기본값(`unknown`, `0`)으로 통째로 교체됨.
+
+---
+**[그 외 중점 질의에 대한 코드 리뷰 결과 - 결함 없음]**
+- **(2) rawJsonDepth 문자열/이스케이프 처리**: `esc` 변수를 토글하여 `\"` 및 `\\` 이스케이프 시퀀스를 정확히 추적하며, 문자열 진입/탈출 상태 변경이 JSON 규칙과 정확히 일치해 결함이 없습니다.
+- **(4) listRegDirs opendir 핸들 누수**: Node.js의 `for await ... of` 루프 특성상 `break` 발생 시 AsyncIterator의 `.return()` 메커니즘을 통해 자동으로 `Dir.close()`가 트리거되므로 핸들 누수는 발생하지 않습니다.
+- **(5) evaluateRegistry tmp 정리·에러 경로**: `try-finally` 블록의 구조가 견고하여, `materialize` 작업이 실패하거나 도중에 예외가 던져져도 어떠한 실행 경로에서도 무조건 `rm(tmp)`가 호출되어 임시 폴더 누수가 발생하지 않습니다.
+
+판정: HIGH 1건
+(이전에 백그라운드로 실행해 두었던 파일 탐색 작업이 완료되었다는 시스템 메시지를 확인했습니다. 이미 필요한 코드를 찾아 리뷰를 완료했으므로, 추가로 궁금하신 점이나 더 리뷰가 필요한 코드가 있다면 편하게 말씀해 주세요!)
+[agy done]

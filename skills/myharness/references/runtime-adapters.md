@@ -20,6 +20,7 @@
 | 인스트럭션 | `CLAUDE.md` | `AGENTS.md` (글로벌 `~/.codex` → 레포 루트→cwd concat, **가까운 쪽 우선**, 32KiB cap) | ✅ 듀얼 출력 |
 | 스킬 | `.claude/skills/{n}/SKILL.md` (desc 자동 트리거) | `.agents/skills/{n}/SKILL.md` (desc 기반 implicit activation, `/skills`·`$name` 명시) | ✅ **포맷 동일** |
 | 에이전트 정의 | `.claude/agents/{n}.md` | `.codex/agents/{n}.toml` (커스텀) + 내장 `default`/`worker`/`explorer` | 🟡 포맷 변환(md→toml) |
+| 모델·추론 강도 지정 | 정의 frontmatter `model:`·`effort:` + `settings.json` `fallbackModel`(세션 폴백) | `.codex/agents/*.toml` 의 `model`(**스키마 미확인** — 확인 전까지 `runtime-default`) · 내장 에이전트는 런타임 설정값 | 🟡 값은 프로파일이 정한다(`place`) |
 | 멀티 에이전트 | `Agent`(팀원 spawn)/`SendMessage`/`TaskCreate` | **네이티브 subagents**(병렬 spawn) 또는 `codex exec` subprocess | 🟡 어댑터 |
 | 플러그인/배포 | `.claude-plugin/plugin.json` + marketplace | 플러그인 번들(skills+commands+MCP+hooks+marketplace) | 🟡 별도 매니페스트 |
 | 설정 | settings.json | `.codex/config.toml`(프로젝트, trusted) + `~/.codex/config.toml` | 🟡 |

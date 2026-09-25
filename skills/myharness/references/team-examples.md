@@ -1,5 +1,7 @@
 # Agent Team Examples
 
+> 이 예시의 `model` 값은 **정의 파일에서 온다**(`.claude/agents/<name>.md` 의 `model:`). 정의가 전체 ID·`inherit` 면 호출에서 `model` 을 뺀다 — 티어→값 해석은 `place` 가 한다.
+
 ## 목차 (참고할 예시만 로드)
 1 리서치 팀(팀) · 2 SF 소설 집필(팀) · 3 웹툰 제작(서브) · 4 코드 리뷰(팀) · 5 감독자—코드 마이그레이션(팀) · 산출물 패턴 요약. 도메인에 가장 가까운 예시 1개만 읽으면 된다.
 
@@ -39,10 +41,10 @@ Phase 1: 준비
   - _workspace/ 생성
 
 Phase 2: 팀원 spawn (단일 메시지에서 Agent 도구로 4명 병렬 — 별도 팀 생성 단계 없음)
-  - Agent(subagent_type: "official",   model: "opus", prompt: "공식 채널 조사...")
-    Agent(subagent_type: "media",      model: "opus", prompt: "미디어/투자 동향 조사...")
-    Agent(subagent_type: "community",  model: "opus", prompt: "커뮤니티 반응 조사...")
-    Agent(subagent_type: "background", model: "opus", prompt: "배경/경쟁 환경 조사...")
+  - Agent(subagent_type: "official",   model: "{official 정의 파일의 model}",   prompt: "공식 채널 조사...")
+    Agent(subagent_type: "media",      model: "{media 정의 파일의 model}",      prompt: "미디어/투자 동향 조사...")
+    Agent(subagent_type: "community",  model: "{community 정의 파일의 model}",  prompt: "커뮤니티 반응 조사...")
+    Agent(subagent_type: "background", model: "{background 정의 파일의 model}", prompt: "배경/경쟁 환경 조사...")
   - TaskCreate(tasks: [
       { title: "공식 채널 조사", assignee: "official" },
       { title: "미디어 동향 조사", assignee: "media" },

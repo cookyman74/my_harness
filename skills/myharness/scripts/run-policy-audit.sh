@@ -153,5 +153,140 @@ case "$hi_rc" in
   *) no "harness-intake.mjs 스캐너가 환경에 반응하지 않는다(rc=$hi_rc, 스텁 의심) — 실패 케이스:"; hi_detail ;;
 esac
 
+# 13) 모델 프로파일 — 스키마·매핑 완전성(FAIL) + 확인일 신선도(WARN) · 설계서 §8-1
+#     날짜는 env HARNESS_AUDIT_NOW=<YYYY-MM-DD> 로 주입한다(인자 파서를 신설하면 12개 기존 항목의 호출
+#     규약이 바뀐다 — §0-7 g). 형식이 틀리면 FAIL: 조용히 시스템 날짜로 떨어지면 판정이 비결정적이 된다.
+#     후보 도구 4종은 check-review-tools.sh 의 `for t in …` 줄을 **파싱**해서 얻는다 — 목록을 여기 다시
+#     적으면 같은 사실의 세 번째 구현이 된다(해석기 reviewToolCandidates 와 같은 정규식).
+AUDIT_NOW="${HARNESS_AUDIT_NOW:-}"
+# 모양뿐 아니라 **실재**도 본다 — `2026-02-31` 은 조용히 3/3 이 된다(사용자가 적지 않은 날짜로 재게 된다).
+if [ -n "$AUDIT_NOW" ] && ! node -e 'const d=process.argv[1];process.exit(/^\d{4}-\d{2}-\d{2}$/.test(d)&&new Date(d+"T00:00:00Z").toISOString().slice(0,10)===d?0:1)' "$AUDIT_NOW" 2>/dev/null; then
+  no "HARNESS_AUDIT_NOW 가 실재하는 날짜가 아니다('$AUDIT_NOW') — YYYY-MM-DD 이고 달력에 있어야 한다(조용히 시스템 날짜로 떨어지거나 다른 날짜로 굴러가지 않는다)"
+else
+  mp_out="$(HARNESS_AUDIT_NOW="$AUDIT_NOW" node -e '
+const fs=require("fs"), path=require("path");
+const SK=process.argv[1];
+const F=path.join(SK,"references","model-profiles.json");
+const out=[]; const bad=(m)=>out.push("FAIL\t"+m); const warn=(m)=>out.push("WARN\t"+m);
+const isObj=(v)=>v!==null&&typeof v==="object"&&!Array.isArray(v);
+// 날짜는 **모양이 아니라 실재**를 본다. `2026-02-31` 은 정규식을 통과하고 Date 가 **3/3 으로 굴러간다**(NaN 이 아니다)
+// — 사용자가 적지 않은 날짜로 신선도를 재게 된다(S5 R1 codex MED · 기전은 달랐고 사실만 수용). 왕복 대조로 막는다.
+const realDate=(d)=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&new Date(d+"T00:00:00Z").toISOString().slice(0,10)===d;
+const cp=(a,b)=>a<b?-1:a>b?1:0;
+function sorted(o,where){ const k=Object.keys(o); const s=[...k].sort(cp);
+  for(let i=0;i<k.length;i++) if(k[i]!==s[i]) return bad(`객체 키가 코드포인트 정렬이 아니다: ${where} (${k[i]} 자리에 ${s[i]})`); }
+let raw,mp;
+try{ raw=fs.readFileSync(F,"utf8"); }catch(e){ bad(`프로파일 파일이 없다: ${F}`); console.log(out.join("\n")); process.exit(0); }
+try{ mp=JSON.parse(raw); }catch(e){ bad(`프로파일 JSON 파싱 실패: ${e.message}`); console.log(out.join("\n")); process.exit(0); }
+if(mp.schema!=="model-profiles/1") bad(`schema 가 model-profiles/1 이 아니다: ${JSON.stringify(mp.schema)}`);
+for(const k of ["stale_after_days","session_fallback","runtime_provider","tools","providers","review_tiers","placement","behavior"])
+  if(!Object.prototype.hasOwnProperty.call(mp,k)) bad(`필수 키 누락: ${k}`);
+// **존재만 보면 소비자가 못 쓰는 값이 통과한다**(S5 R11 codex HIGH · 실측: providers={} · tools=[] · runtime_provider={} 전부 PASS).
+// 로더(harness-intake.mjs)가 rc=2 로 거부하는 값은 감사도 FAIL 이어야 한다 — 감사가 초록인데 하네스가 못 도는 상태를 막는다.
+for(const k of ["runtime_provider","tools","providers","review_tiers","placement"]){
+  const v=mp[k];
+  if(v===undefined) continue;                       // 위에서 이미 '누락' 으로 잡았다
+  if(!isObj(v)) bad(`${k} 가 객체가 아니다(배열·원시값은 소비자가 거부한다): ${Array.isArray(v)?"[]":JSON.stringify(v)}`);
+  else if(Object.keys(v).length===0) bad(`${k} 가 비어 있다(키가 0개 — 소비자가 거부한다)`);
+}
+if(mp.session_fallback!==undefined&&!(Array.isArray(mp.session_fallback)&&mp.session_fallback.length>0&&mp.session_fallback.every((x)=>typeof x==="string"&&x!=="")))
+  bad(`session_fallback 이 비지 않은 문자열 배열이 아니다: ${JSON.stringify(mp.session_fallback)}`);
+// 후보 4종 — check-review-tools.sh 단일 출처
+let cand=null;
+try{ const t=fs.readFileSync(path.join(SK,"scripts","check-review-tools.sh"),"utf8");
+     const m=t.match(/^for t in ([a-z0-9 _-]+); do$/m);
+     if(!m) bad("check-review-tools.sh 의 후보 도구 줄을 파싱하지 못했다(`for t in …; do`)");
+     else cand=m[1].trim().split(/\s+/); }
+catch(e){ bad(`check-review-tools.sh 를 읽지 못했다: ${e.message}`); }
+if(cand && isObj(mp.tools)){
+  const miss=cand.filter((t)=>!Object.prototype.hasOwnProperty.call(mp.tools,t));
+  if(miss.length) bad(`tools 에 후보 도구가 없다: ${miss.join(",")}`);
+}
+if(isObj(mp.providers)){
+  // ⚠ 값 검증 없이 Number() 만 하면 `"NaN"`·음수·문자열에서 Number.isFinite 가 거짓이 돼
+  //    **신선도 검사 전체가 조용히 사라진다**(S5 R5 codex MED · 실측 WARN 0건). 스키마로 막는다.
+  if(!(typeof mp.stale_after_days==="number"&&Number.isInteger(mp.stale_after_days)&&mp.stale_after_days>0))
+    bad(`stale_after_days 가 양의 정수가 아니다: ${JSON.stringify(mp.stale_after_days)} — 신선도 검사가 조용히 사라진다`);
+  const days=Number(mp.stale_after_days);
+  const now=process.env.HARNESS_AUDIT_NOW || new Date().toISOString().slice(0,10);
+  const ageDays=(d)=>Math.floor((Date.parse(now+"T00:00:00Z")-Date.parse(d+"T00:00:00Z"))/86400000);
+  for(const [id,p] of Object.entries(mp.providers)){
+    if(!isObj(p)){ bad(`providers.${id} 가 객체가 아니다`); continue; }
+    if(typeof p.confirmed_at!=="string"||!realDate(p.confirmed_at)) bad(`providers.${id}.confirmed_at 이 없다·실재하지 않는 날짜다: ${JSON.stringify(p.confirmed_at)}`);
+    else if(Number.isFinite(days)&&ageDays(p.confirmed_at)>days) warn(`providers.${id}.confirmed_at ${p.confirmed_at} 이 ${days}일을 넘겼다(가이드 갱신은 사람 일 — 차단하지 않는다)`);
+    if(typeof p.source_url!=="string"||p.source_url==="") bad(`providers.${id}.source_url 이 없다`);
+    const fb=Array.isArray(p.effort_forbidden)?p.effort_forbidden:[];
+    const vocab=Array.isArray(p.effort_vocab)?p.effort_vocab:null;
+    if(isObj(p.tiers)){
+      for(const [t,v] of Object.entries(p.tiers)){
+        if(!isObj(v)) { bad(`providers.${id}.tiers.${t} 가 객체가 아니다`); continue; }
+        if(v.effort!==undefined){
+          if(fb.includes(v.effort)) bad(`providers.${id}.tiers.${t}.effort 가 effort_forbidden 에 있다: ${v.effort}`);
+          if(vocab&&!vocab.includes(v.effort)) bad(`providers.${id}.tiers.${t}.effort 가 effort_vocab 에 없다: ${v.effort}`);
+        }
+        // 타입도 본다 — `source_url` 과 같은 규약(S5 R4 codex MED · 실측: 숫자 pinned_id 가 통과했다).
+        // 여기를 안 보면 모델 ID 자리에 숫자가 들어가도 감사가 넘긴다.
+        if(v.pinned_id!==undefined&&v.pinned_id!==null&&v.pinned_id!==""&&typeof v.pinned_id!=="string")
+          bad(`providers.${id}.tiers.${t}.pinned_id 가 문자열이 아니다: ${JSON.stringify(v.pinned_id)}`);
+        if(v.pinned_id!==undefined&&v.pinned_id!==null&&v.pinned_id!==""){
+          if(typeof v.pinned_confirmed_at!=="string"||!realDate(v.pinned_confirmed_at))
+            bad(`providers.${id}.tiers.${t} 에 pinned_id 가 있는데 pinned_confirmed_at 이 없다`);
+          else if(Number.isFinite(days)&&ageDays(v.pinned_confirmed_at)>days)
+            warn(`providers.${id}.tiers.${t}.pinned_confirmed_at ${v.pinned_confirmed_at} 이 ${days}일을 넘겼다`);
+        }
+      }
+    }
+  }
+}
+if(mp.behavior!==undefined){
+  // 소비자 로더와 **같은 판정**을 써야 한다(harness-intake.mjs: `!isObj(mp.behavior) || keys!==0` → rc=2).
+  // `null`·`""`·`[]` 를 "비었다" 로 넘기면 감사는 통과하는데 place·assemble 이 rc=2 로 죽는다
+  // — 감사가 초록인데 하네스가 못 도는 상태다(S5 R6 codex MED · 실측 재현).
+  if(!isObj(mp.behavior)||Object.keys(mp.behavior).length!==0)
+    bad(`behavior 는 이 릴리스에서 **빈 객체**여야 한다(L3 슬롯 예약 · 로더가 rc=2 로 거부하는 값이다): ${JSON.stringify(mp.behavior)}`);
+}
+// 키 정렬은 **모든 객체**에 적용되는 규약이다(§2-2). 위에서 골라 부르면 `placement`·`review_tiers` 같은
+// 하위 객체를 놓친다(S5 R17 agy HIGH · 실측: placement 키를 뒤집어도 FAIL 이 안 났다). 여기 한 곳에서 본다.
+(function walk(o,where){ if(!isObj(o)&&!Array.isArray(o)) return;
+  if(isObj(o)) sorted(o,where);
+  for(const [k,v] of Object.entries(o)){
+    if(k==="local"){   // L3 슬롯 예약(§2-4 MA5). 정본 문서: `local` = `{base_url, start_cmd}` — **둘 다 null**
+      // ⚠ "있는 값이 전부 null" 만 보면 `{}` 도 통과한다(S5 R3 codex MED · 실측 재현) — 키 **집합**까지 본다.
+      // 예약 슬롯이 조용히 비면 나중에 그 자리를 읽는 코드가 undefined 를 만나고, 부패를 감사가 못 잡는다.
+      const want=["base_url","start_cmd"];
+      if(!isObj(v)) bad(`${where}.local 이 객체가 아니다(예약 슬롯)`);
+      else {
+        const got=Object.keys(v);
+        // 집합만 보면 **정렬 위반을 놓친다**(S5 R14 codex MED) — 정본 규약은 모든 객체 키가 코드포인트 정렬이다.
+        if([...got].sort(cp).join(",")!==want.join(",")) bad(`${where}.local 의 키가 ${want.join(",")} 가 아니다: ${got.join(",")||"(없음)"}`);
+        else sorted(v,`${where}.local`);   // walk 는 이 분기에서 continue 하므로 정렬은 여기서 본다
+
+        for(const [lk,lv] of Object.entries(v)) if(lv!==null) bad(`${where}.local.${lk} 가 null 이 아니다(L3 은 예약 슬롯 — 값이 있으면 아직 없는 계약을 쓰는 것이다)`);
+      }
+      continue; }
+    walk(v,`${where}.${k}`);
+  } })(mp,"(최상위)");
+console.log(out.join("\n"));
+' "$SK" 2>&1)"
+  mp_rc=$?
+  if [ "$mp_rc" != 0 ]; then
+    no "model-profiles.json 감사를 실행하지 못했다(node rc=$mp_rc) — 검사 부재를 통과로 세지 않는다"
+    printf '%s\n' "$mp_out" | sed 's/^/    /'
+  else
+    mp_f=0
+    while IFS=$'\t' read -r kind msg; do
+      [ -n "$kind" ] || continue
+      # 줄에 **항목 식별자**를 단다 — 어느 감사 항목이 낸 실패인지 구분되지 않으면 다른 항목의 부수 실패와 섞인다.
+      case "$kind" in FAIL) no "model-profiles.json: $msg"; mp_f=1 ;; WARN) wn "model-profiles.json: $msg" ;; esac
+    done <<< "$mp_out"
+    [ "$mp_f" = 0 ] && ok "모델 프로파일 스키마·매핑 완전성(references/model-profiles.json)"
+  fi
+  # C-18 — 팩토리에서만: 하네스 결선 심링크가 텍스트 파일로 체크아웃되면 자체 외부리뷰가 죽는다.
+  # 경로가 **있는데** 심링크가 아닐 때만 WARN 이다(생성 하네스엔 이 경로가 없다 — 부재는 검사 대상 아님).
+  if [ -e .claude/skills/repo-maintainer/scripts ] && [ ! -L .claude/skills/repo-maintainer/scripts ]; then
+    wn ".claude/skills/repo-maintainer/scripts 가 심링크가 아니다(core.symlinks=false 체크아웃) — 팩토리 자체 외부리뷰가 해석기를 못 찾는다"
+  fi
+fi
+
 echo "=== POLICY AUDIT: $([ $fail -eq 0 ] && echo PASS || echo FAIL) (fail $fail, warn $warn) ==="
 [ "$fail" -eq 0 ]

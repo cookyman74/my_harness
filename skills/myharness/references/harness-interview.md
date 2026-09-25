@@ -32,7 +32,7 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs answer --orchestrat
 
 ```json harness-interview-catalog
 {
-  "catalog_version": 1,
+  "catalog_version": 2,
   "items": [
     {
       "id": "completion", "no": "①", "header": "완료 기준", "select": "multi",
@@ -88,6 +88,16 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs answer --orchestrat
         { "key": "ignore", "label": "무시 — 기존 정의를 보지 않는다", "expose": [] }
       ],
       "default_why": "안전한 쪽: 재사용을 먼저 검토한다 — 역할이 겹치는 정의가 다른 이름으로 누적되는 것을 막는다"
+    },
+    {
+      "id": "egress", "no": "⑥", "header": "외부 반출", "select": "single",
+      "prompt": "이 하네스가 다루는 내용을 현재 런타임 밖의 API 로 보내도 되나?",
+      "options": [
+        { "key": "runtime-only", "label": "현재 런타임만 — 밖으로 보내지 않는다", "expose": [] },
+        { "key": "allow-listed", "label": "허용 목록만 — 현재 런타임 + 이미 설치해 쓰는 리뷰어 엔진", "expose": [] },
+        { "key": "any", "label": "제한 없음 — 어떤 프로바이더든", "expose": [] }
+      ],
+      "default_why": "안전한 쪽: 이미 설치해 쓰는 리뷰어는 반출을 허용한 증거로 보되 그 밖은 막는다 — runtime-only 를 기본에 두면 비대화 생성마다 외부리뷰가 조용히 꺼진다"
     }
   ]
 }
@@ -225,7 +235,7 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs answer --orchestrat
   "factory_version": "<팩토리 plugin.json 버전>",
   "mode": "new",
   "at": "2026-09-11T00:00:00Z",
-  "scan": { "runtime": { "claude": "…", "codex": "…", "agy": "…" }, "signals": ["changelog", "ci", "plugin-manifest", "tests"], "at": "…" },
+  "scan": { "runtime": { "agy": "…", "claude": "…", "codex": "…", "gemini": "…" }, "signals": ["changelog", "ci", "plugin-manifest", "tests"], "at": "…" },
   "answers": {
     "completion":   { "value": ["tests-pass", "ci-green", "artifacts-present"], "source": "declared", "at": "…", "default": […], "recommended": […], "why": "…", "options_incomplete": false, "other": null },
     "irreversible": { … },
@@ -276,6 +286,8 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs answer --orchestrat
 | ④ `approval` | `approval` | 같은 파일 `## 승인 관문` | 중대 사다리(`SKILL.md:284`) · `external-review-loop.md:227-230` Step 7 승인 관문 · `.autonomous` 허용 여부(`SKILL.md:290`) |
 | ⑤ `assets` | `assets` | 같은 파일 `## 기존 자산` | Phase 3-0/4-0 중복 검토가 이 블록의 스캔 목록을 인용(`SKILL.md:96-98`·`:136-138`) |
 | 전제 | `premise` | 대상 `CLAUDE.md` **와** `AGENTS.md` 의 하네스 섹션 | 생성 하네스 Phase 0 컨텍스트 확인 · Phase 7 |
+| ③ `cost` | **블록 없음** | — | 위 `tier` 블록 안에 ② 와 함께 렌더된다(별도 블록이 아니다). 강제 수단 = **2-4 등급 판정**이 이 값을 읽는다 |
+| ⑥ `egress` | **블록 없음** | — | **강제 수단이 `verify` 가 아니라 실행 경로다** — `harness-intake.mjs egress` 가 허용 도구 집합으로 번역하고 `run-review.sh` 가 그 다섯 줄을 읽어 리뷰어를 고른다. 해석에 실패하면 `die_launcher`(필터 미적용으로 흘러가지 않는다). 사람이 보는 지점은 `answer` 의 `SCANNED:` 줄 · `verify` 의 `ASSUMED:` · 리뷰 상태의 `degraded` |
 
 표식 형식은 `<!-- harness-profile:<블록 id> sha256=<해시> -->` … `<!-- /harness-profile:<블록 id> -->`(설계서 §7-1). 전제 절에는 가정 항목·비가역·경로만 둔다 — 5-4 "넣지 않는 것" 원칙(`SKILL.md:269`).
 
@@ -315,11 +327,11 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs verify --orchestrat
 
 [tier]
 단계 등급은 아래를 위에서부터 적용해 처음 맞는 것으로 정한다.
-1. 단계 산출물이 비가역 목록에 닿는다 → 중대 — 비가역: 릴리스·태그 발행 (`release-publish`) · 모름 — 비가역으로 취급 (`unknown`) · 그 외: 데이터 삭제 (`other`)
-2. 계약 변경·다도메인(SKILL.md 5-6 표) → 중대
-3. 다파일·기능 추가 → 표준
-4. 그 밖 → 경량
-하한: 실패 비용 = 오류 우선 → 코드·설계 단계는 최소 표준
+1. 단계 산출물이 비가역 목록에 닿는다 → 중대(critical) — 비가역: 릴리스·태그 발행 (`release-publish`) · 모름 — 비가역으로 취급 (`unknown`) · 그 외: 데이터 삭제 (`other`)
+2. 계약 변경·다도메인(SKILL.md 5-6 표) → 중대(critical)
+3. 다파일·기능 추가 → 표준(standard)
+4. 그 밖 → 경량(light)
+하한: 실패 비용 = 오류 우선 → 코드·설계 단계는 최소 표준(standard)
 
 [approval]
 - 「릴리스·태그 발행」 직전 승인 (`before:release-publish`)
@@ -346,7 +358,7 @@ node <이 스킬의 디렉토리>/scripts/harness-intake.mjs verify --orchestrat
 | 이음 | 한 줄 안의 여러 값은 ` · `(공백·가운뎃점·공백) · `assets` 의 이름 목록만 `, ` |
 | `other` | 값 목록 **뒤에** `그 외: <문장>`(키 표기 블록에서는 뒤에 ` (` + 백틱 `other` + `)`) · 줄 단위 블록(`completion`·`approval`)은 `- 그 외: <문장> (…other…)` 줄 하나를 값 줄들 뒤에 |
 | `approval` 순서 | `value` 줄들 → `other` 줄 → (`autonomous` 가 `value` 에 없을 때만) `- 자율 노브(_workspace/.autonomous): 허용하지 않음` · `autonomous` 가 있으면 그 줄 대신 `- 자율 노브 허용(_workspace/.autonomous) (…autonomous…)` 가 `value` 순서 자리에 · `before:other` 라벨 = 「그 외 비가역」 직전 승인 |
-| ② = `none` | `tier`: 비가역 규칙 줄을 **빼고** 번호 1~3(`1. 계약 변경·…` `2. 다파일·…` `3. 그 밖 → 경량`) · `premise` 마지막 줄 `- 비가역: 없음 — 전부 되돌릴 수 있다`(뒤 문구 없음) |
+| ② = `none` | `tier`: 비가역 규칙 줄을 **빼고** 번호 1~3(`1. 계약 변경·…` `2. 다파일·…` `3. 그 밖 → 경량(light)`) · `premise` 마지막 줄 `- 비가역: 없음 — 전부 되돌릴 수 있다`(뒤 문구 없음) |
 | ③ ≠ `error-worse` | `tier` 의 `하한:` 줄 없음 |
 | ⑤ 가 `other` 만 | `- 정책: 그 외: <문장> (…other…)` |
 | 스캔 0개 | `- 스캔된 에이전트(0): 없음` · `- 스캔된 스킬(0): 없음` |

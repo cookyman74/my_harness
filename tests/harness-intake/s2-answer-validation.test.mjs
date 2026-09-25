@@ -32,7 +32,7 @@ test('[6절] 모르는 선택지 키 → rc=2', () => pair({ ctrl: S(FULL), bad:
 test('[6절] 이번 스캔에서 노출되지 않은 선택지 키(repo-like ② db-migration) → rc=2', () =>
   pair({ ctrl: S(FULL), bad: S(rep('irreversible=release-publish', 'irreversible=release-publish,db-migration')), rc: 2 }));
 test('[6절] 미노출 선택지 키(empty ① tests-pass — tests 신호 없음) → rc=2', () => {
-  const E = 'completion=artifacts-present;irreversible=unknown;cost=error-worse;approval=before:unknown,ladder;assets=reuse';
+  const E = 'completion=artifacts-present;irreversible=unknown;cost=error-worse;approval=before:unknown,ladder;assets=reuse;egress=allow-listed';
   pair({ fixture: 'empty', ctrl: S(E), bad: S(E.replace('completion=artifacts-present', 'completion=tests-pass')), rc: 2 });
 });
 test('[6절] 키는 정규화하지 않는다 — 대문자·유니코드 하이픈 변형 → 모르는 키 rc=2', () => {
@@ -88,11 +88,11 @@ test('[6절] --orchestrator 이름이 ^[a-z0-9][a-z0-9-]{0,63}$ 아님 → rc=2 
 
 // ───── 6절 표: rc=1 행 ─────
 test('[6절] none + 다른 키 → rc=1', () =>
-  pair({ ctrl: S('completion=tests-pass;irreversible=none;cost=error-worse;approval=ladder;assets=reuse'),
-    bad: S('completion=tests-pass;irreversible=none,unknown;cost=error-worse;approval=ladder;assets=reuse'), rc: 1 }));
+  pair({ ctrl: S('completion=tests-pass;irreversible=none;cost=error-worse;approval=ladder;assets=reuse;egress=allow-listed'),
+    bad: S('completion=tests-pass;irreversible=none,unknown;cost=error-worse;approval=ladder;assets=reuse;egress=allow-listed'), rc: 1 }));
 test('[6절] none + other:<문장> → rc=1', () =>
-  pair({ ctrl: S('completion=tests-pass;irreversible=none;cost=error-worse;approval=ladder;assets=reuse'),
-    bad: S('completion=tests-pass;irreversible=none,other:DNS 변경;cost=error-worse;approval=ladder;assets=reuse'), rc: 1 }));
+  pair({ ctrl: S('completion=tests-pass;irreversible=none;cost=error-worse;approval=ladder;assets=reuse;egress=allow-listed'),
+    bad: S('completion=tests-pass;irreversible=none,other:DNS 변경;cost=error-worse;approval=ladder;assets=reuse;egress=allow-listed'), rc: 1 }));
 test('[6절] 단일 문항 cost 에 토큰 둘 → rc=1', () => pair({ ctrl: S(FULL), bad: S(rep('cost=error-worse', 'cost=error-worse,balanced')), rc: 1 }));
 test('[6절] 단일 문항 assets 에 토큰 둘 → rc=1', () => pair({ ctrl: S(FULL), bad: S(rep('assets=reuse', 'assets=reuse,ignore')), rc: 1 }));
 test('[6절] ④ before:<키> 가 ② 답에 없는 키(unknown — 노출은 됨) → rc=1', () =>

@@ -22,18 +22,18 @@ const prof = (fx) => readJson(profPath(fx));
 
 // repo-like(S2 픽스처 복사본): SIGNALS changelog ci plugin-manifest tests · 에이전트 reviewer·writer · 스킬 lint-skill
 const BASE = { completion: 'tests-pass,ci-green', irreversible: 'release-publish,unknown', cost: 'error-worse',
-  approval: 'before:release-publish,before:unknown,ladder', assets: 'reuse' };
+  approval: 'before:release-publish,before:unknown,ladder', assets: 'reuse', egress: 'allow-listed' };
 // 참조 문서 3절 기본값을 repo-like 에 손으로 적용(S2 EXPECT_REPO_LIKE 와 같다)
 const DEFAULTS = { completion: 'tests-pass,ci-green,artifacts-present', irreversible: 'release-publish,unknown', cost: 'error-worse',
-  approval: 'before:release-publish,before:unknown,ladder', assets: 'reuse' };
-const REC = { completion: 'tests-pass', irreversible: 'none', cost: 'delay-worse', approval: 'ladder', assets: 'reference-only' };
+  approval: 'before:release-publish,before:unknown,ladder', assets: 'reuse', egress: 'allow-listed' };
+const REC = { completion: 'tests-pass', irreversible: 'none', cost: 'delay-worse', approval: 'ladder', assets: 'reference-only', egress: 'any' };
 
 const T0 = '단계 등급은 아래를 위에서부터 적용해 처음 맞는 것으로 정한다.';
-const FLOOR = '하한: 실패 비용 = 오류 우선 → 코드·설계 단계는 최소 표준';
+const FLOOR = '하한: 실패 비용 = 오류 우선 → 코드·설계 단계는 최소 표준(standard)'; // S3 — 표시 어휘 + 기계 키 병기
 const BASE_INNER = {
   completion: ['- 테스트 게이트 통과 (`tests-pass`)', '- CI green (`ci-green`)'],
-  tier: [T0, '1. 단계 산출물이 비가역 목록에 닿는다 → 중대 — 비가역: 릴리스·태그 발행 (`release-publish`) · 모름 — 비가역으로 취급 (`unknown`)',
-    '2. 계약 변경·다도메인(SKILL.md 5-6 표) → 중대', '3. 다파일·기능 추가 → 표준', '4. 그 밖 → 경량', FLOOR],
+  tier: [T0, '1. 단계 산출물이 비가역 목록에 닿는다 → 중대(critical) — 비가역: 릴리스·태그 발행 (`release-publish`) · 모름 — 비가역으로 취급 (`unknown`)',
+    '2. 계약 변경·다도메인(SKILL.md 5-6 표) → 중대(critical)', '3. 다파일·기능 추가 → 표준(standard)', '4. 그 밖 → 경량(light)', FLOOR],
   approval: ['- 「릴리스·태그 발행」 직전 승인 (`before:release-publish`)', '- 「모름 — 비가역으로 취급」 직전 승인 (`before:unknown`)',
     '- 중대 단계 승인 사다리(PRD→계획서→실행) (`ladder`)', '- 자율 노브(_workspace/.autonomous): 허용하지 않음'],
   assets: ['- 정책: 재사용 우선 — 에이전트 2·스킬 1 (`reuse`)', '- 스캔된 에이전트(2): reviewer, writer', '- 스캔된 스킬(1): lint-skill'],
@@ -64,7 +64,7 @@ const ROWS = [
     check: (c) => assert.deepEqual(c.completion.inner, ['- 테스트 게이트 통과 (`tests-pass`)']) },
   { name: 'irreversible=none(approval 은 ladder 로 다시 답한다)', over: { irreversible: 'none', approval: 'ladder' }, diff: ['tier', 'approval', 'premise'],
     check: (c) => {
-      assert.deepEqual(c.tier.inner, [T0, '1. 계약 변경·다도메인(SKILL.md 5-6 표) → 중대', '2. 다파일·기능 추가 → 표준', '3. 그 밖 → 경량', FLOOR]);
+      assert.deepEqual(c.tier.inner, [T0, '1. 계약 변경·다도메인(SKILL.md 5-6 표) → 중대(critical)', '2. 다파일·기능 추가 → 표준(standard)', '3. 그 밖 → 경량(light)', FLOOR]);
       assert.deepEqual(c.approval.inner, ['- 중대 단계 승인 사다리(PRD→계획서→실행) (`ladder`)', '- 자율 노브(_workspace/.autonomous): 허용하지 않음']);
       assert.deepEqual(c.premise.inner, [premLine('2026-09-11', FACTORY_VERSION), '- 비가역: 없음 — 전부 되돌릴 수 있다']);
     } },

@@ -7,6 +7,10 @@
 *.yaml text eol=lf
 # node 스크립트도 LF(v1.7.6 harness-intake.mjs) — shebang 줄의 CR 이 `env: node\r` 로 실행을 깨고, windows 에서만 재현된다.
 *.mjs text eol=lf
+# JSON 도 LF — 정본 데이터 파일(references/model-profiles.json)이 windows 체크아웃에서 CRLF 가 되면
+# 바이트 비교 테스트가 **러너의 Git 설정에 좌우**된다(실측: factory-ci windows 잡에서만 실패).
+# 위 *.sh·*.mjs 와 같은 이유다 — 같은 커밋이 환경마다 다른 결과를 내지 않게 한다.
+*.json text eol=lf
 # 테스트 픽스처는 바이트 그대로 둔다(골든 바이트 비교 · CRLF .cmd 픽스처 보존) — core.autocrlf 가 골든을 CRLF 로 바꾸면
 # T1 이 windows 에서만 깨진다.
 tests/fixtures/** -text

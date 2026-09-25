@@ -72,6 +72,42 @@ Phase 0(컨텍스트 확인) → Phase 1(작업 분류 → 실행 경로) → Ph
 2. 사용자에게 피드백 요청 ("결과/팀 구성에 바꿀 점?").
 3. 변경 이력 기록 — `docs/harness-history.md` 맨 위에 전문 행, `CLAUDE.md` 「변경 이력」에 한 줄 요약(최근 5건 유지 · 가장 오래된 요약 삭제).
 
+## 완료 기준
+
+<!-- harness-profile:completion sha256=23f7e1255013b7cf513685a447f9c31df55d0cd23df56343868cbbb22bfc6bbf -->
+- 테스트 게이트 통과 (`tests-pass`)
+- CI green (`ci-green`)
+- 산출물 경로 존재 (`artifacts-present`)
+<!-- /harness-profile:completion -->
+
+## 리스크 등급
+
+<!-- harness-profile:tier sha256=0a7935bbc626bac316285afb2979c87fd89ad62b883708f6fdbb83eb6f170583 -->
+단계 등급은 아래를 위에서부터 적용해 처음 맞는 것으로 정한다.
+1. 단계 산출물이 비가역 목록에 닿는다 → 중대(critical) — 비가역: 릴리스·태그 발행 (`release-publish`) · 모름 — 비가역으로 취급 (`unknown`)
+2. 계약 변경·다도메인(SKILL.md 5-6 표) → 중대(critical)
+3. 다파일·기능 추가 → 표준(standard)
+4. 그 밖 → 경량(light)
+하한: 실패 비용 = 오류 우선 → 코드·설계 단계는 최소 표준(standard)
+<!-- /harness-profile:tier -->
+
+## 승인 관문
+
+<!-- harness-profile:approval sha256=9ae22cc01c683ed9a83ca8ca2a652403ec936ff760bf406dd21721e72833a8cb -->
+- 「릴리스·태그 발행」 직전 승인 (`before:release-publish`)
+- 「모름 — 비가역으로 취급」 직전 승인 (`before:unknown`)
+- 중대 단계 승인 사다리(PRD→계획서→실행) (`ladder`)
+- 자율 노브(_workspace/.autonomous): 허용하지 않음
+<!-- /harness-profile:approval -->
+
+## 기존 자산
+
+<!-- harness-profile:assets sha256=9bafc027cf33364cfa55e0bc9a76a3b0e1efc64368fbef74f4c30295eb6fe12c -->
+- 정책: 재사용 우선 — 에이전트 6·스킬 6 (`reuse`)
+- 스캔된 에이전트(6): doc-syncer, harness-ui-planner, release-manager, repo-qa, skill-maintainer, stabilizer
+- 스캔된 스킬(6): doc-sync, external-review-loop, my-harness, release-flow, repo-maintainer, skill-authoring
+<!-- /harness-profile:assets -->
+
 ## 테스트 시나리오
 **정상 흐름 (릴리스):** "v1.3.0 릴리스" → Phase0 check-version(현 1.2.0) → release-manager가 CHANGELOG Unreleased 승격 + plugin/marketplace 1.3.0 → doc-syncer가 뱃지 3종 1.3.0 → repo-qa check-version PASS → 태그 계획 제시 → 승인 대기.
 

@@ -117,7 +117,7 @@ function run() {
   // ① 빈 프로젝트 · 빈 PATH
   step("① 빈 프로젝트", () => {}, (o) => [
     [line(o, "AGENTS_PROJECT") === "none", "AGENTS_PROJECT: none", "AGENTS_PROJECT"],
-    [line(o, "RUNTIME") === "claude=absent codex=absent agy=absent", "RUNTIME 셋 다 absent", "RUNTIME"],
+    [line(o, "RUNTIME") === "agy=absent claude=absent codex=absent gemini=absent", "RUNTIME 넷 다 absent", "RUNTIME"],
   ]);
 
   // ② 에이전트 추가

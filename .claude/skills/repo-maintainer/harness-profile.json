@@ -1,0 +1,140 @@
+{
+  "schema": "harness-profile/1",
+  "factory_version": "1.8.0",
+  "mode": "extend",
+  "at": "2026-09-22T14:00:00Z",
+  "scan": {
+    "runtime": {
+      "agy": "1.2.8",
+      "claude": "2.1.278",
+      "codex": "0.155.1",
+      "gemini": "absent"
+    },
+    "signals": [
+      "changelog",
+      "ci",
+      "plugin-manifest",
+      "tests"
+    ],
+    "at": "2026-09-22T14:00:00Z"
+  },
+  "answers": {
+    "completion": {
+      "value": [
+        "tests-pass",
+        "ci-green",
+        "artifacts-present"
+      ],
+      "source": "assumed",
+      "at": "2026-09-22T04:56:44Z",
+      "default": [
+        "tests-pass",
+        "ci-green",
+        "artifacts-present"
+      ],
+      "recommended": [],
+      "why": null,
+      "options_incomplete": false,
+      "other": null
+    },
+    "irreversible": {
+      "value": [
+        "release-publish",
+        "unknown"
+      ],
+      "source": "assumed",
+      "at": "2026-09-22T04:56:44Z",
+      "default": [
+        "release-publish",
+        "unknown"
+      ],
+      "recommended": [],
+      "why": null,
+      "options_incomplete": false,
+      "other": null
+    },
+    "cost": {
+      "value": [
+        "error-worse"
+      ],
+      "source": "assumed",
+      "at": "2026-09-22T04:56:44Z",
+      "default": [
+        "error-worse"
+      ],
+      "recommended": [],
+      "why": null,
+      "options_incomplete": false,
+      "other": null
+    },
+    "approval": {
+      "value": [
+        "before:release-publish",
+        "before:unknown",
+        "ladder"
+      ],
+      "source": "assumed",
+      "at": "2026-09-22T04:56:44Z",
+      "default": [
+        "before:release-publish",
+        "before:unknown",
+        "ladder"
+      ],
+      "recommended": [],
+      "why": null,
+      "options_incomplete": false,
+      "other": null
+    },
+    "assets": {
+      "value": [
+        "reuse"
+      ],
+      "source": "assumed",
+      "at": "2026-09-22T04:56:44Z",
+      "default": [
+        "reuse"
+      ],
+      "recommended": [],
+      "why": null,
+      "options_incomplete": false,
+      "other": null,
+      "scanned": {
+        "agents": [
+          "doc-syncer",
+          "harness-ui-planner",
+          "release-manager",
+          "repo-qa",
+          "skill-maintainer",
+          "stabilizer"
+        ],
+        "skills": [
+          "doc-sync",
+          "external-review-loop",
+          "my-harness",
+          "release-flow",
+          "repo-maintainer",
+          "skill-authoring"
+        ]
+      }
+    },
+    "egress": {
+      "value": [
+        "allow-listed"
+      ],
+      "source": "declared",
+      "at": "2026-09-22T14:00:00Z",
+      "default": [
+        "allow-listed"
+      ],
+      "recommended": [],
+      "why": "이 레포의 외부리뷰는 codex·agy 를 이미 쓴다 — 이미 설치해 쓰는 리뷰어만 허용한다",
+      "options_incomplete": false,
+      "other": null,
+      "scanned": [
+        "agy",
+        "claude",
+        "codex"
+      ]
+    }
+  }
+}

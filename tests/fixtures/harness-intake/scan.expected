@@ -1,4 +1,4 @@
-RUNTIME: claude=2.1.267 codex=0.153.4 agy=1.2.0
+RUNTIME: agy=1.2.0 claude=2.1.267 codex=0.153.4 gemini=absent
 AGENTS_PROJECT: alpha bravo charlie delta echo foxtrot golf
 AGENTS_GLOBAL: alpha gamma smoke
 PLUGINS: plugfive@mkt=on,enabled_source=project plugfour@mkt=on,enabled_source=local plugone@mkt=on,enabled_source=user plugtwo@mkt=off,enabled_source=none

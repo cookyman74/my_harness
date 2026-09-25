@@ -13,7 +13,7 @@ after(cleanup);
 
 const S = (o) => Object.entries(o).map(([k, v]) => `${k}=${v}`).join(';');
 // repo-like 에서 전부 유효한 선언 답(② = force-push 로 두어 before:release-publish 가 "노출은 됐지만 ② 답에 없는" 키가 되게)
-const FORCE = { completion: 'tests-pass,ci-green', irreversible: 'force-push', cost: 'error-worse', approval: 'before:force-push,ladder', assets: 'reuse' };
+const FORCE = { completion: 'tests-pass,ci-green', irreversible: 'force-push', cost: 'error-worse', approval: 'before:force-push,ladder', assets: 'reuse', egress: 'allow-listed' };
 const NONE = { ...FORCE, irreversible: 'none', approval: 'ladder' };
 
 /** repo-like + 대상 템플릿 · answer(정상) → render → 배선. 대조군: render rc=0 · verify 전부 ok rc=0. */

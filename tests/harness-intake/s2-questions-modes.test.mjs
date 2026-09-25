@@ -1,4 +1,5 @@
-// S2 T5 — `questions` 모드별 문항 구성: new(①②③⑤) · new --after(④) · extend(②⑤ + ①③④ carried) · maintain/update([]) · 인자 오류.
+// S2 T5 — `questions` 모드별 문항 구성: new(①②③⑤) · new --after(**④⑥**) · extend(②⑤**⑥** + ①③④ carried) · maintain/update([]) · 인자 오류.
+// v1.8.3 S3 — ⑥ egress 가 2차·extend 에 붙는다(설계서 §6-1 · T-I5).
 // 참조 문서 4절 · 명세 §2-3.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,7 +8,7 @@ import path from 'node:path';
 import { cleanup } from './helpers.mjs';
 import {
   s2setup, questions, parseQ, ok, rcIs, placeProfile, baseProfile, item,
-  O, Q, beforeO, json2, EXPECT_REPO_LIKE, CARRIED_KEYS,
+  O, Q, beforeO, json2, EXPECT_REPO_LIKE, CARRIED_KEYS, Q_EGRESS,
 } from './s2-helpers.mjs';
 
 after(cleanup);
@@ -21,16 +22,17 @@ test('new → ①②③⑤ (④ 는 없다 — ② 답에 의존)', () => {
 
 // 손 계산: ② 답 순서는 카탈로그 순서(release-publish → unknown) — 입력 순서(unknown,release-publish)와 무관.
 //   기본 = before:* 전부 + ladder(3절) · 4개 → pages 1
-test('new --after irreversible=unknown,release-publish → ④ 만 · before:* 는 카탈로그 순서로 앞 · ladder·autonomous 뒤 (골든)', () => {
+test('new --after irreversible=unknown,release-publish → ④⑥ · before:* 는 카탈로그 순서로 앞 · ladder·autonomous 뒤 (골든)', () => {
   const r = ok(questions(s2setup(), AFTER('unknown,release-publish')));
   const want = [Q('approval', [beforeO('release-publish'), beforeO('unknown'), O('approval', 'ladder'), O('approval', 'autonomous')],
-    ['before:release-publish', 'before:unknown', 'ladder'])];
+    ['before:release-publish', 'before:unknown', 'ladder']), Q_EGRESS()];
   assert.equal(r.stdout, json2(want));
+  assert.ok(want.length <= 4, 'AskUserQuestion 호출당 상한 4');
 });
 
 test('new --after irreversible=none → ④ 선택지 ladder·autonomous 만 · 기본 ["ladder"](② none 이어도 ladder — 3절 S2 결정)', () => {
   const qs = parseQ(questions(s2setup(), AFTER('none')));
-  assert.deepEqual(ids(qs), ['approval']);
+  assert.deepEqual(ids(qs), ['approval', 'egress']);
   assert.deepEqual(qs[0].options.map((o) => o.key), ['ladder', 'autonomous']);
   assert.deepEqual(qs[0].default, ['ladder']);
   assert.equal(qs[0].confirm_only, false);
@@ -85,16 +87,17 @@ test('extend·maintain·update 는 --orchestrator 필요 — 없으면 rc=2', ()
 });
 
 // 손 계산: base.json 의 ①③④ 를 그대로(값·source·at·other) carried 로.
-test('extend(프로파일 있음) → 질문 ②⑤(carried:false) + ①③④ carried:true(value·source·at·other 보존)', () => {
+test('extend(프로파일 있음) → 질문 ②⑤⑥(carried:false) + ①③④ carried:true(value·source·at·other 보존)', () => {
   const fx = s2setup(); placeProfile(fx);
   const qs = parseQ(questions(fx, ['--mode', 'extend', '--orchestrator', 'orch1']));
   const asked = qs.filter((q) => q.carried === false);
   const carried = qs.filter((q) => q.carried === true);
   assert.equal(asked.length + carried.length, qs.length, 'carried 는 불리언');
   // 원소 순서 = 카탈로그 순서(① carried · ② 질문 · ③④ carried · ⑤ 질문 — 참조 문서 4절).
-  assert.deepEqual(qs.map((q) => [q.id, q.carried]), [["completion", true], ["irreversible", false], ["cost", true], ["approval", true], ["assets", false]]);
+  assert.deepEqual(qs.map((q) => [q.id, q.carried]),
+    [["completion", true], ["irreversible", false], ["cost", true], ["approval", true], ["assets", false], ["egress", false]]);
   const exp = EXPECT_REPO_LIKE();
-  assert.deepEqual(asked, [exp[1], exp[3]]);
+  assert.deepEqual(asked, [exp[1], exp[3], Q_EGRESS()]);
   const b = baseProfile().answers;
   const C = (id) => ({ id, no: item(id).no, header: item(id).header, carried: true, value: b[id].value, source: b[id].source, at: b[id].at, other: b[id].other });
   assert.deepEqual(carried, [C('completion'), C('cost'), C('approval')]);

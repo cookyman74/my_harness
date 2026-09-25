@@ -1,0 +1,11 @@
+심각도: HIGH
+파일: src/server/adapters/regstore.ts:256, 275 (`readJsonlSafe` 내부)
+실패시나리오: `readJsonlSafe`는 DoS 방어를 위한 안전 파서 역할을 수행해야 하나, 단일 라인 문자열에 대해 스택 한계 검사(`rawJsonDepth`)나 `safeParseJson`을 거치지 않고 내장 `JSON.parse(line)`을 직접 호출합니다. 라인 길이 상한(1MB) 내에서 `[[[[...]]]]`와 같이 극단적으로 깊게 중첩된 구조를 갖는 JSONL 라인이 주입될 경우, V8 파서의 재귀 호출이 한계에 도달해 "Maximum call stack size exceeded" 오류와 함께 Node.js 프로세스 전체가 크래시(DoS)됩니다.
+
+판정: HIGH 1건
+심각도: HIGH
+파일: src/server/adapters/regstore.ts:256, 275 (`readJsonlSafe` 내부)
+실패시나리오: `readJsonlSafe`는 DoS 방어를 위한 안전 파서 역할을 수행해야 하나, 단일 라인 문자열에 대해 스택 한계 검사(`rawJsonDepth`)나 `safeParseJson`을 거치지 않고 내장 `JSON.parse(line)`을 직접 호출합니다. 라인 길이 상한(1MB) 내에서 `[[[[...]]]]`와 같이 극단적으로 깊게 중첩된 구조를 갖는 JSONL 라인이 주입될 경우, V8 파서의 재귀 호출이 한계에 도달해 "Maximum call stack size exceeded" 오류와 함께 Node.js 프로세스 전체가 크래시(DoS)됩니다.
+
+판정: HIGH 1건
+[agy done]

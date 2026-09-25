@@ -1,0 +1,292 @@
+{
+  "behavior": {},
+  "placement": {
+    "boundary": {
+      "ambiguous": {
+        "balanced": "standard",
+        "delay-worse": "light",
+        "error-worse": "standard"
+      },
+      "build_oneshot": {
+        "balanced": "standard",
+        "delay-worse": "standard",
+        "error-worse": "deep"
+      }
+    },
+    "keywords": {
+      "build": [
+        "구현",
+        "리팩터",
+        "수정",
+        "개발",
+        "빌드",
+        "마이그레이션",
+        "패치",
+        "implement",
+        "refactor",
+        "build",
+        "fix",
+        "develop"
+      ],
+      "collect": [
+        "수집",
+        "grep",
+        "스캔",
+        "목록",
+        "구조 검증",
+        "트리거",
+        "조사",
+        "탐색",
+        "collect",
+        "scan",
+        "search",
+        "list",
+        "explore"
+      ],
+      "design": [
+        "설계",
+        "아키텍처",
+        "adr",
+        "prd",
+        "기획",
+        "스펙",
+        "명세",
+        "design",
+        "architect",
+        "spec",
+        "plan"
+      ],
+      "docs": [
+        "문서",
+        "동기화",
+        "번역",
+        "릴리스",
+        "체인지로그",
+        "readme",
+        "doc",
+        "sync",
+        "translate",
+        "release",
+        "changelog"
+      ],
+      "judge": [
+        "판정",
+        "검증",
+        "감사",
+        "보안",
+        "리뷰",
+        "qa",
+        "점검",
+        "정합성",
+        "테스트 작성",
+        "verify",
+        "review",
+        "audit",
+        "security",
+        "validate"
+      ],
+      "orchestrate": [
+        "조율",
+        "오케스트레이",
+        "통합",
+        "배분",
+        "지휘",
+        "orchestrat",
+        "coordinate",
+        "integrate"
+      ]
+    },
+    "priority": [
+      "judge",
+      "design",
+      "build",
+      "orchestrate",
+      "docs",
+      "collect"
+    ]
+  },
+  "providers": {
+    "anthropic": {
+      "confirmed_at": "2026-09-13",
+      "drop": [],
+      "effort_field": "effort",
+      "effort_forbidden": [],
+      "effort_vocab": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "local": {
+        "base_url": null,
+        "start_cmd": null
+      },
+      "params": {},
+      "soft_switch": null,
+      "source_url": "https://code.claude.com/docs/en/model-config",
+      "tiers": {
+        "deep": {
+          "effort": "high",
+          "family_alias": "opus"
+        },
+        "light": {
+          "effort": "low",
+          "family_alias": "haiku"
+        },
+        "standard": {
+          "effort": "medium",
+          "family_alias": "sonnet"
+        }
+      }
+    },
+    "google": {
+      "confirmed_at": "2026-09-10",
+      "drop": [
+        "candidate_count",
+        "frequency_penalty",
+        "presence_penalty",
+        "temperature",
+        "top_k",
+        "top_p"
+      ],
+      "effort_field": "thinking_level",
+      "effort_forbidden": [
+        "MINIMAL"
+      ],
+      "effort_vocab": [
+        "LOW",
+        "MEDIUM",
+        "HIGH"
+      ],
+      "local": {
+        "base_url": null,
+        "start_cmd": null
+      },
+      "params": {
+        "candidate_count": 1,
+        "frequency_penalty": 0,
+        "presence_penalty": 0,
+        "temperature": 1,
+        "top_k": 40,
+        "top_p": 0.95
+      },
+      "soft_switch": null,
+      "source_url": "https://ai.google.dev/gemini-api/docs/thinking",
+      "tiers": {
+        "deep": {
+          "effort": "HIGH",
+          "family_alias": "runtime-default"
+        },
+        "light": {
+          "effort": "LOW",
+          "family_alias": "runtime-default"
+        },
+        "standard": {
+          "effort": "MEDIUM",
+          "family_alias": "runtime-default"
+        }
+      }
+    },
+    "openai": {
+      "confirmed_at": "2026-09-10",
+      "drop": [],
+      "effort_field": "reasoning.effort",
+      "effort_forbidden": [
+        "none"
+      ],
+      "effort_vocab": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "local": {
+        "base_url": null,
+        "start_cmd": null
+      },
+      "params": {},
+      "soft_switch": null,
+      "source_url": "https://discuss.pytorch.kr/t/openai-gpt-6-astra/11846",
+      "tiers": {
+        "deep": {
+          "effort": "high",
+          "family_alias": "runtime-default"
+        },
+        "light": {
+          "effort": "low",
+          "family_alias": "runtime-default"
+        },
+        "standard": {
+          "effort": "medium",
+          "family_alias": "runtime-default"
+        }
+      }
+    },
+    "qwen": {
+      "confirmed_at": "2026-09-10",
+      "drop": [],
+      "effort_field": "reasoning_effort",
+      "effort_forbidden": [],
+      "effort_vocab": [
+        "low",
+        "medium",
+        "xhigh"
+      ],
+      "local": {
+        "base_url": null,
+        "start_cmd": null
+      },
+      "params": {},
+      "soft_switch": {
+        "off": "/no_think",
+        "on": "/think"
+      },
+      "source_url": "https://docs.qwencloud.com/developer-guides/text-generation/thinking",
+      "tiers": {
+        "deep": {
+          "effort": "xhigh",
+          "family_alias": "runtime-default"
+        },
+        "light": {
+          "effort": "low",
+          "family_alias": "runtime-default"
+        },
+        "standard": {
+          "effort": "medium",
+          "family_alias": "runtime-default"
+        }
+      }
+    }
+  },
+  "review_tiers": {
+    "critical": {
+      "agy": "Gemini 3.1 Pro (High)",
+      "codex": "runtime-default"
+    },
+    "light": {
+      "agy": "Gemini 3.8 Flash (High)",
+      "codex": "runtime-default"
+    },
+    "standard": {
+      "agy": "Gemini 3.8 Flash (High)",
+      "codex": "runtime-default"
+    }
+  },
+  "runtime_provider": {
+    "claude": "anthropic",
+    "codex": "openai"
+  },
+  "schema": "model-profiles/1",
+  "session_fallback": [
+    "opus",
+    "sonnet",
+    "haiku"
+  ],
+  "stale_after_days": 90,
+  "tools": {
+    "agy": "google",
+    "claude": "anthropic",
+    "codex": "openai",
+    "gemini": "google"
+  }
+}

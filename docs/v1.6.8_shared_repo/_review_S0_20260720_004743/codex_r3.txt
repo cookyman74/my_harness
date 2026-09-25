@@ -1,0 +1,287 @@
+Reading additional input from stdin...
+OpenAI Codex v0.144.1
+--------
+workdir: /Users/junghojang/Developments/myProject/myHarness
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: medium
+reasoning summaries: none
+session id: 019f7b20-43b3-7591-bac5-37f30d8c5787
+--------
+user
+추가 수정 반영: listRegDirs 의 cap 이 out.length(push 수)에만 적용되던 스캔 폭발 DoS 결함을 수정했다. 이제 scanCap(=max(cap*8,20000)·총 스캔 엔트리 상한)을 두고 모든 엔트리(디렉토리 아니어도) scanned++ 후 scanCap 도달 시 break → lstat 전량 수행 차단. negative test 추가(safe-name 파일 50개+뒤 real dir, scanCap=5 → 전량 스캔 안 함).
+harness-ui/src/server/adapters/regstore.ts:listRegDirs(88줄~) 를 다시 보고, S0 전체(regstore*.ts·regstore-eval.ts·regstore-index.ts·eval.yml)에 남은 HIGH 가 있는지 마지막으로 적대적 감사하라. 실코드 근거만. 마지막 줄: '판정: no-high' 또는 '판정: HIGH n건'.
+codex
+context-mode 지침 적용. 먼저 관련 스킬과 MCP 도구 경로 확인한 뒤, 지정 파일과 S0 범위만 근거로 감사하겠습니다.
+exec
+/bin/zsh -lc "sed -n '1,220p' /Users/junghojang/.codex/skills/context-mode/SKILL.md" in /Users/junghojang/Developments/myProject/myHarness
+ succeeded in 0ms:
+---
+name: context-mode
+description: Use the context-mode MCP server and routing hooks when tasks involve large context, many files, or repeated analysis that should be indexed instead of pasted.
+---
+
+# context-mode
+
+Use this skill when a task benefits from the context-mode MCP server installed from `mksglu/context-mode`.
+
+## What it does
+
+- Routes Codex tool use through context-mode hooks.
+- Pushes large or repeated context into indexed memory instead of flooding the chat.
+- Provides `ctx_*` commands for search, batch execution, indexing, and maintenance.
+
+## How to use
+
+- Keep `context-mode` installed on PATH.
+- Ensure `~/.codex/config.toml` contains the `context-mode` MCP server entry.
+- Ensure `~/.codex/hooks.json` points Codex hook events at `context-mode hook codex ...`.
+- Keep `~/.codex/AGENTS.md` loaded as the routing policy for Codex sessions.
+
+## When to prefer it
+
+- Large repo analysis.
+- Repeated file exploration.
+- Multi-file search or transform work.
+- Tasks that need a local indexed memory instead of raw transcript growth.
+
+## Operational rule
+
+- Prefer indexed search and batch execution over raw context dumps.
+- Prefer code that reads, indexes, and summarizes over manual copy/paste.
+
+exec
+/bin/zsh -lc "pwd && rg --files harness-ui/src/server/adapters harness-ui | rg 'regstore.*\\.ts"'$|regstore-eval'"\\.ts"'$|regstore-index'"\\.ts"'$|eval'"\\.yml"'$'"'" in /Users/junghojang/Developments/myProject/myHarness
+ succeeded in 0ms:
+/Users/junghojang/Developments/myProject/myHarness
+harness-ui/src/server/adapters/regstore-index.ts
+harness-ui/src/server/adapters/regstore.ts
+harness-ui/src/server/adapters/regstore-eval.ts
+harness-ui/src/server/adapters/regstore-cli.ts
+harness-ui/test/regstore.test.ts
+harness-ui/test/regstore-eval.test.ts
+harness-ui/src/server/adapters/regstore-index.ts
+harness-ui/src/server/adapters/regstore.ts
+harness-ui/src/server/adapters/regstore-eval.ts
+harness-ui/src/server/adapters/regstore-cli.ts
+
+codex
+대상은 `regstore.ts`, `regstore-eval.ts`, `regstore-index.ts`, `eval.yml`로 좁힙니다. 읽기는 감사 목적이라 원문 전체 덤프 대신 구조·위험 지점 중심으로 뽑겠습니다.
+codex
+`ctx_execute`로 라인 단위 요약을 만들겠습니다. 핵심은 디렉토리 열거, path join/resolve, symlink/lstat/stat, YAML eval 입력 경로가 attacker-controlled인지입니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+codex
+1차 요약상 수정 지점은 의도대로 보입니다. 이제 실제 제어흐름과 S0 인접 함수의 입력-출력 경계만 라인 범위로 확인합니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+codex
+출력이 커서 context-mode가 인덱싱했습니다. 필요한 라인 섹션만 검색해서 확인합니다.
+mcp: context-mode/ctx_search started
+mcp: context-mode/ctx_search (completed)
+codex
+검색 결과가 문서 쪽으로 섞였습니다. 이번엔 코드가 직접 판정한 위험 체크리스트만 출력하게 하겠습니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+codex
+`eval.yml`은 `harness-ui` 하위에서 아직 안 잡혔습니다. 저장소 전체에서 실제 위치를 찾고, `readJsonlSafe` 나머지 경계도 확인합니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+codex
+`eval.yml`은 예제 워크플로에만 있습니다. `regstore*.ts` 와일드카드에 걸리는 CLI도 S0 표면일 수 있어 같이 봅니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+codex
+남은 의심 지점은 `listRegDirs`의 TOCTOU 가능성과 `readRegFile`이 의존하는 `openSafeFile` 경계입니다. S0 파일 판단에 필요한 의존 함수만 짧게 확인합니다.
+mcp: context-mode/ctx_execute started
+mcp: context-mode/ctx_execute (completed)
+codex
+보안 경계 의존성은 `openSafeFile`이 dev/ino 재검증까지 갖고 있어 read 쪽 HIGH는 닫혀 있습니다. 마지막으로 관련 테스트를 실행해 수정 회귀 여부를 확인합니다.
+exec
+/bin/zsh -lc 'git diff -- harness-ui/src/server/adapters/regstore.ts harness-ui/src/server/adapters/regstore-eval.ts harness-ui/src/server/adapters/regstore-index.ts harness-ui/src/server/adapters/regstore-cli.ts harness-ui/test/regstore.test.ts docs/v1.6.8_shared_repo/registry-example/.github/workflows/eval.yml' in /Users/junghojang/Developments/myProject/myHarness
+ succeeded in 0ms:
+diff --git a/harness-ui/src/server/adapters/regstore.ts b/harness-ui/src/server/adapters/regstore.ts
+index c743e66..5a55ee6 100644
+--- a/harness-ui/src/server/adapters/regstore.ts
++++ b/harness-ui/src/server/adapters/regstore.ts
+@@ -5,7 +5,7 @@
+ //     ③ 바이너리 거부(NUL 스캔)·경로 allowlist(정규 텍스트 kind 만).
+ //     ④ 구조 파서 DoS 방어: YAML `!!` 코드태그/alias 폭발/깊이·JSON/TOML 깊이·JSONL 스트리밍 max-line.
+ //   스캔은 **advisory 아님 — 경계**: 여기서 fail-closed(거부) 하면 상위(diff·스캔·index·설치)가 오염 콘텐츠를 못 읽는다.
+-import { open, readdir, lstat } from "node:fs/promises";
++import { open, opendir, lstat } from "node:fs/promises";
+ import { join } from "node:path";
+ import TOML from "@iarna/toml";
+ import { parse as parseYaml } from "yaml";
+@@ -65,27 +65,46 @@ export async function readRegFile(root: string, segs: string[], kind: RegKind):
+ 
+ // 비신뢰 캐시 하위 dir 안전 리스팅. subdir(예 "skills"·"agents") 하위의 정규 디렉토리 이름만 반환.
+ //   심링크 디렉토리 거부(lstat)·isSafeSegment·개수 상한(스캔 폭발 차단).
+-export async function listRegDirs(root: string, subdir: string, cap = 2000): Promise<string[]> {
++export async function listRegDirs(root: string, subdir: string, cap = 2000, scanCapArg?: number): Promise<string[]> {
+   if (!isSafeSegment(subdir)) return [];
+-  let entries;
++  const base = join(root, subdir);
++  // subdir 자체가 심링크면 거부(비신뢰 캐시서 `skills`->/etc 같은 심링크로 경계 밖 디렉토리 enumeration·
++  //   entry 이름 유출 차단·codex HIGH). readdir 前 lstat 게이트.
+   try {
+-    entries = await readdir(join(root, subdir), { withFileTypes: true });
++    const bst = await lstat(base);
++    if (bst.isSymbolicLink() || !bst.isDirectory()) return [];
+   } catch {
+     return [];
+   }
+   const out: string[] = [];
+-  for (const e of entries) {
+-    if (out.length >= cap) break;
+-    if (!isSafeSegment(e.name)) continue;
+-    // 심링크 dir 거부(비신뢰 캐시 — 심링크로 경계 밖 유도 차단).
+-    let st;
+-    try {
+-      st = await lstat(join(root, subdir, e.name));
+-    } catch {
+-      continue;
++  // opendir 지연 순회 — cap 에서 조기 중단(readdir 전량 로드 회피·거대 dir 메모리 DoS 방어).
++  //   scanCap = **총 스캔 엔트리 상한**(push 수 아님). safe-name 비디렉토리를 대량 배치해 전 엔트리
++  //   lstat 를 유발하는 스캔 폭발 DoS 차단(codex HIGH: cap 이 out.length 에만 적용되던 결함 수정).
++  const scanCap = scanCapArg ?? Math.max(cap * 8, 20_000);
++  let scanned = 0;
++  let dir;
++  try {
++    dir = await opendir(base);
++  } catch {
++    return [];
++  }
++  try {
++    for await (const e of dir) {
++      if (out.length >= cap || scanned >= scanCap) break; // break → for-await 가 iterator.return() 로 dir 자동 close
++      scanned++; // 모든 엔트리(디렉토리 아니어도) 카운트 → lstat 전량 수행 폭발 차단
++      if (!isSafeSegment(e.name)) continue;
++      // 엔트리 심링크 dir 거부(심링크로 경계 밖 유도 차단).
++      let st;
++      try {
++        st = await lstat(join(base, e.name));
++      } catch {
++        continue;
++      }
++      if (st.isSymbolicLink() || !st.isDirectory()) continue;
++      out.push(e.name);
+     }
+-    if (st.isSymbolicLink() || !st.isDirectory()) continue;
+-    out.push(e.name);
++  } catch {
++    /* 순회 중 오류 흡수(부분 결과 반환·fail-safe) */
+   }
+   return out.sort();
+ }
+diff --git a/harness-ui/test/regstore.test.ts b/harness-ui/test/regstore.test.ts
+index 9539ecd..05271ce 100644
+--- a/harness-ui/test/regstore.test.ts
++++ b/harness-ui/test/regstore.test.ts
+@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ import {
+   readRegFile,
++  listRegDirs,
+   safeParseYaml,
+   safeParseJson,
+   safeParseToml,
+@@ -72,6 +73,44 @@ describe("readRegFile — 경로/크기/바이너리 방어", () => {
+   });
+ });
+ 
++describe("listRegDirs — 경계 밖 enumeration 방어(codex HIGH)", () => {
++  it("정상 하위 dir 리스팅", async () => {
++    const dirs = await listRegDirs(root, "skills");
++    expect(dirs).toContain("good");
++  });
++
++  it.skipIf(isWin)("subdir 자체가 심링크면 거부(skills -> /etc enumeration 차단)", async () => {
++    const badRoot = await mkdtemp(join(tmpdir(), "reg-symdir-"));
++    // skills 를 /etc(또는 임의 경계밖 dir)로의 심링크로 심음.
++    await symlink("/etc", join(badRoot, "skills")).catch(() => {});
++    const dirs = await listRegDirs(badRoot, "skills");
++    expect(dirs).toEqual([]); // 경계 밖 디렉토리 엔트리명 유출 0
++    await rm(badRoot, { recursive: true, force: true });
++  });
++
++  it("총 스캔 상한 — safe-name 비디렉토리 대량 배치 스캔 폭발 차단(codex HIGH)", async () => {
++    const scanRoot = await mkdtemp(join(tmpdir(), "reg-scan-"));
++    await mkdir(join(scanRoot, "skills"), { recursive: true });
++    // 비디렉토리(파일) 다수 + 뒤에 real dir. scanCap 을 작게 주면 real dir 도달 前 중단.
++    for (let i = 0; i < 50; i++) await writeFile(join(scanRoot, "skills", `f${i}.txt`), "x");
++    await mkdir(join(scanRoot, "skills", "zzz-real"), { recursive: true });
++    const dirs = await listRegDirs(scanRoot, "skills", 2000, 5); // scanCap=5 → 전량 스캔 안 함
++    // 5개만 스캔 → 파일뿐이라 결과 비거나 극소(전 엔트리 lstat 폭발 없음).
++    expect(dirs.length).toBeLessThanOrEqual(1);
++    await rm(scanRoot, { recursive: true, force: true });
++  });
++
++  it("엔트리 심링크 dir 은 제외", async () => {
++    const symRoot = await mkdtemp(join(tmpdir(), "reg-entsym-"));
++    await mkdir(join(symRoot, "skills", "real"), { recursive: true });
++    if (!isWin) await symlink("/etc", join(symRoot, "skills", "linked")).catch(() => {});
++    const dirs = await listRegDirs(symRoot, "skills");
++    expect(dirs).toContain("real");
++    expect(dirs).not.toContain("linked");
++    await rm(symRoot, { recursive: true, force: true });
++  });
++});
++
+ describe("safeParseYaml — 코드태그/alias/깊이 방어", () => {
+   it("정상 YAML 통과", () => {
+     const r = safeParseYaml("name: foo\ntools:\n  - a\n  - b\n");
+
+exec
+/bin/zsh -lc 'npm test -- --run test/regstore.test.ts test/regstore-eval.test.ts' in /Users/junghojang/Developments/myProject/myHarness/harness-ui
+ succeeded in 1935ms:
+
+> harness-ui@0.9.0 test
+> vitest run --run test/regstore.test.ts test/regstore-eval.test.ts
+
+
+ RUN  v2.1.9 /Users/junghojang/Developments/myProject/myHarness/harness-ui
+
+ ✓ test/regstore.test.ts (26 tests) 46ms
+ ✓ test/regstore-eval.test.ts (5 tests) 57ms
+
+ Test Files  2 passed (2)
+      Tests  31 passed (31)
+   Start at  01:07:24
+   Duration  691ms (transform 103ms, setup 0ms, collect 235ms, tests 103ms, environment 0ms, prepare 74ms)
+
+
+codex
+감사 결과: 남은 HIGH 못 찾았습니다.
+
+근거:
+- [regstore.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore.ts:68) `listRegDirs`는 `subdir` safe-segment 검증, `base` `lstat`로 심링크/비디렉토리 거부 후 `opendir` 지연 순회.
+- [regstore.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore.ts:83) `scanCap = scanCapArg ?? max(cap*8, 20000)`, [93-99]에서 `scanned >= scanCap` break, `scanned++`가 `isSafeSegment`/`lstat` 전에 실행됨. 비디렉토리 safe-name 대량 배치로 `lstat` 전량 유발하던 DoS 경로 닫힘.
+- [regstore.test.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/test/regstore.test.ts:91) negative test 있음: 파일 50개 + 뒤 real dir + `scanCap=5`.
+- [regstore.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore.ts:47) `readRegFile`은 segment 검증, `openSafeFile`, kind별 size cap, binary reject 후 close.
+- [regstore-eval.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore-eval.ts:54) materialize 경로는 `listRegDirs` 결과 name만 사용하고 read는 다시 `readRegFile` 경유. tmp write dest도 고정 배열 + safe name.
+- [regstore-index.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore-index.ts:57) index/meta는 `safeParseJson` + zod 검증.
+- [eval.yml](/Users/junghojang/Developments/myProject/myHarness/docs/v1.6.8_shared_repo/registry-example/.github/workflows/eval.yml:23) `contents: read`, PR content는 별도 `registry` checkout, evaluator는 pinned ref. 이 파일 자체의 required-workflow/branch-protection 한계는 주석상 운영 전제이며 실코드 HIGH로는 미판정.
+
+검증: `npm test -- --run test/regstore.test.ts test/regstore-eval.test.ts` 통과, 31 tests passed.
+
+판정: no-high
+tokens used
+48,901
+감사 결과: 남은 HIGH 못 찾았습니다.
+
+근거:
+- [regstore.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore.ts:68) `listRegDirs`는 `subdir` safe-segment 검증, `base` `lstat`로 심링크/비디렉토리 거부 후 `opendir` 지연 순회.
+- [regstore.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore.ts:83) `scanCap = scanCapArg ?? max(cap*8, 20000)`, [93-99]에서 `scanned >= scanCap` break, `scanned++`가 `isSafeSegment`/`lstat` 전에 실행됨. 비디렉토리 safe-name 대량 배치로 `lstat` 전량 유발하던 DoS 경로 닫힘.
+- [regstore.test.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/test/regstore.test.ts:91) negative test 있음: 파일 50개 + 뒤 real dir + `scanCap=5`.
+- [regstore.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore.ts:47) `readRegFile`은 segment 검증, `openSafeFile`, kind별 size cap, binary reject 후 close.
+- [regstore-eval.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore-eval.ts:54) materialize 경로는 `listRegDirs` 결과 name만 사용하고 read는 다시 `readRegFile` 경유. tmp write dest도 고정 배열 + safe name.
+- [regstore-index.ts](/Users/junghojang/Developments/myProject/myHarness/harness-ui/src/server/adapters/regstore-index.ts:57) index/meta는 `safeParseJson` + zod 검증.
+- [eval.yml](/Users/junghojang/Developments/myProject/myHarness/docs/v1.6.8_shared_repo/registry-example/.github/workflows/eval.yml:23) `contents: read`, PR content는 별도 `registry` checkout, evaluator는 pinned ref. 이 파일 자체의 required-workflow/branch-protection 한계는 주석상 운영 전제이며 실코드 HIGH로는 미판정.
+
+검증: `npm test -- --run test/regstore.test.ts test/regstore-eval.test.ts` 통과, 31 tests passed.
+
+판정: no-high
+[codex done]

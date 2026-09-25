@@ -9,7 +9,7 @@ import { s2setup, answer, ok, rcIs, NOW1, NOW2, profPath, prevPath, readJson } f
 
 after(cleanup);
 
-const SET = (other) => `completion=tests-pass,other:${other};irreversible=release-publish;cost=error-worse;approval=before:release-publish,ladder;assets=reuse`;
+const SET = (other) => `completion=tests-pass,other:${other};irreversible=release-publish;cost=error-worse;approval=before:release-publish,ladder;assets=reuse;egress=allow-listed`;
 const A = (fx, other, now) => answer(fx, ['--orchestrator', 'orch1', '--now', now, '--set', SET(other)]);
 
 test('[대조] other 문장에 탭 → rc=0 · other 에 탭 그대로 저장', () => {
@@ -42,7 +42,7 @@ for (const [name, other] of BAD) {
 }
 test('[rc=2] ② other 에 개행(비가역 문장 — tier·premise 로 가는 자리)도 rc=2', () => {
   const fx = s2setup();
-  const set = (o) => `completion=tests-pass;irreversible=release-publish,other:${o};cost=error-worse;approval=before:release-publish,ladder;assets=reuse`;
+  const set = (o) => `completion=tests-pass;irreversible=release-publish,other:${o};cost=error-worse;approval=before:release-publish,ladder;assets=reuse;egress=allow-listed`;
   ok(answer(fx, ['--orchestrator', 'orch1', '--now', NOW1, '--set', set('데이터 삭제')]), '대조군');
   rcIs(answer(fx, ['--orchestrator', 'orch1', '--now', NOW2, '--set', set('데이터\n삭제')]), 2);
 });

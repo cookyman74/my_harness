@@ -15,7 +15,7 @@ function stub(name, body) { const p = path.join(dir, name); fs.writeFileSync(p, 
 function selftest(args, env = process.env) { requireFile(SELFTEST); return runNode(SELFTEST, args, { env, timeout: 120000 }); }
 
 const FIXED = [
-  'RUNTIME: claude=absent codex=absent agy=absent', 'AGENTS_PROJECT: none', 'AGENTS_GLOBAL: none', 'PLUGINS: none',
+  'RUNTIME: agy=absent claude=absent codex=absent gemini=absent', 'AGENTS_PROJECT: none', 'AGENTS_GLOBAL: none', 'PLUGINS: none',
   'AGENTS_PLUGIN: none', 'AGENTS_CODEX: none', 'AGENTS_BUILTIN: claude=unknown codex=default,worker,explorer(doc)',
   'AGENTS_DUPLICATE: none', 'SKILLS_PROJECT: none', 'SKILLS_AGENTS: none', 'MODEL: none', 'LINKS_INVALID: none',
   'UNKNOWN_FIELDS: none', 'SIGNALS: none', 'PROFILE: absent'];

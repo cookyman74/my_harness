@@ -16,20 +16,20 @@ test('픽스처 bin/·bin-slow/ 확장자 없는 스텁은 실행 비트가 있�
   }
 });
 
-test('가짜 bin 3종 → claude=2.1.267 codex=0.153.4 agy=1.2.0 (고정 순서)', () => {
-  assert.equal(rt([fx.bin]), 'claude=2.1.267 codex=0.153.4 agy=1.2.0');
+test('가짜 bin 3종 → agy=1.2.0 claude=2.1.267 codex=0.153.4 gemini=absent (코드포인트 정렬 4쌍)', () => {
+  assert.equal(rt([fx.bin]), 'agy=1.2.0 claude=2.1.267 codex=0.153.4 gemini=absent');
 });
 
-test('빈 PATH → 셋 다 absent', () => {
-  assert.equal(rt([]), 'claude=absent codex=absent agy=absent');
+test('빈 PATH → 넷 다 absent', () => {
+  assert.equal(rt([]), 'agy=absent claude=absent codex=absent gemini=absent');
 });
 
-test('빈 디렉토리만 PATH → 셋 다 absent', () => {
-  assert.equal(rt([mkTmp('hi-empty-')]), 'claude=absent codex=absent agy=absent');
+test('빈 디렉토리만 PATH → 넷 다 absent', () => {
+  assert.equal(rt([mkTmp('hi-empty-')]), 'agy=absent claude=absent codex=absent gemini=absent');
 });
 
 test('느린 claude(8초) → claude=unknown', () => {
-  assert.equal(rt([fx.binSlow]), 'claude=unknown codex=absent agy=absent');
+  assert.equal(rt([fx.binSlow]), 'agy=absent claude=unknown codex=absent gemini=absent');
 });
 
 test('느린 claude(8초) → scan 전체가 7초 안에 끝난다(자체 5000ms 마감 · 자식 대기 없음)', () => {
@@ -39,32 +39,32 @@ test('느린 claude(8초) → scan 전체가 7초 안에 끝난다(자체 5000ms
 
 test('형식 불일치 출력 → unknown', () => {
   const d = mkTmp('hi-bin-'); fakeTool(d, 'claude', ['hello world']);
-  assert.equal(rt([d]), 'claude=unknown codex=absent agy=absent');
+  assert.equal(rt([d]), 'agy=absent claude=unknown codex=absent gemini=absent');
 });
 
 test('형식은 맞지만 rc≠0 → unknown', () => {
   const d = mkTmp('hi-bin-'); fakeTool(d, 'codex', ['codex-cli 9.9.9'], 3);
-  assert.equal(rt([d]), 'claude=absent codex=unknown agy=absent');
+  assert.equal(rt([d]), 'agy=absent claude=absent codex=unknown gemini=absent');
 });
 
 test('첫 비어있지 않은 줄을 파싱한다(앞 빈 줄 무시)', () => {
   const d = mkTmp('hi-bin-');
   fs.writeFileSync(path.join(d, 'agy'), "#!/bin/sh\necho ''\necho '3.4.5'\n"); if (!WIN) fs.chmodSync(path.join(d, 'agy'), 0o755);
   fs.writeFileSync(path.join(d, 'agy.cmd'), '@echo.\r\n@echo 3.4.5\r\n');
-  assert.equal(rt([d]), 'claude=absent codex=absent agy=3.4.5');
+  assert.equal(rt([d]), 'agy=3.4.5 claude=absent codex=absent gemini=absent');
 });
 
 test('PATH 순서 — 앞 디렉토리의 도구가 이긴다', () => {
   const d = mkTmp('hi-bin-'); fakeTool(d, 'claude', ['9.9.9 (Claude Code)']);
-  assert.equal(rt([d, fx.bin]), 'claude=9.9.9 codex=0.153.4 agy=1.2.0');
+  assert.equal(rt([d, fx.bin]), 'agy=1.2.0 claude=9.9.9 codex=0.153.4 gemini=absent');
 });
 
 test('실행 비트 없는 파일은 건너뛴다(unix)', { skip: WIN && 'windows 는 X_OK 대신 PATHEXT' }, () => {
   const d = mkTmp('hi-bin-'); fakeTool(d, 'claude', ['9.9.9 (Claude Code)']); fs.chmodSync(path.join(d, 'claude'), 0o644);
-  assert.equal(rt([d, fx.bin]), 'claude=2.1.267 codex=0.153.4 agy=1.2.0');
+  assert.equal(rt([d, fx.bin]), 'agy=1.2.0 claude=2.1.267 codex=0.153.4 gemini=absent');
 });
 
 test('같은 이름의 디렉토리는 실행 파일이 아니다(unix)', { skip: WIN && 'windows 는 PATHEXT 후보만' }, () => {
   const d = mkTmp('hi-bin-'); fs.mkdirSync(path.join(d, 'claude'));
-  assert.equal(rt([d]), 'claude=absent codex=absent agy=absent');
+  assert.equal(rt([d]), 'agy=absent claude=absent codex=absent gemini=absent');
 });

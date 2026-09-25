@@ -7,6 +7,9 @@
 !.claude/agents/
 !.claude/skills/
 .claude/settings.local.json
+# 프로파일의 1세대 백업은 **복구 상태**이지 하네스 정의가 아니다 — `answer` 를 돌릴 때마다 바뀐다.
+# 정의(#7 의 추적 사유)는 harness-profile.json 쪽이고, 백업까지 추적하면 매 인터뷰가 커밋 잡음이 된다.
+.claude/skills/*/harness-profile.prev.json
 .claude/settings.json
 .claude/commands/
 _workspace/

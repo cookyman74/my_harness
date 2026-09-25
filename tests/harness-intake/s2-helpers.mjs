@@ -32,8 +32,13 @@ export const label = (id, key) => { const o = item(id).options.find((x) => x.key
 /** ④ before:<키> 라벨 = before_label 의 {label} 을 ② 라벨로(참조 문서 2절·4절). other 는 「그 외 비가역」. */
 export const beforeLabel = (key) => item('approval').before_label.replace('{label}', key === 'other' ? '그 외 비가역' : label('irreversible', key));
 
-/** 완전 선언 입력(repo-like 픽스처에서 전부 유효 · 결함 0). */
-export const FULL = 'completion=tests-pass,ci-green;irreversible=release-publish;cost=error-worse;approval=before:release-publish,ladder;assets=reuse';
+/** ①~⑤ 선언 입력(repo-like 픽스처에서 전부 유효 · 결함 0). ⑥ 을 따로 붙이는 테스트가 이 조각을 쓴다. */
+export const FULL5 = 'completion=tests-pass,ci-green;irreversible=release-publish;cost=error-worse;approval=before:release-publish,ladder;assets=reuse';
+/**
+ * **전건 선언 입력** — v1.8.3 S3 에서 카탈로그가 6항목이 됐으므로 ⑥ `egress` 까지 준다.
+ * ⑥ 을 빼면 `answer` 가 `빠진 항목: egress — 기본값을 암묵적으로 쓰지 않는다(--defaults 로 명시)` 로 rc=2 를 낸다(옳은 새 동작).
+ */
+export const FULL = `${FULL5};egress=allow-listed`;
 
 /** S2 픽스처 하나를 임시 디렉토리로 복사한다. bin = S1 가짜 도구(claude 2.1.267 · codex 0.153.4 · agy 1.2.0). */
 export function s2setup(name = 'repo-like') {
@@ -91,7 +96,7 @@ export const isEmptyish = (v) => v === null || v === '' || (Array.isArray(v) && 
 
 /** RUNTIME 조회 여부 탐지용 가짜 도구 — 실행되면 $HI_MARK 에 한 줄 덧붙인다(unix 전용). */
 export function markerBin(dir) {
-  const lines = { claude: '2.1.267 (Claude Code)', codex: 'codex-cli 0.153.4', agy: '1.2.0' };
+  const lines = { agy: '1.2.0', claude: '2.1.267 (Claude Code)', codex: 'codex-cli 0.153.4', gemini: '1.5.0' };
   for (const [t, l] of Object.entries(lines)) {
     const p = path.join(dir, t);
     fs.mkdirSync(dir, { recursive: true });
@@ -120,6 +125,12 @@ export const Q = (id, options, def, { confirm_only = false, pages = 1 } = {}) =>
 export const Q_KEYS = ['id', 'no', 'header', 'prompt', 'select', 'options', 'default', 'default_why', 'recommended', 'confirm_only', 'other', 'pages', 'carried'];
 export const CARRIED_KEYS = ['id', 'no', 'header', 'carried', 'value', 'source', 'at', 'other'];
 export const json2 = (v) => JSON.stringify(v, null, 2) + '\n';
+
+/**
+ * v1.8.3 S3 — ⑥ `egress` 문항(선택지 3 · 기본 allow-listed · 라벨에 치환 토큰 없음 · pages 1).
+ * `new` 1차(①②③⑤)에는 들어가지 않는다 — **2차(`--after`)와 `extend`** 가 내는 문항이다(설계서 §6-1).
+ */
+export const Q_EGRESS = () => Q('egress', ['runtime-only', 'allow-listed', 'any'].map((k) => O('egress', k)), ['allow-listed']);
 
 // repo-like: SIGNALS = changelog ci plugin-manifest tests · 에이전트 reviewer·writer(2) · 스킬 lint-skill(1)
 //  ① tests-pass(tests)·ci-green(ci)·artifacts-present·human-signoff — 기본 = machine:true 노출분 전부
