@@ -19,7 +19,8 @@ import {
 after(cleanup);
 
 const CANON = readCanonProfiles();
-const FALLBACK = CANON.session_fallback.join(',');
+const CHAIN = CANON.session_fallback;                 // 파일에 쓰는 값 — **배열**(Claude Code 계약)
+const FALLBACK = CHAIN.join(',');                     // 사람이 읽는 계약 줄 표기 — 쉼표
 const NOW = '2026-09-13T00:00:00Z';                 // §3 표의 예시 시각 — 파일명이 정확히 bak-20260913T000000Z
 const REL_SETTINGS = '.claude/settings.json';
 
@@ -53,7 +54,7 @@ test('T-S1: 기존 키 3개가 값·순서 그대로 보존되고 fallbackModel 
   assert.deepEqual(Object.keys(after), [...EXISTING_KEYS, 'fallbackModel'],
     '키 단위 병합이 아니다 — 기존 키 순서 뒤에 fallbackModel 만 추가돼야 한다');
   for (const k of EXISTING_KEYS) assert.deepEqual(after[k], EXISTING[k], `${k} 값이 바뀌었다`);
-  assert.equal(after.fallbackModel, FALLBACK);
+  assert.deepEqual(after.fallbackModel, CHAIN, '파일 값은 배열이어야 한다(문자열이면 런타임이 파일 전체를 버린다)');
   assert.equal(readRaw(settingsFile(tree)), JSON.stringify(after, null, 2) + '\n',
     '들여쓰기 2칸 + 끝 개행이 아니다(§3 표 「쓰기」)');
 
@@ -82,8 +83,8 @@ test('T-S1: 파일이 없으면 디렉토리까지 만들어 생성하고 BACKUP
   assert.ok(!fs.existsSync(settingsFile(tree)), '전제: settings.json 이 없다');
   const s = parseSettings(settings(tree, { now: NOW }), 'T-S1 생성');
   assert.equal(s.BACKUP, 'none', '없던 파일에 백업이 있을 수 없다');
-  assert.deepEqual(JSON.parse(readRaw(settingsFile(tree))), { fallbackModel: FALLBACK });
-  assert.equal(readRaw(settingsFile(tree)), JSON.stringify({ fallbackModel: FALLBACK }, null, 2) + '\n');
+  assert.deepEqual(JSON.parse(readRaw(settingsFile(tree))), { fallbackModel: CHAIN });
+  assert.equal(readRaw(settingsFile(tree)), JSON.stringify({ fallbackModel: CHAIN }, null, 2) + '\n');
   assert.ok(!fs.existsSync(path.join(tree.root, '.claude', backupName(NOW))), '백업 파일을 만들었다');
 });
 
@@ -104,7 +105,7 @@ test('T-S2: 값이 다르면 rc=0 + NEEDS_APPROVAL: + 파일 무변경 · --appr
   assert.equal(a.BACKUP, `.claude/${backupName(NOW)}`);
   assert.equal(readRaw(path.join(tree.root, '.claude', backupName(NOW))), before, '백업이 교체 전 원본이 아니다');
   const after = JSON.parse(readRaw(settingsFile(tree)));
-  assert.equal(after.fallbackModel, FALLBACK);
+  assert.deepEqual(after.fallbackModel, CHAIN, '파일 값은 배열이어야 한다(문자열이면 런타임이 파일 전체를 버린다)');
   assert.deepEqual(Object.keys(after), Object.keys(JSON.parse(before)), '교체가 키 순서를 바꿨다');
 });
 
@@ -145,7 +146,9 @@ test('T-S3: settings 의 FALLBACK: 값 == place 의 FALLBACK: 값(같은 프로�
   const p = parsePlace(place(tree, {}), 'T-S3 place');
   const s = parseSettings(settings(tree, { now: NOW }), 'T-S3 settings');
   assert.equal(s.FALLBACK, p.fallback, '두 서브커맨드의 직렬화가 갈라졌다');
-  assert.equal(JSON.parse(readRaw(settingsFile(tree))).fallbackModel, p.fallback, '쓴 값도 같은 값이어야 한다');
+  // 파일 값은 **배열**, 계약 줄은 쉼표 — 같은 값의 두 표기다(1.9.1: 한 변수로 비교하던 것이 결함을 가렸다).
+  assert.deepEqual(JSON.parse(readRaw(settingsFile(tree))).fallbackModel, CHAIN, '쓴 값이 배열이 아니거나 체인이 다르다');
+  assert.equal(p.fallback, CHAIN.join(','), '계약 줄 표기가 파일 값과 어긋난다');
 
   // 데이터 파일을 바꾸면 **둘 다** 따라 움직인다(한쪽만 하드코딩한 구현을 FAIL 시킨다).
   setData(tree, (prof) => { prof.session_fallback = ['zeta-deep', 'zeta-mid', 'zeta-fast']; });
@@ -171,7 +174,7 @@ test('백업 이름이 겹쳐도(같은 --now 두 번) 승인된 쓰기는 거�
   const dir = path.join(tree.root, '.claude');
   assert.ok(fs.existsSync(path.join(dir, backupName(NOW))), '앞 백업이 사라졌다(덮어썼다)');
   assert.ok(fs.existsSync(path.join(dir, `${backupName(NOW)}-2`)));
-  assert.equal(JSON.parse(readRaw(settingsFile(tree))).fallbackModel, 'zeta-deep,zeta-mid', '승인했는데 쓰이지 않았다');
+  assert.deepEqual(JSON.parse(readRaw(settingsFile(tree))).fallbackModel, ['zeta-deep', 'zeta-mid'], '승인했는데 쓰이지 않았다');
 });
 
 test('백업 이름 전진은 EEXIST 를 만나며 나아간다(선검사가 아니다 · S2 R2 codex MED)', () => {
@@ -245,7 +248,7 @@ test('T-S5 ④: 듀얼 트리 + --runtime claude → .claude/settings.json 이 �
   const s = parseSettings(settings(tree, { root, runtime: 'claude', now: NOW }), 'T-S5 ④');
   assert.equal(s.skipped, false);
   assert.equal(s.SETTINGS, REL_SETTINGS);
-  assert.equal(JSON.parse(readRaw(settingsFile(tree))).fallbackModel, FALLBACK,
+  assert.deepEqual(JSON.parse(readRaw(settingsFile(tree))).fallbackModel, CHAIN,
     '듀얼 하네스의 Claude 쪽 fallbackModel 이 조용히 빠졌다(R42)');
 });
 

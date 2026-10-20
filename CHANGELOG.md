@@ -4,6 +4,33 @@
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-10-20
+
+**생성된 하네스의 `settings.json` 이 통째로 무시되던 결함을 고쳤다.** `settings --set-fallback` 이 세션 폴백을 **쉼표 문자열**(`"opus,sonnet,haiku"`)로 썼는데, Claude Code 는 `fallbackModel` 을 **배열**로 받는다. 형식이 어긋나면 그 파일은 **전체가 로드되지 않는다** — 같은 파일의 `permissions.deny`(⑥ 반출 정책의 강제 수단)까지 함께 죽는다.
+
+실측(Claude Code v2.1.304 · 격리 디렉토리):
+```
+"opus,sonnet,haiku"        → These settings files did not load, so nothing in them is in effect,
+                             including hooks and permission rules.
+                             … (fallbackModel): Expected array, but received string
+["opus","sonnet","haiku"]  → 오류 없음 · 생성된 deny 23줄도 함께 적용
+```
+
+### Fixed
+
+- `harness-intake.mjs` — `fallbackChain()` 이 배열을 돌려주고, 파일에는 배열을 쓴다. 사람이 읽는 **계약 줄 `FALLBACK:` 표기는 쉼표 그대로**다(`place` 와 같은 문자열 · `chainLine()` 로 분리).
+- **옛 판이 남긴 쉼표 문자열은 값이 같으면 승인 없이 배열로 고친다**(형식 복구 — 사람의 결정이 바뀌지 않는다). 값 자체가 다르면 전처럼 `NEEDS_APPROVAL` 로 멈춘다.
+
+### Changed (테스트)
+
+- `tests/harness-intake/s5-settings-array.test.mjs` 신설(5단정 · 적색 확인 후 수정). 파일 값(배열)과 계약 줄(쉼표)을 **갈라서** 단정한다.
+- `s4-settings.test.mjs` — 상수를 `CHAIN`(배열)·`FALLBACK`(쉼표)으로 분리. 둘을 한 변수로 쓰던 것이 이 결함을 가렸다.
+- `tests/test-e2e-harness.sh` — `fallbackModel` 을 계약 줄과 문자열로만 비교하던 단정을 **배열 여부까지** 보도록 보강(`ARRAY:`/`NOTARRAY:`). 이 자리가 1.9.0 에서 결함을 지나보낸 지점이다.
+
+### 알려진 한계
+
+- **런타임이 받아들이는지는 여전히 사람이 확인해야 한다.** 이 결함은 실제 Claude Code 로 생성 하네스를 돌려 보다 드러났다 — 계약 테스트는 "우리가 쓴 값"만 보고 "런타임이 받는 값"은 보지 못한다. 자동 검증은 이 릴리스에 없다.
+
 ## [1.9.0] - 2026-09-25
 
 공정 코드네임은 `v1.8.3`(문서 경로 `docs/v1.8.3/`) — 직전 공정(`v1.7.6` → 릴리스 1.8.0)과 같은 규칙이다. 사용자 대면 워크플로가 바뀌는 변경이라 SemVer **minor** 로 **1.9.0** 을 부여했다(릴리스 직전 결정).

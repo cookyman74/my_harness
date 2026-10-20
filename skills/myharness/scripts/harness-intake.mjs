@@ -1811,8 +1811,10 @@ function fallbackChain(mp, file) {
   if (!Array.isArray(fb) || fb.length === 0 || fb.some((x) => typeof x !== "string" || x === "")) {
     fail2(`session_fallback 이 비지 않은 문자열 배열이 아니다: ${file}`);
   }
-  return fb.join(",");
+  return [...fb];   // **배열 그대로** 돌려준다 — settings.json 의 fallbackModel 은 배열이어야 한다(1.9.1).
 }
+// 계약 줄 표기 — 파일 값(배열)과 사람이 읽는 줄(쉼표)을 가른다.
+const chainLine = (chain) => chain.join(",");
 
 function readRoster(file) {
   let raw;
@@ -1956,7 +1958,7 @@ function cmdPlace(o, ctx) {
   const rats = c.placed.map((r) => `RATIONALE: ${r.name} ${rationaleOf(r, c.cost)}\n`).join("");
   // 항목은 공백, 항목 **안의 토큰은 쉼표** — 둘 다 공백이면 이 줄을 파싱할 수 없다(설계서 §3-3 문구를 이렇게 확정).
   const un = c.placed.filter((r) => r.via === "ambiguous").map((r) => `${r.name}=${normRole(r.role).split(" ").join(",")}`);
-  return { rc: 0, out: c.head + agents + rats + `UNMATCHED: ${un.length ? un.join(" ") : "none"}\n` + `FALLBACK: ${c.fallback}\n`, err: "" };
+  return { rc: 0, out: c.head + agents + rats + `UNMATCHED: ${un.length ? un.join(" ") : "none"}\n` + `FALLBACK: ${chainLine(c.fallback)}\n`, err: "" };
 }
 
 /** 정의 파일 한 개 판정. 우선순위 missing → unreadable → malformed → mismatch → ok(§3-3-1 · verify 규약과 같은 모양). */
@@ -2033,12 +2035,12 @@ function cmdSettings(o, ctx, now) {
   try { raw = fs.readFileSync(dest, "utf8"); }
   catch (e) { if (e.code !== "ENOENT") fail2(`settings 읽기 실패: ${dest} (${e.code || e.message})`); }
 
-  const head = `SETTINGS: ${relOf(ctx, dest)}\nFALLBACK: ${want}\n`;
+  const head = `SETTINGS: ${relOf(ctx, dest)}\nFALLBACK: ${chainLine(want)}\n`;
   const backupLine = (p) => `BACKUP: ${p === null ? "none" : relOf(ctx, p)}\n`;
 
   if (raw === null) {                              // 파일 없음 → 생성(디렉토리 포함) · 백업할 것이 없다
     fs.mkdirSync(cdir, { recursive: true });
-    writeAtomic(dest, JSON.stringify({ fallbackModel: want }, null, 2) + "\n");
+    writeAtomic(dest, JSON.stringify({ fallbackModel: want }, null, 2) + "\n");   // 배열
     return { rc: 0, out: head + backupLine(null), err: "" };
   }
 
@@ -2048,14 +2050,21 @@ function cmdSettings(o, ctx, now) {
   if (!isObj(obj)) fail2(`settings 최상위가 객체가 아니다 — 병합 대상이 아니다: ${dest}`);
 
   const cur = obj.fallbackModel;
-  if (cur === want) return { rc: 0, out: head + backupLine(null), err: "" };   // 멱등 — 아무것도 쓰지 않는다
+  const same = Array.isArray(cur) && cur.length === want.length && cur.every((x, i) => x === want[i]);
+  if (same) return { rc: 0, out: head + backupLine(null), err: "" };           // 멱등 — 아무것도 쓰지 않는다
+
+  // 1.9.0 까지는 이 값을 **쉼표 문자열**로 썼다. Claude Code 는 배열만 받고, 형식이 어긋나면
+  // settings.json 을 **통째로 버린다**(실측 v2.1.304: "These settings files did not load … including
+  // hooks and permission rules") — 같은 파일의 ⑥ 반출 deny 목록까지 함께 죽는다.
+  // 값이 같고 **형식만** 옛것이면 사람 결정이 바뀌는 게 아니므로 승인 없이 고친다(값이 다르면 아래로 간다).
+  const legacyShape = typeof cur === "string" && cur === chainLine(want);
 
   // 값이 **이미 있는데 다르면** 사람 확인 없이 덮지 않는다. 승인 대기는 실패가 아니라 결과이므로 rc=0 + 계약 줄이다(§3-6).
-  if (cur !== undefined && o.approve !== true) {
+  if (cur !== undefined && !legacyShape && o.approve !== true) {
     return {
       rc: 0,
       out: head + backupLine(null)
-        + `NEEDS_APPROVAL: fallbackModel before=${JSON.stringify(String(cur))} after=${JSON.stringify(want)} — --approve 로 다시 실행\n`,
+        + `NEEDS_APPROVAL: fallbackModel before=${JSON.stringify(String(cur))} after=${JSON.stringify(chainLine(want))} — --approve 로 다시 실행\n`,
       err: "",
     };
   }
