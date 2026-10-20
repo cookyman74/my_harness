@@ -99,18 +99,21 @@ else no "place --verify rc=$pvrc — $(printf '%s' "$pv" | grep '^PLACED:' | cut
 step "4. 세션 폴백 — settings --set-fallback"
 # 새 트리(값 없음) → **바로 쓴다**. NEEDS_APPROVAL 은 "값이 이미 있는데 다를 때" 다(§3-6).
 s1="$(IN settings --root "$E" --orchestrator "$ORCH" --set-fallback --runtime claude --now 2026-09-24T00:00:00Z 2>&1)"
-fb="$(node -e 'try{console.log(require(process.argv[1]).fallbackModel||"(없음)")}catch(e){console.log("(파일 없음)")}' "$E/.claude/settings.json")"
-exp="$(printf '%s' "$pl" | sed -n 's/^FALLBACK: //p')"
-[ "$fb" = "$exp" ] && ok "새 트리 → 바로 기록 · fallbackModel=$fb (place 의 FALLBACK: 과 같다)" \
-  || no "기록값이 다르다 — settings=$fb · place FALLBACK=$exp"
+# **파일 값은 배열**이어야 한다 — Claude Code 는 문자열이면 settings.json 을 통째로 버린다
+# (실측 v2.1.304: "These settings files did not load … including hooks and permission rules").
+# 1.9.0 까지 이 단정은 계약 줄 문자열과만 비교해서 형식 결함을 보지 못했다(1.9.1 보강).
+fb="$(node -e 'try{const v=require(process.argv[1]).fallbackModel;console.log(Array.isArray(v)?"ARRAY:"+v.join(","):"NOTARRAY:"+String(v))}catch(e){console.log("(파일 없음)")}' "$E/.claude/settings.json")"
+exp="ARRAY:$(printf '%s' "$pl" | sed -n 's/^FALLBACK: //p')"
+[ "$fb" = "$exp" ] && ok "새 트리 → 배열로 기록 · fallbackModel=${fb#ARRAY:} (place 의 FALLBACK: 과 같은 순서)" \
+  || no "기록값이 계약과 다르다 — settings=$fb · 기대=$exp"
 # 값이 이미 있고 다르면 승인 대기
 node -e 'const f=process.argv[1],fs=require("fs");const o=JSON.parse(fs.readFileSync(f,"utf8"));o.fallbackModel="sonnet";fs.writeFileSync(f,JSON.stringify(o,null,2))' "$E/.claude/settings.json"
 s2="$(IN settings --root "$E" --orchestrator "$ORCH" --set-fallback --runtime claude --now 2026-09-24T00:00:01Z 2>&1)"
 printf '%s' "$s2" | grep -q '^NEEDS_APPROVAL:' && ok "값이 다르면 NEEDS_APPROVAL(덮지 않는다)" || no "값이 달라도 승인 대기가 없다"
 s3="$(IN settings --root "$E" --orchestrator "$ORCH" --set-fallback --runtime claude --approve --now 2026-09-24T00:00:02Z 2>&1)"; s3rc=$?
-fb2="$(node -e 'console.log(require(process.argv[1]).fallbackModel)' "$E/.claude/settings.json")"
+fb2="$(node -e 'const v=require(process.argv[1]).fallbackModel;console.log(Array.isArray(v)?"ARRAY:"+v.join(","):"NOTARRAY:"+String(v))' "$E/.claude/settings.json")"
 bk="$(printf '%s' "$s3" | sed -n 's/^BACKUP: //p')"
-[ "$s3rc" = 0 ] && [ "$fb2" = "$exp" ] && [ "$bk" != "none" ] && ok "--approve → 덮어쓰고 백업을 남긴다($bk)" \
+[ "$s3rc" = 0 ] && [ "$fb2" = "$exp" ] && [ "$bk" != "none" ] && ok "--approve → 배열로 덮어쓰고 백업을 남긴다($bk)" \
   || no "승인 후 결과가 계약과 다르다(rc=$s3rc · fallback=$fb2 · backup=$bk)"
 
 step "5. 게이트 — 정본 런처가 egress 를 해석해 리뷰어를 거른다(스텁 · 모델 호출 0)"
