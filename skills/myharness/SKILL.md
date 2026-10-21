@@ -10,7 +10,7 @@ description: "하네스(에이전트 팀 + 스킬)를 구성·확장·점검하�
 2. **에이전트 팀을 기본 실행 모드로 사용한다.**
 3. **CLAUDE.md(+ Codex는 AGENTS.md)에 하네스 포인터를 등록한다.** — 새 세션에서 오케스트레이터 스킬이 트리거되도록 최소한의 포인터(트리거 규칙 + 변경 이력)만 기록한다. (듀얼 출력은 원칙 8·Phase 5-4)
 4. **하네스는 고정물이 아니라 진화하는 시스템이다.** — 매 실행 후 피드백을 반영하고, 에이전트·스킬·CLAUDE.md를 지속 갱신한다.
-5. **품질 게이트 2층 (코드/설계 도메인).** *내부* 생성-검증(같은 세션 QA)과 *외부* 리뷰 루프(외부 독립 AI 검증, **러너 엔진 제외** — 같은 엔진=같은 맹점)를 병행한다. 같은 컨텍스트 QA는 같은 맹점을 공유하므로 외부 독립 관점이 추가 결함을 잡는다. 단 합의=정답 아님 — 판정 권위는 오케스트레이터. 상세: `references/external-review-loop.md`.
+5. **품질 게이트 2층 (도메인 무관).** *내부* 생성-검증(같은 세션 QA)과 *외부* 리뷰 루프(외부 독립 AI 검증, **러너 엔진 제외** — 같은 엔진=같은 맹점)를 병행한다. 같은 컨텍스트 QA는 같은 맹점을 공유하므로 외부 독립 관점이 추가 결함을 잡는다. 단 합의=정답 아님 — 판정 권위는 오케스트레이터. **도메인으로 켜고 끄지 않는다** — 조건은 ① 러너 제외 리뷰어가 있는가 ② ⑥ 반출 정책이 허용하는가 둘뿐이다(리서치·문서·콘텐츠도 같다). 상세: `references/external-review-loop.md`.
 6. **생성물에 교리 주입.** 빌더·수정·QA 에이전트의 작업 원칙에 개발 규칙·TDD 교리를 **타겟상대 실경로**로 주입한다(`[[ ]]`·플러그인 내부 경로 금지 — 서브에이전트가 해소 못 함). 상세: `references/dev-rules.md`, `references/tdd-doctrine.md`.
 7. **리스크 등급으로 게이트 강도 조절.** 무차별 게이트는 과의식이다. 단계마다 경량/표준/중대 등급을 정해 게이트 강도를 맞춘다 (Phase 5-6).
 8. **듀얼 런타임 (Claude Code + Codex).** 두 런타임 거의 대칭(둘 다 skills·agents·MCP·hooks). SKILL.md 포맷 동일이라 정본 공유, 어댑터로 분기할 것만: 진입점(plugin.json+CLAUDE.md / AGENTS.md), 스킬 경로(`.claude/skills/` / `.agents/skills/`), 에이전트(`.md` / `.codex/agents/*.toml`), 오케스트레이션(Agent 팀원 spawn / Codex subagents·subprocess). 생성 시 양쪽 출력. 상세·검증: `references/runtime-adapters.md`.
@@ -20,9 +20,11 @@ description: "하네스(에이전트 팀 + 스킬)를 구성·확장·점검하�
 
 | 하네스 유형 | 반드시 | 생략 |
 |------------|--------|------|
-| 단순/비코드 · 코드 경량 | Phase 0~7 코어 + 내부 QA (dev-rules만 선택) | 외부 리뷰·TDD·평가·self-improve |
-| 코드/설계 표준 | + 외부 리뷰 1회 + dev-rules·tdd 주입 | 자동 환류 |
-| 코드/설계 중대 | + 단계마다 외부 리뷰 + 승인 사다리 + scorecard | 자동 채택(실험) |
+| 경량(1파일·가역) | Phase 0~7 코어 + 내부 QA | 외부 리뷰·TDD·평가·self-improve |
+| 표준(다파일·기능 추가) | + 외부 리뷰 1회 (코드/설계면 dev-rules·tdd 주입) | 자동 환류 |
+| 중대(계약 변경·비가역·다도메인) | + 단계마다 외부 리뷰 + 승인 사다리 + scorecard | 자동 채택(실험) |
+
+> 행 구분은 **리스크 등급**이다(도메인이 아니다). TDD·dev-rules 주입만 코드/설계 도메인 한정이고, **외부 리뷰는 도메인을 가리지 않는다**.
 
 > 최소 경로·구현 상태(active vs 🧪실험/📐설계만)·루프 개요 지도는 `references/factory-map.md`. 🧪/📐 기능은 생성 하네스가 자동 실행 안 함.
 
@@ -56,7 +58,8 @@ description: "하네스(에이전트 팀 + 스킬)를 구성·확장·점검하�
 1. **분기별 적용** — `new`=①②③⑤ 를 묻고 ② 답을 `questions --mode new --after irreversible=<키,…>` 로 넘겨 ④ 를 받는다 · `extend`=②⑤ 를 묻고 ①③④ 는 기존 프로파일에서 이어받되(`carried`), ② 답이 바뀌어 기존 ④ 의 `before:*` 키가 새 ② 답에 없으면 `answer` 가 rc=1 로 멈춘다 — 그때는 `questions --mode new --after irreversible=<새 ② 키,…>` 로 ④ 선택지만 받아(`--after` 는 `new` 전용) 그 답을 `extend` 의 `answer` 입력에 `approval` 로 함께 넣는다 · `maintain`·`update`=묻지 않는다(`questions` 가 `[]` 를 낸다). `answer` 는 `new`·`extend` 에서만 부르고 `questions` 와 **같은 `--mode`** 를 넘긴다(생략하면 `new` — `extend` 에서 빠지면 기존 프로파일의 ①③④ 를 잇지 못한다) · `maintain`·`update` 는 `answer` 도 부르지 않는다(기존 프로파일 그대로).
 2. **대화형** — `node <이 스킬의 디렉토리>/scripts/harness-intake.mjs questions --mode <new|extend|maintain|update> --orchestrator <이름>` 의 JSON 을 `AskUserQuestion` 으로 옮겨 1차(①②③⑤)·2차(④)로 묻고, 받은 **라벨을 선택지 키로 되돌려** `answer --orchestrator <이름> --mode <분기> --set <항목>=<키,…>` 로 넘긴다(추천은 모델이 찍고 근거 한 줄을 붙인다 — `--recommended`·`--why`). 질문 도구가 없는 대화형(codex·agy)은 번호 목록 텍스트로 묻고 다음 턴에 받는다.
 3. **비대화**(모델의 도구 목록에 질문 도구가 없다 — `claude -p`·`codex exec`·`agy -p`) — `HARNESS_INTAKE_ANSWERS` 가 **비어 있지 않게** 있으면(빈 값·빈 파일은 rc=2 — `--defaults` 만 원하면 출처를 주지 않는다) `answer --orchestrator <이름> --mode <분기> --from-env --defaults`, 사용자·과제가 답 파일을 주면 `answer --orchestrator <이름> --mode <분기> --from-file <파일> --defaults`, 둘 다 없으면 `answer --orchestrator <이름> --mode <분기> --defaults`. **비대화에서는 항상 `--defaults`** 를 붙인다 — 응답할 사람이 없어 빠진 항목이 rc=2 로 멈추기 때문이다. 기본값은 "안전한 쪽"이라 무응답이 위험한 쪽으로 흐르지 않는다.
-4. `answer` 가 `PROFILE:`·`SOURCES:` 두 줄을 내면 답이 `<대상>/.claude/skills/<오케스트레이터>/harness-profile.json` 에 기록된 것이다. 카탈로그·기본값 규칙·쪽 분할·답 문법·렌더링·결선표는 `references/harness-interview.md`.
+4. **사용자가 "추천값으로"·"알아서"라고 답을 맡기면 `--defaults` 를 쓴다** — 임의로 더 좁은 값을 **선언(`declared`)하지 않는다**(1.9.2). 특히 ⑥ 반출을 `runtime-only` 로 스스로 고르면 **외부 리뷰가 조용히 꺼진다**(카탈로그 기본값은 `allow-listed` 이고 그 사유가 이 경우를 가리킨다). 맡겼다는 사실은 `assumed` 로 남아야 6-7 의 `ASSUMED:` 줄에 드러난다.
+5. `answer` 가 `PROFILE:`·`SOURCES:` 두 줄을 내면 답이 `<대상>/.claude/skills/<오케스트레이터>/harness-profile.json` 에 기록된 것이다. 카탈로그·기본값 규칙·쪽 분할·답 문법·렌더링·결선표는 `references/harness-interview.md`.
 
 ### Phase 1: 도메인 분석
 1. 사용자 요청에서 도메인/프로젝트 파악
@@ -199,12 +202,13 @@ description은 스킬의 유일한 트리거 메커니즘이다. Claude는 보�
 
 > 상세 작성 패턴, 예시, 데이터 스키마 표준은 `references/skill-writing-guide.md` 참조.
 
-#### 4-6. 외부 리뷰 스킬 생성 (코드/설계 — 도구 연동 확인 후)
+#### 4-6. 외부 리뷰 스킬 생성 (도메인 무관 — 도구 연동 확인 후)
 
-코드/설계 도메인이어도 **러너 제외 외부 리뷰어가 있을 때만** 만든다(작동 불가 스킬 방지). 판단 기준은 `AVAILABLE`이 아니라 **`REVIEWERS`**(러너 엔진 제외분) — 러너만 설치된 환경은 `AVAILABLE`은 1개여도 `REVIEWERS: none`이라 외부 리뷰 불가.
+**도메인을 보지 않는다**(1.9.2) — 리서치·문서·콘텐츠 하네스도 만든다. 조건은 **러너 제외 외부 리뷰어가 있는가** 하나다(작동 불가 스킬 방지). 판단 기준은 `AVAILABLE`이 아니라 **`REVIEWERS`**(러너 엔진 제외분) — 러너만 설치된 환경은 `AVAILABLE`은 1개여도 `REVIEWERS: none`이라 외부 리뷰 불가.
 1. **점검:** `bash skills/myharness/scripts/check-review-tools.sh {러너}`(생성 런타임의 claude|codex 명시) → 끝줄 `REVIEWERS:`+`SHADOWED:`. **none**=스킬 생성 안 함(내부 QA만, 보고서·CLAUDE.md에 "외부 리뷰어 없음 생략" 명시) / **하나만**=저하 모드 생성(교차검증 아님 — 결과서에 "양 엔진" 표기 금지) / **둘 다**=풀 생성. **`SHADOWED`≠none**(설치돼 있으나 PATH 밖 — 예: nvm 다른 node 버전)이면 저하로 굳히기 전에 사용자에게 복구를 먼저 제안한다.
 2. **생성:** `references/external-review-loop.md`(방법론 겸 템플릿)를 타겟 `.claude/skills/external-review-loop/SKILL.md`(듀얼 런타임이면 `.agents/skills/external-review-loop/`에도)로 생성(frontmatter 포함). `check-review-tools.sh`·**`run-review.sh`**·`build-scorecard.sh`·`emit-loop-scorecard.sh`를 그 스킬 `scripts/`로 복사(런타임 폴백·리뷰 launcher·scorecard 측정 꼬리). **launcher 는 스크립트 파일이어야 한다** — 인라인 bash 블록은 실행 셸이 사용자 환경(macOS=zsh)을 따라 비인용 확장 단어분리 차이로 리뷰어 전원 rc=127 이 된다.
-3. 오케스트레이터가 단계 마감 시 호출(5-6). 스킬 없으면 게이트는 내부 QA로 축소. 비코드 도메인은 점검 없이 생략.
+3. 오케스트레이터가 단계 마감 시 호출(5-6). 스킬 없으면 게이트는 내부 QA로 축소.
+4. **⑥ 반출 정책이 `runtime-only` 면** 리뷰어를 쓸 수 없다 — 스킬은 만들되 그 사실을 보고서·`CLAUDE.md`에 적고, 게이트는 내부 QA + 사람 승인으로 돈다(정책을 바꾸면 그대로 켜진다).
 
 ### Phase 5: 통합 및 오케스트레이션
 
@@ -299,7 +303,7 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 #### 5-5. 후속 작업 지원
 오케스트레이터는 초기 실행뿐 아니라 후속 작업도 처리해야 한다 — description 후속 키워드와 Phase 0 컨텍스트 확인(초기/부분 재실행/새 실행 — 새 실행은 기존 `_workspace/`를 시각 접미사로 옮겨 덮어쓰기 방지)은 `references/orchestrator-template.md` 「description 작성 시 후속 작업 키워드」·「Phase 0: 컨텍스트 확인」, 에이전트 정의의 재호출 지침("이전 산출물이 있을 때의 행동")은 `references/agent-design-patterns.md` 「에이전트 정의 구조」.
 
-#### 5-6. 품질 게이트 (코드/설계 도메인)
+#### 5-6. 품질 게이트 (도메인 무관)
 
 내부 생성-검증(QA 에이전트)에 더해, 단계 산출물마다 외부 리뷰 게이트를 건다. 무차별 적용은 과의식이므로 **리스크 등급으로 강도를 맞춘다** — 등급은 2-4 에서 확정하고 Phase 5 가 오케스트레이터에 넣은 `## 리스크 등급` 블록 규칙으로 **단계마다** 판정한다(아래 표는 그 블록의 2·3·4번 규칙과 같은 내용이다. 1번 비가역 규칙과 **하한**(③ 실패 비용이 `error-worse`=오류 우선이면 코드·설계 단계는 최소 표준)은 답에서 오므로, 표만 보고 경량으로 내리지 않는다).
 
@@ -479,8 +483,8 @@ Phase 2-1에서 선택한 실행 모드에 따라 오케스트레이터 패턴�
 - [ ] **`scripts/harness-intake.mjs`·`scripts/check-artifacts.sh` 복사** — 오케스트레이터 스킬 `scripts/`(듀얼이면 `.agents/skills/{하네스명}/scripts/`에도)로 복사하고 `harness-update.sh manifest` 기준선에 포함. 복사하지 않으면 생성 하네스의 Phase 0이 부를 파일이, `pre-commit` hook 이 부를 `check-artifacts.sh` 가 없다
 - [ ] **듀얼 런타임:** 루트 `AGENTS.md` + `.agents/skills/` 출력(references/scripts 동봉) + `.codex/agents/*.toml` 생성 + `.claude`↔`.codex` 역할 동등성 + 오케스트레이터에 어댑터(Agent 팀원 spawn / Codex subagents·subprocess) 명시 (`references/runtime-adapters.md`)
 - [ ] (코드/설계) 코드/수정 에이전트에 dev-rules·tdd-doctrine **타겟상대 실경로** 주입 (`[[ ]]` 금지) + 교리 파일 타겟 복사 (Phase 3-1) + 생성 직후 `harness-update.sh manifest`로 기준선 기록(후속 `update` 사용자 수정 감지용, 7-7)
-- [ ] (코드/설계) **외부 리뷰어 연동 점검**(`check-review-tools.sh` — 러너 제외 `REVIEWERS:`) 후 `external-review-loop` 스킬 생성 — 도구 전무면 생략(불필요 스킬 방지) + 단계 게이트 배선, 단계마다 리스크 등급 판정 (Phase 4-6, 5-6)
-- [ ] (코드/설계) 커밋 순서·자율 노브(`_workspace/.autonomous`)·push 별도 게이트 반영
+- [ ] **외부 리뷰어 연동 점검**(`check-review-tools.sh` — 러너 제외 `REVIEWERS:`) 후 `external-review-loop` 스킬 생성 — 도구 전무면 생략(불필요 스킬 방지) + 단계 게이트 배선, 단계마다 리스크 등급 판정 (Phase 4-6, 5-6)
+- [ ] 커밋 순서·자율 노브(`_workspace/.autonomous`)·push 별도 게이트 반영 — **도메인 무관**(비코드 하네스도 커밋·승인 관문을 탄다)
 - [ ] 결과서 `docs/{project}/working_history/` 기록 + `## 다음 단계 참조` 블록 + `check-artifacts.sh` PASS (생성 하네스 `pre-commit` hook 배선 권장 — 방치 물리 차단)
 - [ ] (선택) 행동 명세 `.agents/behaviors/` 출력 + 정의 `behaviors:` 참조 + `check-behaviors.sh` 동봉·정책감사 PASS (미선언 하네스는 skip 이 정상)
 
