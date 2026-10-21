@@ -81,6 +81,12 @@ jobs:
       - name: probe opt-in guard
         run: bash tests/test-probe-guard.sh
 
+      - name: Canon — 외부 리뷰 적용 범위(1.9.2)
+        run: bash tests/test-canon-review-scope.sh
+
+      - name: Canon — 외부 리뷰 적용 범위(1.9.2)
+        run: bash tests/test-canon-review-scope.sh
+
       - name: e2e harness wiring
         run: bash tests/test-e2e-harness.sh
       # 비인용 셸 글롭이어야 한다 — 디렉토리 인자는 node 22·24, 따옴표 글롭은 node 20 에서 rc=1(2026-09-11 실측).
